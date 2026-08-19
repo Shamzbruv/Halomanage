@@ -14,6 +14,7 @@ export type Employee = {
   last_name: string;
   preferred_name: string | null;
   work_email: string | null;
+  work_phone: string | null;
   status: "prehire" | "active" | "leave" | "suspended" | "terminated";
   hire_date: string | null;
   avatar_url: string | null;

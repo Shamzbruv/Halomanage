@@ -346,6 +346,41 @@ async function main() {
     ok("Alice can acknowledge the completed appraisal", ack.rows[0].status === "complete");
   });
 
+  // ============================ EMPLOYEE ASSIGNMENT ============================
+  // Deliberately last: this mutates Alice's reporting line, which every
+  // earlier section (leave routing, onboarding assignee resolution,
+  // appraisal reviewer assignment) assumes is the original seed.sql shape
+  // (Bob=supervisor, Carol=manager). Run structural-change tests after
+  // everything that depends on the org chart being stable, not before.
+  await as(DAVID_USER, async () => {
+    let threw = false;
+    try {
+      await db.query(`select * from public.change_employee_assignment(
+        '${ALICE_EMP}', null, null, null, '${DAVID_EMP}', null, 'full_time', current_date, 'David tries to grab Alice'
+      )`);
+    } catch { threw = true; }
+    ok("David (no employee.manage) cannot change Alice's assignment", threw);
+  });
+  await as(ERIN_USER, async () => {
+    const before = await db.query(`select supervisor_employee_id from public.employee_assignments where employee_id = '${ALICE_EMP}' and end_date is null`);
+    const changed = await db.query(`select * from public.change_employee_assignment(
+      '${ALICE_EMP}', null, null, null, '${CAROL_EMP}', null, 'full_time', (current_date + 1)::date, 'Team restructure'
+    )`);
+    ok("Erin can transfer Alice to a new supervisor", changed.rows[0].supervisor_employee_id === CAROL_EMP);
+    const historyCount = await db.query(`select count(*) from public.employee_assignments where employee_id = '${ALICE_EMP}'`);
+    ok("the prior assignment row is preserved as history, not overwritten", Number(historyCount.rows[0].count) === 2 && before.rows[0].supervisor_employee_id === BOB_EMP);
+    const openCount = await db.query(`select count(*) from public.employee_assignments where employee_id = '${ALICE_EMP}' and end_date is null`);
+    ok("exactly one open assignment remains after the transfer", Number(openCount.rows[0].count) === 1);
+  });
+  await as(BOB_USER, async () => {
+    const rows = await db.query(`select count(*) from public.employees where id = '${ALICE_EMP}'`);
+    ok("Bob (Alice's former supervisor) no longer sees Alice after the transfer", Number(rows.rows[0].count) === 0);
+  });
+  await as(CAROL_USER, async () => {
+    const rows = await db.query(`select count(*) from public.employees where id = '${ALICE_EMP}'`);
+    ok("Carol (Alice's new supervisor) sees Alice after the transfer", Number(rows.rows[0].count) === 1);
+  });
+
   console.log(`\n${passCount} passed, ${failCount} failed.`);
   if (failCount > 0) process.exitCode = 1;
 }

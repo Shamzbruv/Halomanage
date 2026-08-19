@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession } from "@/lib/session";
@@ -45,7 +46,11 @@ export default async function EmployeesAdminPage() {
             {(employees ?? []).map((e) => (
               <tr key={e.id}>
                 <td className="py-2 font-mono text-xs">{e.employee_number}</td>
-                <td className="py-2">{e.first_name} {e.last_name}</td>
+                <td className="py-2">
+                  <Link href={`/admin/employees/${e.id}`} className="font-medium text-royal-700 hover:text-royal-800 hover:underline">
+                    {e.first_name} {e.last_name}
+                  </Link>
+                </td>
                 <td className="py-2 text-stone-500">{e.work_email ?? "—"}</td>
                 <td className="py-2">
                   <span className={`badge ${statusBadgeClass(e.status)}`}>{e.status}</span>

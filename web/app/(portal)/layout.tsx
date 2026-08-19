@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentSession, highestRole } from "@/lib/session";
 import { SignOutButton } from "@/components/SignOutButton";
+import { NavDropdown } from "@/components/NavDropdown";
 import { roleBadgeClass } from "@/lib/ui";
 
 // One shell for all four portals (PRODUCT_BLUEPRINT.md: "Recommended
@@ -32,14 +33,30 @@ export default async function PortalLayout({ children }: { children: React.React
             <nav className="hidden items-center gap-5 text-sm font-medium text-royal-100/85 md:flex">
               <Link href="/dashboard" className="transition-colors hover:text-gold-200">Dashboard</Link>
               <Link href="/leave" className="transition-colors hover:text-gold-200">Leave</Link>
+              <Link href="/onboarding" className="transition-colors hover:text-gold-200">Onboarding</Link>
+              <Link href="/appraisals" className="transition-colors hover:text-gold-200">Appraisals</Link>
+              <Link href="/documents" className="transition-colors hover:text-gold-200">Documents</Link>
+              <Link href="/profile" className="transition-colors hover:text-gold-200">Profile</Link>
               {canSeeTeam && <Link href="/team" className="transition-colors hover:text-gold-200">Team</Link>}
-              {canSeeAdmin && <Link href="/admin/employees" className="transition-colors hover:text-gold-200">Employees</Link>}
-              {canSeeAdmin && <Link href="/admin/payroll" className="transition-colors hover:text-gold-200">Payroll</Link>}
+              {canSeeAdmin && (
+                <NavDropdown label="Admin ▾">
+                  <Link href="/admin/employees">Employees</Link>
+                  <Link href="/admin/organization">Organization</Link>
+                  <Link href="/admin/leave-types">Leave types</Link>
+                  <Link href="/admin/onboarding">Onboarding setup</Link>
+                  <Link href="/admin/appraisals">Appraisals setup</Link>
+                  <Link href="/admin/documents">Documents</Link>
+                  <Link href="/admin/payroll">Payroll</Link>
+                  <Link href="/admin/reports">Reports</Link>
+                </NavDropdown>
+              )}
             </nav>
           </div>
           <div className="flex items-center gap-3">
             <span className={`badge ${roleBadgeClass(role)}`}>{role ?? "no role"}</span>
-            <span className="hidden text-sm text-royal-100/80 sm:inline">{session.email}</span>
+            <Link href="/profile" className="hidden text-sm font-medium text-royal-100/85 transition-colors hover:text-gold-200 sm:inline">
+              {session.email}
+            </Link>
             <SignOutButton />
           </div>
         </div>

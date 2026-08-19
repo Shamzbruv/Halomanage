@@ -19,26 +19,50 @@ npm run dev
 
 ```
 app/
-  login/                    public — sign-in only, no sign-up (see docs/PRODUCT_BLUEPRINT.md)
-  (portal)/                 route group — shared nav shell, requires a session
-    dashboard/               Employee home: clock in/out, leave balances, notifications
-    leave/                   submit + view own leave requests
-    team/                    Supervisor/Manager: pending approvals, team attendance
-    admin/employees/         Admin: employee directory, create + invite
-    admin/payroll/           Admin: payroll import upload, reconciliation status, approve
+  login/                          public — sign-in only, no sign-up (see docs/PRODUCT_BLUEPRINT.md)
+  (portal)/                       route group — shared nav shell, requires a session
+    dashboard/                     Employee home: clock in/out, leave balances, notifications
+    leave/                         submit + view own leave requests
+    onboarding/                    complete own/assigned onboarding tasks
+    appraisals/, appraisals/[id]/  own checkpoints + reviews awaiting you; fill/submit/acknowledge
+    documents/                     view, download, acknowledge documents visible to you
+    profile/                       edit own preferred name/phone + private info (address, emergency contact)
+    team/                          Supervisor/Manager: pending approvals, team attendance
+    admin/organization/            Admin: departments/teams, positions, locations
+    admin/leave-types/             Admin: leave type builder
+    admin/employees/, [id]/        Admin: directory, create, invite, assignment history + transfer form
+    admin/onboarding/, templates/[id]/    Admin: template + step builder, start onboarding, progress list
+    admin/appraisals/, templates/[id]/    Admin: template/section/question builder, cycle create + launch
+    admin/documents/               Admin: upload (org-wide or employee-specific)
+    admin/payroll/                 Admin: payroll import upload, reconciliation status, approve
+    admin/reports/                 Admin: headcount, pending leave, onboarding %, expiring items, recent imports
 lib/
   supabase/                 browser/server Supabase clients + session-refresh middleware helper
   session.ts                getCurrentSession() — the one place that resolves "who is this and what can they do"
+  ui.ts                      statusBadgeClass()/roleBadgeClass() — shared badge-class mapping, not copy-pasted per page
 components/                 client components (forms/buttons) that call Supabase RPCs directly
 ```
 
 ## What's here vs. what's next
 
-This covers the MVP's core interaction loop end-to-end (auth → attendance →
-leave → admin employee management → payroll import) against every table and
-RPC defined in `supabase/migrations/`. Onboarding, performance/appraisals,
-documents, training/assets, and reporting dashboards have full schemas and
-RPCs on the backend already but no UI yet — see `../docs/ROADMAP.md` for the
-build order. Adding a page for one of those follows the exact same pattern
-as `app/(portal)/leave/`: a server component queries/reads (RLS-scoped
-automatically), a small client component calls the relevant RPC for writes.
+Covers every Phase-1 module end-to-end, including the admin configuration
+screens (org structure, leave types, onboarding/appraisal template
+builders) — an admin can set up the whole product through the UI now, not
+just use what's pre-seeded. Still missing: offboarding task UI (backend
+auto-triggers on termination but nothing surfaces the resulting checklist —
+currently the top gap), training/certifications, asset/equipment
+management, notification preferences, and per-row payroll reconciliation
+(admin sees aggregate match counts but can't fix an individual unmatched
+row without SQL). See `../docs/ROADMAP.md` for the full, current list.
+Adding a page for one of those follows the exact same pattern as
+`app/(portal)/leave/` or `app/(portal)/admin/onboarding/`: a server
+component queries/reads (RLS-scoped automatically), a small client
+component calls the relevant table insert/update or RPC for writes.
+
+**One recurring pitfall worth knowing before adding more:** never
+`.select("*, related_table(...)")` against a `_v` reporting view —
+PostgREST's automatic relationship embedding needs a real foreign-key
+constraint, which views don't carry even when the table underneath does.
+Query the base table directly (see `admin/employees/[id]/page.tsx`'s
+comment) or join in JS against a lookup map (see `admin/onboarding/page.tsx`).
+Hit three times across this codebase already.

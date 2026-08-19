@@ -328,6 +328,46 @@
     text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
   }
 
+  /* Admin nav dropdown — see components/NavDropdown.tsx. */
+  .nav-dropdown {
+    position: relative;
+  }
+  .nav-dropdown > summary {
+    list-style: none;
+    cursor: pointer;
+  }
+  .nav-dropdown > summary::-webkit-details-marker {
+    display: none;
+  }
+  .nav-dropdown[open] > summary {
+    color: var(--gold-200);
+  }
+  .nav-dropdown-menu {
+    position: absolute;
+    top: calc(100% + 12px);
+    left: 0;
+    z-index: 30;
+    min-width: 190px;
+    border-radius: 10px;
+    padding: 0.4rem;
+    background-image: linear-gradient(180deg, var(--cream-50) 0%, var(--cream-100) 100%);
+    border: 1px solid var(--gold-300);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.8),
+      0 14px 28px -8px rgba(14, 26, 66, 0.4);
+  }
+  .nav-dropdown-menu a {
+    display: block;
+    border-radius: 6px;
+    padding: 0.4rem 0.65rem;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--royal-800);
+  }
+  .nav-dropdown-menu a:hover {
+    background-color: var(--cream-200);
+  }
+
   /* Inline error text and boxed error alerts, in the same ruby family as
      .badge-ruby rather than stock Tailwind red. */
   .text-error {
