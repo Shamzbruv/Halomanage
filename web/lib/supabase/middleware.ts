@@ -26,7 +26,7 @@ export async function updateSession(request: NextRequest) {
 
   if (!hasSupabaseEnv()) {
     if (isSetupPage || isPublicAsset) return NextResponse.next({ request });
-    return NextResponse.rewrite(new URL("/setup-required", request.url));
+    return NextResponse.rewrite(new URL("/setup-required?reason=missing", request.url));
   }
 
   try {
@@ -63,7 +63,10 @@ export async function updateSession(request: NextRequest) {
     if (error && error.name !== "AuthSessionMissingError") {
       console.error("middleware: Supabase auth check failed", error.message);
       if (isSetupPage) return NextResponse.next({ request });
-      return NextResponse.rewrite(new URL("/setup-required", request.url));
+      const url = new URL("/setup-required", request.url);
+      url.searchParams.set("reason", "error");
+      url.searchParams.set("detail", error.message);
+      return NextResponse.rewrite(url);
     }
 
     const isAuthRoute = request.nextUrl.pathname.startsWith("/login");
@@ -84,6 +87,9 @@ export async function updateSession(request: NextRequest) {
   } catch (err) {
     console.error("middleware: unexpected error building the Supabase session", err);
     if (isSetupPage) return NextResponse.next({ request });
-    return NextResponse.rewrite(new URL("/setup-required", request.url));
+    const url = new URL("/setup-required", request.url);
+    url.searchParams.set("reason", "error");
+    url.searchParams.set("detail", err instanceof Error ? err.message : String(err));
+    return NextResponse.rewrite(url);
   }
 }
