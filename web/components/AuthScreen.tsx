@@ -14,6 +14,15 @@ import { CreateOrganizationForm } from "@/components/CreateOrganizationForm";
 // has one, or vice versa).
 export function AuthScreen() {
   const [needsBootstrap, setNeedsBootstrap] = useState<boolean | null>(null);
+  // Covers the account-created-another-way case (e.g. directly in the
+  // Supabase dashboard, which is how this project's very first account
+  // was actually created, before this form existed) — deployment_needs_bootstrap()
+  // being true doesn't mean *nobody* has an auth.users account yet, only
+  // that nobody has finished setting up an organization. Without this
+  // toggle, a person in that exact situation would have no way to sign in
+  // at all while bootstrap is pending — CreateOrganizationForm's signUp()
+  // would collide with their existing account instead.
+  const [showSignInInstead, setShowSignInInstead] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -61,14 +70,42 @@ export function AuthScreen() {
             Halomanage
           </h1>
           <p className="mt-1 text-sm text-royal-200/80">
-            {needsBootstrap ? "Set up your organization" : "Sign in to your organization"}
+            {needsBootstrap && !showSignInInstead ? "Set up your organization" : "Sign in to your organization"}
           </p>
         </div>
 
         {needsBootstrap === null && (
           <div className="card text-center text-sm text-stone-500">Loading…</div>
         )}
-        {needsBootstrap === true && <CreateOrganizationForm />}
+        {needsBootstrap === true && !showSignInInstead && (
+          <>
+            <CreateOrganizationForm />
+            <p className="mt-5 text-center text-xs text-royal-200/70">
+              Already have an account?{" "}
+              <button
+                type="button"
+                onClick={() => setShowSignInInstead(true)}
+                className="font-semibold text-gold-200 underline decoration-gold-400/50 underline-offset-2 hover:text-gold-100"
+              >
+                Sign in instead
+              </button>
+            </p>
+          </>
+        )}
+        {needsBootstrap === true && showSignInInstead && (
+          <>
+            <LoginForm showInviteOnlyNotice={false} />
+            <p className="mt-5 text-center text-xs text-royal-200/70">
+              <button
+                type="button"
+                onClick={() => setShowSignInInstead(false)}
+                className="font-semibold text-gold-200 underline decoration-gold-400/50 underline-offset-2 hover:text-gold-100"
+              >
+                ← Back to setting up your organization
+              </button>
+            </p>
+          </>
+        )}
         {needsBootstrap === false && <LoginForm />}
       </div>
     </div>

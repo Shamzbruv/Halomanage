@@ -11,7 +11,7 @@ import { createClient } from "@/lib/supabase/client";
 // in. The one exception is the very first account on a brand-new
 // deployment, before any organization exists at all — that case is handled
 // by AuthScreen rendering CreateOrganizationForm instead of this component.
-export function LoginForm() {
+export function LoginForm({ showInviteOnlyNotice = true }: { showInviteOnlyNotice?: boolean }) {
   const router = useRouter();
   const supabase = createClient();
   const [email, setEmail] = useState("");
@@ -75,10 +75,12 @@ export function LoginForm() {
         </button>
       </form>
 
-      <p className="mt-5 text-center text-xs text-royal-200/70">
-        New here? Ask your HR administrator to invite you — Halomanage doesn&apos;t use public
-        sign-up.
-      </p>
+      {showInviteOnlyNotice && (
+        <p className="mt-5 text-center text-xs text-royal-200/70">
+          New here? Ask your HR administrator to invite you — Halomanage doesn&apos;t use public
+          sign-up.
+        </p>
+      )}
     </>
   );
 }
