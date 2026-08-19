@@ -33,7 +33,7 @@ export function LeaveDecisionButtons({ leaveRequestId }: { leaveRequestId: strin
       <button className="btn-danger px-3 py-1.5 text-xs" disabled={!!loading} onClick={() => decide(false)}>
         {loading === "reject" ? "…" : "Reject"}
       </button>
-      {error && <span className="text-xs text-red-600">{error}</span>}
+      {error && <span className="text-xs text-error">{error}</span>}
     </div>
   );
 }

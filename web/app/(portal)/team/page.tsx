@@ -24,18 +24,18 @@ export default async function TeamPage() {
   return (
     <div className="grid gap-6 lg:grid-cols-2">
       <div className="card">
-        <h2 className="mb-3 text-sm font-semibold text-slate-900">Pending leave approvals</h2>
-        <ul className="divide-y divide-slate-100">
+        <h2 className="mb-3 text-sm font-semibold text-stone-900">Pending leave approvals</h2>
+        <ul className="divide-y divide-stone-100">
           {(pendingLeave ?? []).length === 0 && (
-            <li className="py-3 text-sm text-slate-400">Nothing awaiting your decision.</li>
+            <li className="py-3 text-sm text-stone-400">Nothing awaiting your decision.</li>
           )}
           {(pendingLeave ?? []).map((r: any) => (
             <li key={r.id} className="flex items-center justify-between gap-4 py-3">
               <div className="text-sm">
-                <p className="font-medium text-slate-900">
+                <p className="font-medium text-stone-900">
                   {r.first_name} {r.last_name} — {r.leave_type_name}
                 </p>
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-stone-500">
                   {r.start_date} → {r.end_date} · {r.total_days} day(s)
                   {r.reason ? ` — "${r.reason}"` : ""}
                 </p>
@@ -47,30 +47,30 @@ export default async function TeamPage() {
       </div>
 
       <div className="card">
-        <h2 className="mb-3 text-sm font-semibold text-slate-900">Team attendance today</h2>
+        <h2 className="mb-3 text-sm font-semibold text-stone-900">Team attendance today</h2>
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-slate-100 text-left text-xs uppercase text-slate-400">
+            <tr className="border-b border-stone-100 text-left text-xs uppercase text-stone-400">
               <th className="pb-2">Employee</th>
               <th className="pb-2">Clocked in</th>
               <th className="pb-2">Status</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-stone-100">
             {(attendanceToday ?? []).length === 0 && (
               <tr>
-                <td colSpan={3} className="py-4 text-slate-400">No one on the clock right now.</td>
+                <td colSpan={3} className="py-4 text-stone-400">No one on the clock right now.</td>
               </tr>
             )}
             {(attendanceToday ?? []).map((a: any) => (
               <tr key={a.employee_id}>
                 <td className="py-2">{a.first_name} {a.last_name}</td>
-                <td className="py-2 text-slate-500">{new Date(a.clock_in_at).toLocaleTimeString()}</td>
+                <td className="py-2 text-stone-500">{new Date(a.clock_in_at).toLocaleTimeString()}</td>
                 <td className="py-2">
                   {a.is_late ? (
-                    <span className="badge bg-amber-100 text-amber-700">Late</span>
+                    <span className="badge badge-gold">Late</span>
                   ) : (
-                    <span className="badge bg-green-100 text-green-700">On time</span>
+                    <span className="badge badge-emerald">On time</span>
                   )}
                 </td>
               </tr>

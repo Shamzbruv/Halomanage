@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentSession, highestRole } from "@/lib/session";
 import { SignOutButton } from "@/components/SignOutButton";
+import { roleBadgeClass } from "@/lib/ui";
 
 // One shell for all four portals (PRODUCT_BLUEPRINT.md: "Recommended
 // portal design" / ARCHITECTURE.md: "Portals, RBAC and RLS authorization").
@@ -18,27 +19,27 @@ export default async function PortalLayout({ children }: { children: React.React
   const canSeeAdmin = session.roles.includes("admin");
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="border-b border-slate-200 bg-white">
+    <div className="min-h-screen">
+      <header className="app-header sticky top-0 z-20 mb-3">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-          <div className="flex items-center gap-6">
-            <Link href="/dashboard" className="flex items-center gap-2 font-semibold text-slate-900">
-              <span className="flex h-7 w-7 items-center justify-center rounded-md bg-brand-600 text-sm font-bold text-white">
-                H
+          <div className="flex items-center gap-7">
+            <Link href="/dashboard" className="flex items-center gap-2.5">
+              <span className="crest">H</span>
+              <span className="font-display text-lg font-bold text-cream-50" style={{ textShadow: "0 1px 2px rgba(0,0,0,0.35)" }}>
+                Halomanage
               </span>
-              Halomanage
             </Link>
-            <nav className="flex items-center gap-4 text-sm text-slate-600">
-              <Link href="/dashboard" className="hover:text-slate-900">Dashboard</Link>
-              <Link href="/leave" className="hover:text-slate-900">Leave</Link>
-              {canSeeTeam && <Link href="/team" className="hover:text-slate-900">Team</Link>}
-              {canSeeAdmin && <Link href="/admin/employees" className="hover:text-slate-900">Employees</Link>}
-              {canSeeAdmin && <Link href="/admin/payroll" className="hover:text-slate-900">Payroll</Link>}
+            <nav className="hidden items-center gap-5 text-sm font-medium text-royal-100/85 md:flex">
+              <Link href="/dashboard" className="transition-colors hover:text-gold-200">Dashboard</Link>
+              <Link href="/leave" className="transition-colors hover:text-gold-200">Leave</Link>
+              {canSeeTeam && <Link href="/team" className="transition-colors hover:text-gold-200">Team</Link>}
+              {canSeeAdmin && <Link href="/admin/employees" className="transition-colors hover:text-gold-200">Employees</Link>}
+              {canSeeAdmin && <Link href="/admin/payroll" className="transition-colors hover:text-gold-200">Payroll</Link>}
             </nav>
           </div>
           <div className="flex items-center gap-3">
-            <span className="badge bg-slate-100 text-slate-600">{role ?? "no role"}</span>
-            <span className="text-sm text-slate-600">{session.email}</span>
+            <span className={`badge ${roleBadgeClass(role)}`}>{role ?? "no role"}</span>
+            <span className="hidden text-sm text-royal-100/80 sm:inline">{session.email}</span>
             <SignOutButton />
           </div>
         </div>

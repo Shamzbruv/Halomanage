@@ -9,7 +9,7 @@ export function SignOutButton() {
 
   return (
     <button
-      className="text-sm text-slate-500 hover:text-slate-800"
+      className="text-sm font-medium text-royal-100/80 transition-colors hover:text-gold-200"
       onClick={async () => {
         await supabase.auth.signOut();
         router.push("/login");

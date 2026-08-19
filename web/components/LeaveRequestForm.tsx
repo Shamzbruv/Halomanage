@@ -47,7 +47,7 @@ export function LeaveRequestForm({ leaveTypes }: { leaveTypes: LeaveType[] }) {
 
   return (
     <form onSubmit={handleSubmit} className="card space-y-4">
-      <h2 className="text-sm font-semibold text-slate-900">Request leave</h2>
+      <h2 className="text-sm font-semibold text-stone-900">Request leave</h2>
 
       <div>
         <label className="label" htmlFor="leave-type">Leave type</label>
@@ -92,7 +92,7 @@ export function LeaveRequestForm({ leaveTypes }: { leaveTypes: LeaveType[] }) {
       </div>
 
       {selectedType?.allow_half_day && (
-        <label className="flex items-center gap-2 text-sm text-slate-600">
+        <label className="flex items-center gap-2 text-sm text-stone-600">
           <input
             type="checkbox"
             checked={halfDay}
@@ -113,7 +113,7 @@ export function LeaveRequestForm({ leaveTypes }: { leaveTypes: LeaveType[] }) {
         />
       </div>
 
-      {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+      {error && <p className="alert-error">{error}</p>}
 
       <button type="submit" disabled={loading} className="btn-primary w-full">
         {loading ? "Submitting…" : "Submit request"}

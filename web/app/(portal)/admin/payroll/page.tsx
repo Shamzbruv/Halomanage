@@ -3,14 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession } from "@/lib/session";
 import { PayrollUploadForm } from "@/components/PayrollUploadForm";
 import { ApproveBatchButton } from "@/components/ApproveBatchButton";
-
-function statusBadgeClass(status: string) {
-  if (status === "approved") return "bg-green-100 text-green-700";
-  if (status === "rejected" || status === "superseded") return "bg-slate-100 text-slate-500";
-  if (status === "needs_review") return "bg-red-100 text-red-700";
-  if (status === "ready_for_approval") return "bg-amber-100 text-amber-700";
-  return "bg-blue-100 text-blue-700";
-}
+import { statusBadgeClass } from "@/lib/ui";
 
 // Ref: PRODUCT_BLUEPRINT.md "External payroll import and employee pay
 // records" — this page never shows a "calculate payroll" action. It only
@@ -37,10 +30,10 @@ export default async function PayrollAdminPage() {
 
       <div className="lg:col-span-2">
         <div className="card overflow-x-auto">
-          <h2 className="mb-3 text-sm font-semibold text-slate-900">Import batches</h2>
+          <h2 className="mb-3 text-sm font-semibold text-stone-900">Import batches</h2>
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-100 text-left text-xs uppercase text-slate-400">
+              <tr className="border-b border-stone-100 text-left text-xs uppercase text-stone-400">
                 <th className="pb-2">Type</th>
                 <th className="pb-2">Period</th>
                 <th className="pb-2">Rows</th>
@@ -48,22 +41,22 @@ export default async function PayrollAdminPage() {
                 <th className="pb-2"></th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-stone-100">
               {(batches ?? []).length === 0 && (
                 <tr>
-                  <td colSpan={5} className="py-4 text-slate-400">No payroll imports yet.</td>
+                  <td colSpan={5} className="py-4 text-stone-400">No payroll imports yet.</td>
                 </tr>
               )}
               {(batches ?? []).map((b) => (
                 <tr key={b.id}>
                   <td className="py-2">{b.batch_type === "pay_run_results" ? "Pay run" : "Comp. change"}</td>
-                  <td className="py-2 text-slate-500">
+                  <td className="py-2 text-stone-500">
                     {b.pay_period_start ? `${b.pay_period_start} → ${b.pay_period_end}` : "—"}
                   </td>
-                  <td className="py-2 text-xs text-slate-500">
+                  <td className="py-2 text-xs text-stone-500">
                     {b.matched_rows}/{b.total_rows} matched
-                    {b.unmatched_rows > 0 && <span className="text-red-600"> · {b.unmatched_rows} unmatched</span>}
-                    {b.error_rows > 0 && <span className="text-red-600"> · {b.error_rows} errors</span>}
+                    {b.unmatched_rows > 0 && <span className="text-ruby-600"> · {b.unmatched_rows} unmatched</span>}
+                    {b.error_rows > 0 && <span className="text-ruby-600"> · {b.error_rows} errors</span>}
                   </td>
                   <td className="py-2">
                     <span className={`badge ${statusBadgeClass(b.status)}`}>{b.status.replace(/_/g, " ")}</span>

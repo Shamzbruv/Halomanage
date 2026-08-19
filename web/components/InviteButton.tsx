@@ -15,7 +15,7 @@ export function InviteButton({ employeeId, alreadyInvited }: { employeeId: strin
   const [error, setError] = useState<string | null>(null);
 
   if (alreadyInvited) {
-    return <span className="badge bg-slate-100 text-slate-500">Invited</span>;
+    return <span className="badge badge-neutral">Invited</span>;
   }
 
   async function handleInvite() {
@@ -37,7 +37,7 @@ export function InviteButton({ employeeId, alreadyInvited }: { employeeId: strin
       <button className="btn-secondary px-3 py-1 text-xs" disabled={loading} onClick={handleInvite}>
         {loading ? "Inviting…" : "Invite"}
       </button>
-      {error && <span className="text-xs text-red-600">{error}</span>}
+      {error && <span className="text-xs text-ruby-600">{error}</span>}
     </div>
   );
 }

@@ -3,13 +3,8 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession } from "@/lib/session";
 import { ClockButton } from "@/components/ClockButton";
+import { statusBadgeClass } from "@/lib/ui";
 import type { AttendanceSession, LeaveRequest } from "@/lib/supabase/types";
-
-function statusBadgeClass(status: string) {
-  if (status === "approved") return "bg-green-100 text-green-700";
-  if (status === "rejected" || status === "cancelled") return "bg-red-100 text-red-700";
-  return "bg-amber-100 text-amber-700";
-}
 
 export default async function DashboardPage() {
   const session = await getCurrentSession();
@@ -19,7 +14,7 @@ export default async function DashboardPage() {
     return (
       <div className="card">
         <h1 className="text-lg font-semibold">No employee record linked</h1>
-        <p className="mt-2 text-sm text-slate-600">
+        <p className="mt-2 text-sm text-stone-600">
           Your login exists but isn&apos;t linked to an employee record in this organization yet.
           Ask an HR administrator to check your invitation.
         </p>
@@ -60,29 +55,29 @@ export default async function DashboardPage() {
     <div className="grid gap-6 lg:grid-cols-3">
       <div className="space-y-6 lg:col-span-1">
         <div className="card">
-          <h2 className="text-sm font-medium text-slate-500">
+          <h2 className="text-sm font-medium text-stone-500">
             {session.employee.first_name} {session.employee.last_name}
           </h2>
-          <p className="mt-1 text-xs text-slate-400">{session.employee.employee_number}</p>
+          <p className="mt-1 text-xs text-stone-400">{session.employee.employee_number}</p>
           <div className="mt-4">
             <ClockButton openSession={(openSession as AttendanceSession) ?? null} />
           </div>
         </div>
 
         <div className="card">
-          <h2 className="mb-3 text-sm font-semibold text-slate-900">Leave balances</h2>
+          <h2 className="mb-3 text-sm font-semibold text-stone-900">Leave balances</h2>
           <ul className="space-y-2">
             {(balances ?? []).length === 0 && (
-              <li className="text-sm text-slate-400">No leave policy assigned yet.</li>
+              <li className="text-sm text-stone-400">No leave policy assigned yet.</li>
             )}
             {(balances ?? []).map((b: any) => (
               <li key={b.leave_type_id} className="flex items-center justify-between text-sm">
-                <span className="text-slate-600">{b.leave_type_name}</span>
-                <span className="font-medium text-slate-900">{b.balance} days</span>
+                <span className="text-stone-600">{b.leave_type_name}</span>
+                <span className="font-medium text-stone-900">{b.balance} days</span>
               </li>
             ))}
           </ul>
-          <Link href="/leave" className="mt-4 inline-block text-sm font-medium text-brand-600 hover:text-brand-700">
+          <Link href="/leave" className="mt-4 inline-block text-sm font-medium text-royal-700 hover:text-royal-800">
             Request leave →
           </Link>
         </div>
@@ -90,16 +85,16 @@ export default async function DashboardPage() {
 
       <div className="space-y-6 lg:col-span-2">
         <div className="card">
-          <h2 className="mb-3 text-sm font-semibold text-slate-900">Recent leave requests</h2>
-          <ul className="divide-y divide-slate-100">
+          <h2 className="mb-3 text-sm font-semibold text-stone-900">Recent leave requests</h2>
+          <ul className="divide-y divide-stone-100">
             {(leaveRequests ?? []).length === 0 && (
-              <li className="py-3 text-sm text-slate-400">No leave requests yet.</li>
+              <li className="py-3 text-sm text-stone-400">No leave requests yet.</li>
             )}
             {(leaveRequests as (LeaveRequest & { leave_types: { name: string } })[] | null)?.map((r) => (
               <li key={r.id} className="flex items-center justify-between py-3 text-sm">
                 <div>
-                  <p className="font-medium text-slate-900">{r.leave_types?.name}</p>
-                  <p className="text-xs text-slate-500">
+                  <p className="font-medium text-stone-900">{r.leave_types?.name}</p>
+                  <p className="text-xs text-stone-500">
                     {r.start_date} → {r.end_date} · {r.total_days} day(s)
                   </p>
                 </div>
@@ -110,15 +105,15 @@ export default async function DashboardPage() {
         </div>
 
         <div className="card">
-          <h2 className="mb-3 text-sm font-semibold text-slate-900">Notifications</h2>
-          <ul className="divide-y divide-slate-100">
+          <h2 className="mb-3 text-sm font-semibold text-stone-900">Notifications</h2>
+          <ul className="divide-y divide-stone-100">
             {(notifications ?? []).length === 0 && (
-              <li className="py-3 text-sm text-slate-400">You&apos;re all caught up.</li>
+              <li className="py-3 text-sm text-stone-400">You&apos;re all caught up.</li>
             )}
             {(notifications ?? []).map((n) => (
               <li key={n.id} className="py-3 text-sm">
-                <p className={n.is_read ? "text-slate-500" : "font-medium text-slate-900"}>{n.title}</p>
-                {n.body && <p className="text-xs text-slate-500">{n.body}</p>}
+                <p className={n.is_read ? "text-stone-500" : "font-medium text-stone-900"}>{n.title}</p>
+                {n.body && <p className="text-xs text-stone-500">{n.body}</p>}
               </li>
             ))}
           </ul>

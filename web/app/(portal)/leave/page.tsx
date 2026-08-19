@@ -2,13 +2,8 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession } from "@/lib/session";
 import { LeaveRequestForm } from "@/components/LeaveRequestForm";
+import { statusBadgeClass } from "@/lib/ui";
 import type { LeaveType } from "@/lib/supabase/types";
-
-function statusBadgeClass(status: string) {
-  if (status === "approved") return "bg-green-100 text-green-700";
-  if (status === "rejected" || status === "cancelled") return "bg-red-100 text-red-700";
-  return "bg-amber-100 text-amber-700";
-}
 
 export default async function LeavePage() {
   const session = await getCurrentSession();
@@ -39,26 +34,26 @@ export default async function LeavePage() {
       </div>
       <div className="lg:col-span-2">
         <div className="card">
-          <h2 className="mb-3 text-sm font-semibold text-slate-900">My leave history</h2>
+          <h2 className="mb-3 text-sm font-semibold text-stone-900">My leave history</h2>
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-100 text-left text-xs uppercase text-slate-400">
+              <tr className="border-b border-stone-100 text-left text-xs uppercase text-stone-400">
                 <th className="pb-2">Type</th>
                 <th className="pb-2">Dates</th>
                 <th className="pb-2">Days</th>
                 <th className="pb-2">Status</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-stone-100">
               {(requests ?? []).length === 0 && (
                 <tr>
-                  <td colSpan={4} className="py-4 text-slate-400">No leave requests yet.</td>
+                  <td colSpan={4} className="py-4 text-stone-400">No leave requests yet.</td>
                 </tr>
               )}
               {(requests ?? []).map((r: any) => (
                 <tr key={r.id}>
                   <td className="py-2">{r.leave_types?.name}</td>
-                  <td className="py-2 text-slate-500">{r.start_date} → {r.end_date}</td>
+                  <td className="py-2 text-stone-500">{r.start_date} → {r.end_date}</td>
                   <td className="py-2">{r.total_days}</td>
                   <td className="py-2">
                     <span className={`badge ${statusBadgeClass(r.status)}`}>{r.status.replace(/_/g, " ")}</span>

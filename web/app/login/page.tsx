@@ -34,14 +34,31 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
+    <div
+      className="relative flex min-h-screen items-center justify-center overflow-hidden px-4"
+      style={{
+        backgroundImage:
+          "radial-gradient(ellipse 1000px 700px at 50% -10%, rgba(140,170,230,0.25), transparent 60%)," +
+          "linear-gradient(180deg, #16265F 0%, #0E1A42 55%, #080F28 100%)",
+      }}
+    >
+      {/* Faint gold braid line along the very top, echoing the app header. */}
+      <div
+        className="absolute inset-x-0 top-0 h-[3px]"
+        style={{
+          backgroundImage:
+            "linear-gradient(90deg, #A2761F, #F5DE95 25%, #C4922A 50%, #F5DE95 75%, #A2761F)",
+          boxShadow: "0 1px 4px rgba(0,0,0,0.5)",
+        }}
+      />
+
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-brand-600 text-lg font-bold text-white">
-            H
-          </div>
-          <h1 className="text-xl font-semibold text-slate-900">Halomanage</h1>
-          <p className="mt-1 text-sm text-slate-500">Sign in to your organization</p>
+          <div className="crest mx-auto mb-4 h-16 w-16 text-2xl">H</div>
+          <h1 className="font-display text-2xl font-bold text-cream-50" style={{ textShadow: "0 2px 6px rgba(0,0,0,0.4)" }}>
+            Halomanage
+          </h1>
+          <p className="mt-1 text-sm text-royal-200/80">Sign in to your organization</p>
         </div>
 
         <form onSubmit={handleSubmit} className="card space-y-4">
@@ -71,7 +88,7 @@ export default function LoginPage() {
           </div>
 
           {error && (
-            <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+            <p role="alert" className="alert-error">
               {error}
             </p>
           )}
@@ -81,7 +98,7 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <p className="mt-4 text-center text-xs text-slate-400">
+        <p className="mt-5 text-center text-xs text-royal-200/70">
           New here? Ask your HR administrator to invite you — Halomanage doesn&apos;t use public
           sign-up.
         </p>

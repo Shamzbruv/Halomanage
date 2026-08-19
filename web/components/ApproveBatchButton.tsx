@@ -28,7 +28,7 @@ export function ApproveBatchButton({ batchId }: { batchId: string }) {
       <button className="btn-primary px-3 py-1 text-xs" disabled={loading} onClick={handleApprove}>
         {loading ? "…" : "Approve & post"}
       </button>
-      {error && <span className="text-xs text-red-600">{error}</span>}
+      {error && <span className="text-xs text-error">{error}</span>}
     </div>
   );
 }

@@ -43,11 +43,11 @@ export function ClockButton({ openSession }: { openSession: AttendanceSession | 
         {loading ? "Working…" : openSession ? "Clock Out" : "Clock In"}
       </button>
       {openSession && (
-        <p className="mt-2 text-center text-xs text-slate-500">
+        <p className="mt-2 text-center text-xs text-stone-500">
           Clocked in at {new Date(openSession.clock_in_at).toLocaleTimeString()}
         </p>
       )}
-      {error && <p className="mt-2 text-center text-xs text-red-600">{error}</p>}
+      {error && <p className="mt-2 text-center text-xs text-error">{error}</p>}
     </div>
   );
 }

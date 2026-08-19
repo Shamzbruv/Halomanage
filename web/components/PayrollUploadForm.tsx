@@ -90,7 +90,7 @@ export function PayrollUploadForm({ organizationId }: { organizationId: string }
 
   return (
     <form onSubmit={handleSubmit} className="card space-y-3">
-      <h3 className="text-sm font-semibold text-slate-900">Import payroll results</h3>
+      <h3 className="text-sm font-semibold text-stone-900">Import payroll results</h3>
 
       <div>
         <label className="label">Import type</label>
@@ -128,8 +128,8 @@ export function PayrollUploadForm({ organizationId }: { organizationId: string }
         />
       </div>
 
-      {status && <p className="text-xs text-slate-500">{status}</p>}
-      {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+      {status && <p className="text-xs text-stone-500">{status}</p>}
+      {error && <p className="alert-error">{error}</p>}
 
       <button type="submit" disabled={loading || !file} className="btn-primary">
         {loading ? "Working…" : "Upload & stage"}

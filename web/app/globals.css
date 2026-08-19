@@ -2,42 +2,344 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Halomanage — skeuomorphic Gold / Royal Blue / Parchment theme.
+ *
+ * The look: surfaces that read as physical objects — beveled buttons with
+ * a glassy highlight and a real "press" on click, panels framed like a
+ * gold-trimmed plaque, inputs carved into the page rather than floating on
+ * it, badges rendered as small cabochon gems. Every effect below is real
+ * multi-stop gradients + layered box-shadows, not a single flat color,
+ * because that layering is what actually reads as "skeuomorphic" instead
+ * of just "blue and gold flat design."
+ *
+ * Shared classes (.card, .btn-primary/-secondary/-danger, .input, .label,
+ * .badge) are kept as the same names components already use — the entire
+ * reskin lives here so page/component files didn't need to change to pick
+ * it up. Status-specific badge coloring lives in lib/ui.ts
+ * (statusBadgeClass) returning one of .badge-gold/-emerald/-ruby/-neutral.
+ */
+
 :root {
   color-scheme: light;
+  --royal-900: #0e1a42;
+  --royal-800: #16265f;
+  --royal-700: #1e3480;
+  --royal-600: #26439c;
+  --royal-500: #3a62bf;
+  --royal-400: #5c81d6;
+  --royal-300: #8caae6;
+  --royal-200: #b9cdf1;
+  --gold-700: #7d5a19;
+  --gold-600: #a2761f;
+  --gold-500: #c4922a;
+  --gold-400: #ddae3c;
+  --gold-300: #edc85f;
+  --gold-200: #f5de95;
+  --cream-50: #fffefa;
+  --cream-100: #fbf7ed;
+  --cream-200: #f5edd8;
 }
 
-body {
-  @apply bg-slate-50 text-slate-900 antialiased;
+@layer base {
+  html {
+    font-family: var(--font-body), ui-sans-serif, system-ui, sans-serif;
+  }
+
+  body {
+    color: var(--royal-900);
+    background-color: var(--cream-100);
+    /* A faint parchment texture + a soft royal-blue glow seated in the
+       corner, like a velvet-lined case — subtle enough to stay out of the
+       way of dense tables and forms. */
+    background-image:
+      radial-gradient(ellipse 1100px 700px at 100% -10%, rgba(38, 67, 156, 0.10), transparent 60%),
+      radial-gradient(ellipse 900px 600px at -10% 110%, rgba(196, 146, 42, 0.08), transparent 55%),
+      repeating-linear-gradient(135deg, rgba(14, 26, 66, 0.015) 0px, rgba(14, 26, 66, 0.015) 1px, transparent 1px, transparent 3px);
+    background-attachment: fixed;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1, h2, h3, h4 {
+    font-family: var(--font-display), Georgia, serif;
+    letter-spacing: 0.01em;
+  }
+
+  ::selection {
+    background: var(--gold-300);
+    color: var(--royal-900);
+  }
+
+  /* Visible keyboard-focus indicator (WCAG 2.2) on everything except
+     .input, which gets its own gold glow-ring treatment below. */
+  a:focus-visible, button:focus-visible, select:focus-visible {
+    outline: 2.5px solid var(--gold-500);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
 }
 
-.card {
-  @apply rounded-xl border border-slate-200 bg-white p-5 shadow-sm;
-}
+@layer components {
+  /* ---------------------------------------------------------------------
+   * Panel — a gold-trimmed plaque lifted off the page, with a fine inset
+   * frame line and a soft paper-grain highlight at the top edge.
+   * --------------------------------------------------------------------- */
+  .card {
+    position: relative;
+    border-radius: 16px;
+    padding: 1.25rem;
+    background-image: linear-gradient(180deg, var(--cream-50) 0%, var(--cream-100) 100%);
+    border: 1px solid var(--gold-300);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.8),
+      0 1px 2px rgba(14, 26, 66, 0.06),
+      0 12px 28px -12px rgba(14, 26, 66, 0.28),
+      0 4px 10px -6px rgba(14, 26, 66, 0.18);
+  }
+  .card::before {
+    content: "";
+    position: absolute;
+    inset: 5px;
+    border: 1px solid rgba(196, 146, 42, 0.35);
+    border-radius: 11px;
+    pointer-events: none;
+  }
 
-.btn {
-  @apply inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50;
-}
+  /* ---------------------------------------------------------------------
+   * Buttons — glossy beveled surfaces. The ::before highlight simulates a
+   * glass dome across the top; :active flips the bevel inward so the
+   * button visibly depresses on click, the way a real inlaid button would.
+   * --------------------------------------------------------------------- */
+  .btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    overflow: hidden;
+    border-radius: 10px;
+    padding: 0.55rem 1.1rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    user-select: none;
+    cursor: pointer;
+    transition: transform 120ms ease, box-shadow 120ms ease, filter 120ms ease;
+  }
+  .btn::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0) 55%);
+    pointer-events: none;
+  }
+  .btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+    transform: none !important;
+    filter: none !important;
+  }
 
-.btn-primary {
-  @apply btn bg-brand-600 text-white hover:bg-brand-700;
-}
+  .btn-primary {
+    @apply btn text-white;
+    background-image: linear-gradient(180deg, var(--royal-400) 0%, var(--royal-600) 48%, var(--royal-700) 100%);
+    border: 1px solid var(--royal-800);
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.45),
+      inset 0 -10px 14px -8px rgba(0, 0, 0, 0.35),
+      0 1px 2px rgba(8, 15, 40, 0.45),
+      0 8px 16px -6px rgba(8, 15, 40, 0.5);
+  }
+  .btn-primary:hover:not(:disabled) {
+    filter: brightness(1.08);
+    transform: translateY(-1px);
+  }
+  .btn-primary:active:not(:disabled) {
+    transform: translateY(1px);
+    filter: brightness(0.98);
+    box-shadow:
+      inset 0 2px 5px rgba(0, 0, 0, 0.5),
+      inset 0 -1px 0 rgba(255, 255, 255, 0.15),
+      0 1px 1px rgba(8, 15, 40, 0.35);
+  }
 
-.btn-secondary {
-  @apply btn border border-slate-300 bg-white text-slate-700 hover:bg-slate-50;
-}
+  .btn-secondary {
+    @apply btn;
+    color: var(--gold-700);
+    background-image: linear-gradient(180deg, var(--cream-50) 0%, var(--cream-200) 100%);
+    border: 1px solid var(--gold-400);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.9),
+      inset 0 -6px 10px -8px rgba(125, 90, 25, 0.3),
+      0 1px 2px rgba(14, 26, 66, 0.08),
+      0 4px 10px -4px rgba(14, 26, 66, 0.18);
+  }
+  .btn-secondary:hover:not(:disabled) {
+    filter: brightness(1.03);
+    transform: translateY(-1px);
+    border-color: var(--gold-500);
+  }
+  .btn-secondary:active:not(:disabled) {
+    transform: translateY(1px);
+    box-shadow:
+      inset 0 2px 4px rgba(125, 90, 25, 0.35),
+      0 1px 1px rgba(14, 26, 66, 0.1);
+  }
 
-.btn-danger {
-  @apply btn bg-red-600 text-white hover:bg-red-700;
-}
+  .btn-danger {
+    @apply btn text-white;
+    background-image: linear-gradient(180deg, #c8455c 0%, #a6233a 48%, #841b2e 100%);
+    border: 1px solid #6c1526;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.4),
+      inset 0 -10px 14px -8px rgba(0, 0, 0, 0.35),
+      0 1px 2px rgba(60, 10, 20, 0.45),
+      0 8px 16px -6px rgba(60, 10, 20, 0.45);
+  }
+  .btn-danger:hover:not(:disabled) {
+    filter: brightness(1.08);
+    transform: translateY(-1px);
+  }
+  .btn-danger:active:not(:disabled) {
+    transform: translateY(1px);
+    filter: brightness(0.98);
+    box-shadow:
+      inset 0 2px 5px rgba(0, 0, 0, 0.5),
+      0 1px 1px rgba(60, 10, 20, 0.35);
+  }
 
-.input {
-  @apply w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500;
-}
+  /* ---------------------------------------------------------------------
+   * Inputs — carved into the parchment rather than floating on it.
+   * --------------------------------------------------------------------- */
+  .input {
+    width: 100%;
+    border-radius: 8px;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    color: var(--royal-900);
+    background-color: var(--cream-50);
+    border: 1px solid var(--gold-200);
+    box-shadow:
+      inset 0 2px 4px rgba(14, 26, 66, 0.14),
+      inset 0 1px 0 rgba(14, 26, 66, 0.04);
+    transition: box-shadow 120ms ease, border-color 120ms ease;
+  }
+  .input:focus {
+    outline: none;
+    border-color: var(--gold-500);
+    box-shadow:
+      inset 0 2px 4px rgba(14, 26, 66, 0.14),
+      0 0 0 3.5px rgba(196, 146, 42, 0.55);
+  }
 
-.label {
-  @apply mb-1 block text-sm font-medium text-slate-700;
-}
+  .label {
+    display: block;
+    margin-bottom: 0.3rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--royal-700);
+  }
 
-.badge {
-  @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium;
+  /* ---------------------------------------------------------------------
+   * Badges — small cabochon gems: a domed radial highlight over a
+   * saturated fill, with a hairline rim in a darker shade of the same hue.
+   * --------------------------------------------------------------------- */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 0.2rem 0.65rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    box-shadow:
+      inset 0 1px 1px rgba(255, 255, 255, 0.55),
+      inset 0 -1px 2px rgba(0, 0, 0, 0.12),
+      0 1px 1px rgba(0, 0, 0, 0.1);
+  }
+  .badge-gold {
+    color: var(--gold-700);
+    background-image: radial-gradient(ellipse at 30% 20%, #fbf0cb, var(--gold-300) 70%);
+    border: 1px solid var(--gold-500);
+  }
+  .badge-emerald {
+    color: #185e36;
+    background-image: radial-gradient(ellipse at 30% 20%, #dceee1, #7fc498 70%);
+    border: 1px solid #1f7a45;
+  }
+  .badge-ruby {
+    color: #841b2e;
+    background-image: radial-gradient(ellipse at 30% 20%, #fbe2e4, #e58a95 70%);
+    border: 1px solid #a6233a;
+  }
+  .badge-neutral {
+    color: var(--royal-700);
+    background-image: radial-gradient(ellipse at 30% 20%, #ffffff, var(--royal-200) 70%);
+    border: 1px solid var(--royal-400);
+  }
+
+  /* ---------------------------------------------------------------------
+   * App header — a royal-blue banner with a braided gold trim along the
+   * bottom edge and an embossed gold medallion for the wordmark.
+   * --------------------------------------------------------------------- */
+  .app-header {
+    position: relative;
+    background-image: linear-gradient(180deg, var(--royal-500) 0%, var(--royal-700) 100%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.22),
+      0 2px 14px rgba(14, 26, 66, 0.4);
+  }
+  .app-header::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -3px;
+    height: 3px;
+    background-image: linear-gradient(
+      90deg, var(--gold-600), var(--gold-200) 25%, var(--gold-500) 50%, var(--gold-200) 75%, var(--gold-600)
+    );
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  }
+
+  .crest {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 2.35rem;
+    height: 2.35rem;
+    border-radius: 9999px;
+    background-image: radial-gradient(circle at 32% 26%, #fdf3d0, var(--gold-400) 55%, var(--gold-600) 100%);
+    border: 1px solid var(--gold-700);
+    box-shadow:
+      inset 0 1px 1px rgba(255, 255, 255, 0.75),
+      inset 0 -3px 4px rgba(0, 0, 0, 0.28),
+      0 2px 5px rgba(0, 0, 0, 0.35);
+    color: var(--royal-900);
+    font-family: var(--font-display), serif;
+    font-weight: 800;
+    font-size: 1.05rem;
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
+  }
+
+  /* Inline error text and boxed error alerts, in the same ruby family as
+     .badge-ruby rather than stock Tailwind red. */
+  .text-error {
+    color: #a6233a;
+  }
+  .alert-error {
+    border-radius: 8px;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    color: #841b2e;
+    background-image: linear-gradient(180deg, #fdf1f2, #fbe2e4);
+    border: 1px solid #e5a3ac;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  }
 }

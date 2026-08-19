@@ -53,7 +53,7 @@ export function NewEmployeeForm({ organizationId }: { organizationId: string }) 
 
   return (
     <form onSubmit={handleSubmit} className="card w-full max-w-md space-y-3">
-      <h3 className="text-sm font-semibold text-slate-900">New employee</h3>
+      <h3 className="text-sm font-semibold text-stone-900">New employee</h3>
       <div className="grid grid-cols-2 gap-3">
         <input
           required
@@ -85,7 +85,7 @@ export function NewEmployeeForm({ organizationId }: { organizationId: string }) 
           onChange={(e) => setForm({ ...form, last_name: e.target.value })}
         />
       </div>
-      {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+      {error && <p className="alert-error">{error}</p>}
       <div className="flex gap-2">
         <button type="submit" disabled={loading} className="btn-primary">
           {loading ? "Saving…" : "Create"}
@@ -94,7 +94,7 @@ export function NewEmployeeForm({ organizationId }: { organizationId: string }) 
           Cancel
         </button>
       </div>
-      <p className="text-xs text-slate-400">
+      <p className="text-xs text-stone-400">
         Creates the HR record only (status: prehire). Set their department/position/supervisor from
         the employee detail page, then use &quot;Invite&quot; to create their login.
       </p>
