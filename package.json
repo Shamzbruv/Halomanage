@@ -1,0 +1,10 @@
+{
+  "name": "halomanage-root",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "install": "cd web && npm install",
+    "build": "cd web && npm run build",
+    "start": "cd web && npm run start"
+  }
+}
