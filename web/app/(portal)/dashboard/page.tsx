@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession } from "@/lib/session";
 import { ClockButton } from "@/components/ClockButton";
+import { BootstrapOrganizationForm } from "@/components/BootstrapOrganizationForm";
 import { statusBadgeClass } from "@/lib/ui";
 import type { AttendanceSession, LeaveRequest } from "@/lib/supabase/types";
 
@@ -11,6 +12,20 @@ export default async function DashboardPage() {
   if (!session) redirect("/login");
 
   if (!session.employee) {
+    const supabase = await createClient();
+    // Two genuinely different situations that used to show the identical
+    // "ask an HR administrator" dead end: someone who hasn't been invited
+    // yet on a deployment that already has an organization (that message
+    // is correct for them), and the very first person on a brand-new
+    // deployment with no organization — and by definition no HR
+    // administrator yet — to ask. See
+    // supabase/migrations/20260818001900_bootstrap_first_organization.sql.
+    const { data: needsBootstrap } = await supabase.rpc("deployment_needs_bootstrap");
+
+    if (needsBootstrap) {
+      return <BootstrapOrganizationForm />;
+    }
+
     return (
       <div className="card">
         <h1 className="text-lg font-semibold">No employee record linked</h1>

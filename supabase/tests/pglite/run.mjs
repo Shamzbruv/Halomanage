@@ -62,7 +62,15 @@ async function as(userId, fn) {
   try {
     return await fn();
   } finally {
-    await db.exec(`reset role;`);
+    // Both halves matter: resetting role alone leaves request.jwt.uid set
+    // to the last impersonated user, so auth.uid() keeps returning a stale
+    // (non-null) value for any *un-impersonated* code that runs
+    // afterwards — including private.enforce_employee_protected_columns()'s
+    // "auth.uid() is null" fast path for trusted/service-role-style
+    // context, which several persona-linking statements below rely on.
+    // Caught by the first test that ever called as() before that linking
+    // code ran (every previous run happened to call as() only afterward).
+    await db.exec(`reset role; select set_config('request.jwt.uid', '', false);`);
   }
 }
 
@@ -89,6 +97,58 @@ async function main() {
     grant select, insert, update, delete on storage.objects to authenticated;
     grant select on storage.buckets to authenticated;
   `);
+
+  // ==================== FIRST-ORGANIZATION BOOTSTRAP ==========================
+  // Must run against the genuinely empty, freshly-migrated database — before
+  // seed.sql creates an organization — since that emptiness is exactly what
+  // deployment_needs_bootstrap()/bootstrap_first_organization() key off of.
+  // This is the flow a real user hit live in production with no HR admin to
+  // ask for an invitation from; see 20260818001900_bootstrap_first_organization.sql.
+  const FOUNDER_USER = "20000000-0000-0000-0000-000000000001";
+  const IMPOSTER_USER = "20000000-0000-0000-0000-000000000002";
+  await db.exec(`
+    insert into auth.users (id, email) values
+      ('${FOUNDER_USER}', 'founder@newco.test'), ('${IMPOSTER_USER}', 'imposter@elsewhere.test');
+  `);
+
+  await as(FOUNDER_USER, async () => {
+    const before = await db.query(`select public.deployment_needs_bootstrap() as needed`);
+    ok("fresh deployment (zero orgs) reports it needs bootstrapping", before.rows[0].needed === true);
+
+    const org = await db.query(`select * from public.bootstrap_first_organization(
+      'NewCo Ltd', 'newco', 'Founding', 'Admin', 'America/Jamaica', 'JM'
+    )`);
+    ok("the founder can bootstrap the first organization", org.rows[0].name === "NewCo Ltd");
+
+    const employees = await db.query(`select first_name, last_name, status from public.employees where organization_id = '${org.rows[0].id}'`);
+    ok("bootstrapping created exactly one employee record — the founder", employees.rows.length === 1 && employees.rows[0].first_name === "Founding");
+
+    const roles = await db.query(`select role from public.role_assignments where user_id = '${FOUNDER_USER}'`);
+    ok("the founder was granted the admin role", roles.rows.length === 1 && roles.rows[0].role === "admin");
+
+    const after = await db.query(`select public.deployment_needs_bootstrap() as needed`);
+    ok("deployment no longer reports needing bootstrap after one exists", after.rows[0].needed === false);
+  });
+
+  await as(IMPOSTER_USER, async () => {
+    let threw = false;
+    try {
+      await db.query(`select * from public.bootstrap_first_organization('Squatter Inc', 'squatter', 'Some', 'Rando')`);
+    } catch { threw = true; }
+    ok("a second person cannot bootstrap another organization once one exists — must be invited instead", threw);
+  });
+
+  // Checked as a superuser (no RLS), not as the impostor — the impostor
+  // legitimately can't see any organization via RLS regardless of how many
+  // exist, since they're not a member of one; that's not the thing this
+  // assertion is testing.
+  const orgCountAfter = await db.query(`select count(*) from public.organizations`);
+  ok("the attempted second bootstrap created no organization", Number(orgCountAfter.rows[0].count) === 1);
+
+  // Clean up the bootstrap-test org/employee/roles so it doesn't collide
+  // with seed.sql's fixed UUIDs or pollute the persona tests below.
+  await db.exec(`delete from public.organizations where slug = 'newco';`);
+  await db.exec(`delete from auth.users where id in ('${FOUNDER_USER}', '${IMPOSTER_USER}');`);
 
   await db.exec(fs.readFileSync(path.join(repoRoot, "supabase/seed.sql"), "utf8"));
   console.log("seed.sql applied.\n");

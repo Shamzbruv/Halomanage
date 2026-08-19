@@ -132,6 +132,7 @@ Every module below has tables + RLS + the RPCs a UI needs, per
 | Reporting views | `..001600` | all `security_invoker = true` — self-scoping via caller's own RLS |
 | Storage | `..001700` | 6 private buckets + path-scoped `storage.objects` policies |
 | Employee assignment | `..001800` | `change_employee_assignment()` — atomic close-old/open-new transfer + audit, so admin UI never does a raw two-step update |
+| First-org bootstrap | `..001900` | `deployment_needs_bootstrap()` / `bootstrap_first_organization()` — self-service org+Admin setup, but only once, ever, per deployment |
 
 Edge Functions (`supabase/functions/`): `invite-employee` (real, deployable),
 `payroll-import` (real XLSX/CSV parsing via SheetJS, deployable),
@@ -223,11 +224,24 @@ aggregate counts, not a way to fix an individual unmatched row without SQL).
   correct but coarser than Postgres column-level `GRANT`s
   (ARCHITECTURE.md mentions this as an option). Current approach is fine;
   revisit only if a real need for finer control shows up.
-- **No multi-tenant billing/provisioning flow.** Every table is
-  `organization_id`-scoped and RLS-isolated (verified by design, not yet by
-  a cross-tenant pgTAP test — add one), but there's no signup flow that
-  creates a new `organizations` row; today that's a manual insert. Fine for
-  a single-employer deployment; needed before onboarding a second employer.
+- **Multi-tenant billing/provisioning still doesn't exist, but the
+  first-organization cold start is no longer a manual-SQL affair.**
+  `deployment_needs_bootstrap()` / `bootstrap_first_organization()`
+  (`20260818001900_bootstrap_first_organization.sql`, wired into
+  `app/(portal)/dashboard/page.tsx` via `BootstrapOrganizationForm`) let the
+  very first person to sign in on a genuinely empty deployment set up their
+  own organization and become its Admin through the UI — found and fixed
+  after a real user hit the old dead end live in production ("ask an HR
+  administrator" with no HR administrator to ask, since they were the
+  first person ever on the deployment). It only works once, ever, per
+  deployment — the moment one organization exists, every subsequent person
+  is back to needing a real invitation, by design. What's still missing:
+  a way to run *multiple separate employers* off one deployment (a second
+  company today would need its own Supabase project/Railway instance
+  entirely) and self-serve billing — neither was ever in scope for this
+  build. Cross-tenant RLS isolation is verified by design (every table is
+  `organization_id`-scoped) but not yet by a dedicated pgTAP/pglite test
+  with two real organizations present simultaneously — worth adding.
 - **RBAC granularity stops at the role, not the person — the blueprint's
   "HR Admin vs. System Admin" split and dedicated "Payroll Importer" role
   are not actually achievable yet.** `role_permissions` lets an *org*
