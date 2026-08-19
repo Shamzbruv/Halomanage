@@ -1,5 +1,6 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { hasSupabaseEnv } from "@/lib/supabase/env";
 
 type CookieToSet = { name: string; value: string; options: CookieOptions };
 
@@ -9,6 +10,19 @@ type CookieToSet = { name: string; value: string; options: CookieOptions };
 // Postgres RLS (see docs/ARCHITECTURE.md); this middleware never grants
 // data access, it only decides which page to render.
 export async function updateSession(request: NextRequest) {
+  const isSetupPage = request.nextUrl.pathname.startsWith("/setup-required");
+
+  // Middleware runs on every matched request, before any page renders. If
+  // the Supabase env vars aren't set, createServerClient() throws
+  // immediately — that used to crash every single route (including "/")
+  // with a bare, unexplained 500, since a thrown middleware error never
+  // reaches a page-level error boundary. Rewrite to a real, static,
+  // zero-Supabase-dependency page that says exactly what's missing instead.
+  if (!hasSupabaseEnv()) {
+    if (isSetupPage) return NextResponse.next({ request });
+    return NextResponse.rewrite(new URL("/setup-required", request.url));
+  }
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(

@@ -1,6 +1,7 @@
 "use client";
 
 import { createBrowserClient } from "@supabase/ssr";
+import { requireSupabaseEnv } from "@/lib/supabase/env";
 
 // Browser client — carries the user's own session/JWT. Every query made
 // with this client is subject to Postgres RLS exactly as documented in
@@ -8,8 +9,6 @@ import { createBrowserClient } from "@supabase/ssr";
 // and there must never be one (that key belongs only in Edge Functions and
 // other trusted server environments — see supabase/functions/README.md).
 export function createClient() {
-  return createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-  );
+  const { url, anonKey } = requireSupabaseEnv();
+  return createBrowserClient(url, anonKey);
 }
