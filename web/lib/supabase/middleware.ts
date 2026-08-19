@@ -70,14 +70,23 @@ export async function updateSession(request: NextRequest) {
     }
 
     const isAuthRoute = request.nextUrl.pathname.startsWith("/login");
+    // "/" is the public marketing page (app/page.tsx) — it must be visible
+    // to signed-out visitors instead of bouncing them straight to /login,
+    // which is what "where's the front page that advertises the system?"
+    // was actually running into (app/page.tsx used to unconditionally
+    // redirect to /dashboard, and an unauthenticated /dashboard visit then
+    // redirected here again — net effect: "/" never showed anything but a
+    // login wall). Signed-in visitors skip the marketing page and go
+    // straight to their dashboard, same as landing on /login while signed in.
+    const isHomeRoute = request.nextUrl.pathname === "/";
 
-    if (!user && !isAuthRoute && !isPublicAsset) {
+    if (!user && !isAuthRoute && !isHomeRoute && !isPublicAsset) {
       const url = request.nextUrl.clone();
       url.pathname = "/login";
       return NextResponse.redirect(url);
     }
 
-    if (user && isAuthRoute) {
+    if (user && (isAuthRoute || isHomeRoute)) {
       const url = request.nextUrl.clone();
       url.pathname = "/dashboard";
       return NextResponse.redirect(url);

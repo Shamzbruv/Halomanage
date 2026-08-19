@@ -225,18 +225,37 @@ aggregate counts, not a way to fix an individual unmatched row without SQL).
   (ARCHITECTURE.md mentions this as an option). Current approach is fine;
   revisit only if a real need for finer control shows up.
 - **Multi-tenant billing/provisioning still doesn't exist, but the
-  first-organization cold start is no longer a manual-SQL affair.**
-  `deployment_needs_bootstrap()` / `bootstrap_first_organization()`
-  (`20260818001900_bootstrap_first_organization.sql`, wired into
-  `app/(portal)/dashboard/page.tsx` via `BootstrapOrganizationForm`) let the
-  very first person to sign in on a genuinely empty deployment set up their
-  own organization and become its Admin through the UI — found and fixed
-  after a real user hit the old dead end live in production ("ask an HR
-  administrator" with no HR administrator to ask, since they were the
-  first person ever on the deployment). It only works once, ever, per
+  first-organization cold start is no longer a manual-SQL (or manual
+  Supabase-dashboard) affair.** `deployment_needs_bootstrap()` /
+  `bootstrap_first_organization()`
+  (`20260818001900_bootstrap_first_organization.sql`) is wired into two
+  places now: `components/AuthScreen.tsx` (rendered by `/login`, checks
+  `deployment_needs_bootstrap()` — itself grantable to `anon` — *before*
+  anyone is signed in, and swaps in `CreateOrganizationForm` in place of the
+  ordinary sign-in form when it's true) and, as a fallback for an account
+  created some other way (e.g. directly in the Supabase dashboard),
+  `app/(portal)/dashboard/page.tsx` via `BootstrapOrganizationForm`. The
+  first version of this only covered the dashboard path, which still left a
+  real gap: someone with *no* auth.users account at all had no UI path to
+  get one, since there's deliberately no public signup once an organization
+  exists (PRODUCT_BLUEPRINT.md — invitation-only). `CreateOrganizationForm`
+  closes that: it calls `supabase.auth.signUp()` itself (only ever offered
+  while `deployment_needs_bootstrap()` is true) and then
+  `bootstrap_first_organization()` in the same flow, so the very first
+  person on a genuinely empty deployment can go from "no account exists" to
+  "signed in as Admin of their new organization" entirely through the app —
+  found and fixed after a real user hit the old dead end live in production
+  twice: first "ask an HR administrator" with no HR administrator to ask,
+  then, after that was patched, no way to get an account to sign in with in
+  the first place. `app/page.tsx` (the public `/` landing page, previously
+  just `redirect("/dashboard")`, which — via middleware bouncing the
+  resulting unauthenticated `/dashboard` hit to `/login` — meant `/` never
+  rendered anything of its own) now points visitors at `/login` for both
+  "sign in" and "set up your organization," rather than assuming a
+  separate marketing site exists. Bootstrap only works once, ever, per
   deployment — the moment one organization exists, every subsequent person
-  is back to needing a real invitation, by design. What's still missing:
-  a way to run *multiple separate employers* off one deployment (a second
+  is back to needing a real invitation, by design. What's still missing: a
+  way to run *multiple separate employers* off one deployment (a second
   company today would need its own Supabase project/Railway instance
   entirely) and self-serve billing — neither was ever in scope for this
   build. Cross-tenant RLS isolation is verified by design (every table is
