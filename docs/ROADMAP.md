@@ -3,86 +3,104 @@
 Living document. Update this whenever you finish or start a chunk of work —
 it's the thing a fresh session (human or agent) should read first to know
 what's real, what's stubbed, and what to do next. Last updated: 2026-08-18
-(session 3 — full admin-configuration + self-service frontend build-out).
+(session 4 — deployed to a real Supabase project; Railway build/runtime fixes).
 
 ## Where things stand right now
 
-**Backend (`supabase/migrations/`, `supabase/functions/`): the full MVP data
-model + core business logic exists, and has been validated against a real
-(if embedded) Postgres engine — not just read for syntax.** This repo has
-never been deployed to an actual Supabase project (none has been created
-yet), but every migration has been run end-to-end against
-[PGlite](https://pglite.dev) (Postgres-in-WASM) via
-`supabase/tests/pglite/`, which applies all 18 migrations, seeds five RLS
-test personas, and runs 51 assertions with RLS actually enforced across
-attendance, leave, payroll import (both flavors), onboarding, a full
-appraisal cycle, and employee transfers/promotions — including deliberate
-negative tests (wrong person tries to approve, unrelated employee tries to
-read a record). **That process found and fixed four real bugs** before this
-was ever "done": a PL/pgSQL INTO-list error, `management_scope` never
-refreshing when an account is linked after its reporting-line assignment
-already exists (the realistic order of operations), a missing RLS policy
-that silently emptied `current_payroll_records` for ordinary employees, and
-infinite RLS recursion from mutual cross-table subqueries in two separate
-places. Full detail is in the comment block at the top of
-`supabase/tests/pglite/run.mjs` — read it before assuming any of those
-classes of bug can't recur elsewhere (they did recur once, in a different
-module, before being caught the same way).
+**This is now a live, deployed project, not just a validated-locally one.**
+A real Supabase project exists (`vknqwptcmaimhigwskoi`, `us-east-1`) and
+every one of the 18 migrations, all 149 RLS policies, all 72 public + 23
+`private`-schema functions, and all 6 Storage buckets are confirmed applied
+and matching this repo exactly (verified by direct Postgres connection —
+see the session log; the connection appears to have come from Supabase's
+GitHub integration auto-syncing `supabase/migrations/` on push, not a
+manual `db push`). The database was seeded with the demo dataset
+(`supabase/seed.sql` + `supabase/seed_auth_users.sql`) by that same
+process; **the demo org/employees/logins were deliberately deleted** once
+that was noticed, since this project is intended to hold real production
+data (Railway service is named `halomanage-production`) and
+`seed_auth_users.sql`'s password is plaintext in the repo. The database is
+now a clean, empty, fully-migrated slate — organizations/employees/
+role_assignments/auth.users all at 0 rows.
 
-What that suite does *not* cover — because PGlite stubs Auth/Storage rather
-than reproducing them — is real Supabase Auth flows (magic links, MFA,
-SAML), Storage signed URLs, Realtime, and the Edge Functions. Those need an
-actual Supabase project. **The first real task in this project is standing
-up one and deploying to it** — treat that as the next integration-test
-layer, not a formality; it's plausible (if less likely than before this
-validation pass) that something Supabase-specific still needs a small fix
-once real Auth/Storage/Realtime are involved instead of stubs.
+The Railway deployment (`halomanage-production.up.railway.app`) is live but
+**not yet connected to that Supabase project** — `NEXT_PUBLIC_SUPABASE_URL`
+/ `NEXT_PUBLIC_SUPABASE_ANON_KEY` still need to be set as real Railway
+service variables (see "First thing to do next"). Two Railway-specific bugs
+were found and fixed getting the deployment this far: `/login` was
+statically prerendered at build time and crashed without those env vars
+present at build (fixed — forced dynamic rendering), and middleware crashed
+with a bare 500 on *every* route at runtime for the same underlying reason
+(fixed — middleware now degrades to a clear `/setup-required` page instead
+of throwing). Both are described in detail in their own commits.
+
+**Backend (`supabase/migrations/`, `supabase/functions/`): the full MVP data
+model + core business logic exists**, validated twice now — once against
+[PGlite](https://pglite.dev) (`supabase/tests/pglite/`, 18 migrations, 5 RLS
+test personas, 51 assertions, 4 real bug categories found and fixed pre-
+deployment — see the comment block at the top of
+`supabase/tests/pglite/run.mjs`), and now confirmed structurally identical
+on the real Supabase Postgres instance. What's still unverified against the
+*real* project specifically: real Auth flows (magic links, MFA, SAML —
+nobody has signed in yet, since there's no employee/account left after the
+demo cleanup), Storage signed URLs, Realtime, and the Edge Functions (none
+of the four have been deployed to this project yet — `invite-employee`,
+`payroll-import`, `send-notifications`, `signature-webhook` are still only
+local files).
 
 **Frontend (`web/`): builds and typechecks clean** (`npm run build` passes,
-20 routes) against Next.js 15 / React 18 / TypeScript strict mode, and now
+20 routes) against Next.js 15 / React 18 / TypeScript strict mode, and
 covers every Phase-1 module end-to-end, including the admin configuration
 screens (org structure, leave types, onboarding/appraisal template
-builders) that were the biggest gap as of the previous session — an admin
-can now actually set up the product through the UI instead of writing SQL
-by hand. It has **not** been run against a live backend beyond the login
-page (screenshotted with Playwright in the prior session; the newer pages
-have not been screenshotted), so runtime behavior for anything past login
-is unverified beyond what static types and the backend's own RPC contracts
-(behaviorally tested) suggest. Two real PostgREST-embedding bugs (querying
-a view instead of the underlying table for automatic relationship
-embedding — see `docs/ARCHITECTURE.md` rule and the inline comments at each
-fix site) were caught and fixed *during* this build purely by code review,
-without a live backend to catch them empirically the way the pglite suite
-catches backend bugs — that asymmetry is exactly why "run it against a real
-project" is still the top of the next-steps list, not optional polish.
+builders). It has **not** been exercised against the real Supabase project
+at all yet — screenshots so far are all against dummy/absent config
+(login page rendering, and the two Railway-fix verifications). Two real
+PostgREST-embedding bugs (querying a view instead of the underlying table
+for automatic relationship embedding — see `docs/ARCHITECTURE.md` rule and
+the inline comments at each fix site) were caught and fixed by code review
+before ever running live — that asymmetry (bugs the pglite suite structure
+can't catch because they're PostgREST/frontend-layer, not RLS/SQL-layer) is
+exactly why a real end-to-end click-through — now finally possible — still
+needs to happen.
 
 ## First thing to do next
 
-1. Create a Supabase project (or `npx supabase init` + `supabase start` for
-   local Docker-based dev).
-2. `npx supabase link --project-ref <ref>` then `npx supabase db push`
-   (or apply each file in `supabase/migrations/` in order via the SQL
-   editor). This should go smoothly — see "Where things stand" above — but
-   if something Supabase-specific still trips (a real `pg_cron`/
-   `supabase_realtime` behavior difference, an actual Auth schema
-   difference from the PGlite stub), fix it and add a regression case to
-   `supabase/tests/pglite/run.mjs` if the bug class is generic, or
-   `supabase/tests/database/` if it's genuinely Supabase-specific.
-3. Run `supabase/seed.sql`, then `supabase/seed_auth_users.sql` (local only
-   — see the caveats in that file) to get five working logins
-   (alice/bob/carol/david/erin @acme.test, password `Halomanage123!`).
-4. `cd web && cp .env.example .env.local`, fill in the project URL/anon key,
-   `npm run dev`, sign in as `erin@acme.test` and walk through: Admin →
-   Organization (add a department/position/location) → Employees (create
-   one, assign it via the new employee detail page, invite them — needs
-   `invite-employee` deployed first, `npx supabase functions deploy
-   invite-employee`) → Admin → Onboarding (build a template, start it for
-   the new hire) → sign in as alice/bob/carol and exercise clock in/out,
-   leave request → approval, onboarding task completion, an appraisal
-   cycle end-to-end (launch → self-review → supervisor review → manager
-   review → acknowledge), a document upload/acknowledge, payroll upload →
-   reconcile → approve. This is the first time any of that will have run
-   against real Auth/Storage/Realtime — expect to find and fix something.
+1. **Wire up Railway**: get this project's anon key from the Supabase
+   dashboard → Project Settings → API (URL is
+   `https://vknqwptcmaimhigwskoi.supabase.co`), set both
+   `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` as Railway
+   service variables, redeploy. The `/setup-required` page currently shown
+   on every route will disappear once this is done.
+2. **Deploy the Edge Functions** — none are live yet:
+   `npx supabase login` (needs a Supabase access token, interactive),
+   `npx supabase link --project-ref vknqwptcmaimhigwskoi`, then
+   `npx supabase functions deploy invite-employee` (repeat for
+   `payroll-import`, `send-notifications`, `signature-webhook`). See
+   `supabase/functions/README.md` for the secrets each one needs beyond the
+   auto-injected Supabase ones.
+3. **Bootstrap the first real organization and Admin.** The database is
+   intentionally empty now — there is no self-serve signup (see "Known
+   simplifications" below), so the very first `organizations` row and the
+   first Admin's `employees` + `role_assignments` rows have to be inserted
+   directly (SQL editor, or ask an agent with DB access to do it) before
+   anyone can sign in and use the app normally. This is the one bootstrap
+   step that can't go through the UI, by design — everything after it can.
+4. Once there's a real Admin account, do a full click-through as that
+   Admin: Organization (add a department/position/location) → Leave Types
+   → Employees (create a second real employee, assign them via the new
+   employee detail page, invite them — needs `invite-employee` deployed
+   first) → Onboarding (build a template, start it for that new hire) →
+   sign in as the new hire and exercise clock in/out, a leave request →
+   approval (as the Admin or whoever their supervisor is), onboarding task
+   completion, an appraisal cycle end-to-end (launch → self-review →
+   supervisor review → manager review → acknowledge), a document
+   upload/acknowledge, payroll upload → reconcile → approve. This is the
+   first time any of that will have run against real Auth/Storage/Realtime
+   — expect to find and fix something. If demo/test data is useful while
+   doing this, treat `supabase/seed.sql` as a reference to adapt rather
+   than running it verbatim against this project again — it hard-codes the
+   same fixed UUIDs that were just cleaned out, and `seed_auth_users.sql`'s
+   password is public in the repo.
 5. Keep `supabase/tests/pglite/` passing (`cd supabase/tests/pglite && npm
    test`) as you go — it's fast enough to run on every migration change.
    Then work through `supabase/tests/database/employee_rls_test.sql` via
@@ -264,7 +282,8 @@ aggregate counts, not a way to fix an individual unmatched row without SQL).
 - [x] Validate the full schema + core RPCs against a real Postgres engine (`supabase/tests/pglite/`, now 51 assertions, 4 real bug categories found and fixed)
 - [x] Frontend: org-structure + leave-type admin builders, employee assignment/transfer UI, self-service profile
 - [x] Frontend: onboarding UI (template builder + employee task view), appraisal UI (template/cycle builder + review flow), documents UI (upload + view + acknowledge), reporting dashboard
-- [ ] **Deploy + integration-test against an actual Supabase project (real Auth/Storage/Realtime/Edge Functions)** ← you are here
+- [x] Deploy the schema to a real Supabase project (`vknqwptcmaimhigwskoi`) — all 18 migrations, 149 policies, 72+23 functions, 6 buckets confirmed applied; demo data intentionally removed since this project is production
+- [ ] **Wire Railway to the real project (env vars), deploy the 4 Edge Functions, bootstrap the first real org + Admin, then do a full real click-through** ← you are here
 - [ ] Frontend: offboarding task UI (now the top gap — backend auto-triggers but nothing surfaces the checklist), training/assets UI, per-row payroll reconciliation drill-in, notification preferences
 - [ ] RBAC: per-user permission grants and/or HR-Admin/System-Admin/Payroll-Importer role split (see "Known simplifications" — real gap, explicitly flagged, not yet built)
 - [ ] Cron jobs: expiry reminders, appraisal reminders/escalation, leave accrual, probation checkpoints
