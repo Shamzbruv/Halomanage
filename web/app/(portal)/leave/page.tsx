@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Icon } from "@/components/Icon";
 import { LeaveRequestForm } from "@/components/LeaveRequestForm";
@@ -9,7 +10,7 @@ import type { LeaveType } from "@/lib/supabase/types";
 export default async function LeavePage() {
   const session = await getCurrentSession();
   if (!session) redirect("/login");
-  if (!session.employee) return null;
+  if (!session.employee) redirect("/signup/complete?repair=1");
 
   const supabase = await createClient();
   const employeeId = session.employee.id;
@@ -33,7 +34,15 @@ export default async function LeavePage() {
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
-        <div><LeaveRequestForm leaveTypes={(leaveTypes as LeaveType[]) ?? []} /></div>
+        <div>
+          {(leaveTypes ?? []).length > 0 ? <LeaveRequestForm leaveTypes={(leaveTypes as LeaveType[]) ?? []} /> : (
+            <div className="context-empty card">
+              <span><Icon name="leave" size={22} /></span>
+              <div><strong>Leave policies are not configured yet</strong><p>Add vacation, sick, unpaid, or business-specific policies before employees submit requests.</p></div>
+              {session.roles.includes("admin") && <Link className="btn-primary" href="/admin/setup">Finish leave setup</Link>}
+            </div>
+          )}
+        </div>
         <div className="card overflow-x-auto">
           <div className="panel-heading"><div><span className="panel-icon"><Icon name="leave" /></span><div><h3>Request history</h3><p>Every request and its current approval status.</p></div></div></div>
           <table className="w-full text-sm">

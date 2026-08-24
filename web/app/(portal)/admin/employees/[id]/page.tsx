@@ -12,7 +12,7 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
   const session = await getCurrentSession();
   if (!session) redirect("/login");
   if (!session.roles.includes("admin")) redirect("/dashboard");
-  if (!session.organizationId) redirect("/dashboard");
+  if (!session.organizationId || !session.organization) redirect("/dashboard");
 
   const supabase = await createClient();
   const orgId = session.organizationId;
@@ -67,7 +67,7 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
         </div>
         <div className="flex items-center gap-2">
           <span className={`badge ${statusBadgeClass(employee.status)}`}>{employee.status}</span>
-          <InviteButton employeeId={employee.id} alreadyInvited={!!employee.user_id} />
+          <InviteButton employeeId={employee.id} alreadyInvited={!!employee.user_id} portalSlug={session.organization.slug} />
         </div>
       </div>
 

@@ -2,8 +2,8 @@
 // Ref: ARCHITECTURE.md "Authentication strategy".
 //
 // Employer-controlled invitations, never public signup. An Admin/HR user
-// (someone who can already SELECT the target employees row — enforced by
-// RLS via the "caller" client below, which uses their JWT, not a bypass)
+// must hold employee.manage for the target organization; merely being able
+// to read a direct report is intentionally not enough.
 // triggers this function. It then performs the *privileged* Supabase Auth
 // admin operation — which requires the service_role key and must never run
 // in browser/mobile code — and links the new auth.users row back to the
@@ -34,14 +34,16 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: "employee_id is required" }, 400);
     }
 
-    // Caller-scoped client: runs under the *caller's* JWT, so RLS applies
-    // exactly as it would from the browser. If this SELECT returns nothing,
-    // the caller either can't see this employee or lacks employee.manage —
-    // either way, not authorized to invite them. This is the entire
-    // authorization check; nothing here bypasses RLS.
+    // Caller-scoped client: explicit permission RPC plus RLS-scoped read.
     const callerClient = createClient(supabaseUrl, anonKey, {
       global: { headers: { Authorization: authHeader } },
     });
+
+    const { data: canInvite, error: permissionError } = await callerClient
+      .rpc("can_invite_employee", { p_employee_id: employee_id });
+    if (permissionError || !canInvite) {
+      return jsonResponse({ error: "Not authorized to invite this employee" }, 403);
+    }
 
     const { data: employee, error: employeeError } = await callerClient
       .from("employees")
@@ -63,12 +65,19 @@ Deno.serve(async (req) => {
     // APIs. Never expose this key to a browser/mobile client.
     const adminClient = createClient(supabaseUrl, serviceRoleKey);
 
+    const { data: organization } = await adminClient
+      .from("organizations")
+      .select("slug")
+      .eq("id", employee.organization_id)
+      .single();
+
     const { data: invite, error: inviteError } = await adminClient.auth.admin
       .inviteUserByEmail(employee.work_email, {
         redirectTo: redirect_to,
         data: {
           employee_id: employee.id,
           organization_id: employee.organization_id,
+          organization_slug: organization?.slug,
         },
       });
 
@@ -76,42 +85,14 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: inviteError?.message ?? "Failed to send invitation" }, 500);
     }
 
-    const { error: linkError } = await adminClient
-      .from("employees")
-      .update({ user_id: invite.user.id })
-      .eq("id", employee.id);
-
-    if (linkError) {
-      return jsonResponse({ error: `Invited but failed to link account: ${linkError.message}` }, 500);
-    }
-
-    // Give the new user their baseline "employee" role in this org — every
-    // employee should hold at least this so private.is_org_member() and the
-    // default role_permissions bundle apply immediately.
-    await adminClient.from("role_assignments").insert({
-      organization_id: employee.organization_id,
-      user_id: invite.user.id,
-      role: "employee",
+    const { error: linkError } = await adminClient.rpc("link_invited_employee_account", {
+      p_employee_id: employee.id,
+      p_user_id: invite.user.id,
     });
 
-    // service_role bypasses RLS (and has default schema privileges) so this
-    // is a plain table insert, not a call through private.log_audit_event()
-    // — that helper is SECURITY DEFINER specifically so `authenticated`
-    // clients can log without an INSERT policy; server code doesn't need it.
-    // Best-effort: a logging failure shouldn't fail an otherwise-successful
-    // invite.
-    try {
-      await adminClient.from("audit_events").insert({
-        organization_id: employee.organization_id,
-        actor_user_id: null,
-        employee_id: employee.id,
-        action: "EMPLOYEE_INVITED",
-        entity_type: "employee",
-        entity_id: employee.id,
-        new_data: { user_id: invite.user.id, work_email: employee.work_email },
-      });
-    } catch {
-      // swallow — see comment above
+    if (linkError) {
+      await adminClient.auth.admin.deleteUser(invite.user.id);
+      return jsonResponse({ error: `Invitation could not be connected to the employee record: ${linkError.message}` }, 500);
     }
 
     return jsonResponse({ ok: true, user_id: invite.user.id });

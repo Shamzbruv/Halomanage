@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { BootstrapOrganizationForm } from "@/components/BootstrapOrganizationForm";
 import { ClockButton } from "@/components/ClockButton";
 import { Icon } from "@/components/Icon";
 import { createClient } from "@/lib/supabase/server";
@@ -19,18 +18,7 @@ export default async function DashboardPage() {
   const session = await getCurrentSession();
   if (!session) redirect("/login");
 
-  if (!session.employee) {
-    const supabase = await createClient();
-    const { data: needsBootstrap } = await supabase.rpc("deployment_needs_bootstrap");
-    if (needsBootstrap) return <BootstrapOrganizationForm />;
-    return (
-      <div className="empty-state card">
-        <span><Icon name="profile" size={26} /></span>
-        <h2>Your account needs to be connected</h2>
-        <p>Your login exists, but it is not linked to an employee record. Ask your HR administrator to check your invitation.</p>
-      </div>
-    );
-  }
+  if (!session.employee) redirect("/signup/complete?repair=1");
 
   const supabase = await createClient();
   const employeeId = session.employee.id;
@@ -72,6 +60,14 @@ export default async function DashboardPage() {
           <div><small>{openSession ? "You’re working" : "You’re off the clock"}</small><strong>{openSession ? `Since ${new Date(openSession.clock_in_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "Ready when you are"}</strong></div>
         </div>
       </section>
+
+      {session.roles.includes("admin") && session.organization && (
+        <section className="workspace-launch-strip">
+          <span className="metric-icon sun"><Icon name="spark" /></span>
+          <div><small>Organization launch centre</small><strong>Finish setting up {session.organization.name}</strong><p>Review your business structure, add employees, prepare workflows, and share your team&apos;s sign-in link.</p></div>
+          <div className="workspace-launch-actions"><Link className="btn-primary" href="/admin/setup">Open setup guide</Link><Link className="btn-secondary" href={`/portal/${session.organization.slug}`} target="_blank">Preview employee portal</Link></div>
+        </section>
+      )}
 
       <section className="dashboard-metrics" aria-label="Workspace summary">
         <div className="metric-card"><span className="metric-icon mint"><Icon name="leave" /></span><div><small>Available leave</small><strong>{totalLeave.toLocaleString(undefined, { maximumFractionDigits: 1 })}</strong><em>days across all policies</em></div></div>

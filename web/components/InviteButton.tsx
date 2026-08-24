@@ -8,7 +8,7 @@ import { createClient } from "@/lib/supabase/client";
 // rather than any direct Auth admin call from the browser — that admin
 // operation requires the service_role key, which must never reach client
 // code. See docs/ARCHITECTURE.md "Authentication strategy".
-export function InviteButton({ employeeId, alreadyInvited }: { employeeId: string; alreadyInvited: boolean }) {
+export function InviteButton({ employeeId, alreadyInvited, portalSlug }: { employeeId: string; alreadyInvited: boolean; portalSlug: string }) {
   const supabase = createClient();
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -24,7 +24,7 @@ export function InviteButton({ employeeId, alreadyInvited }: { employeeId: strin
     const { error } = await supabase.functions.invoke("invite-employee", {
       body: {
         employee_id: employeeId,
-        redirect_to: `${window.location.origin}/auth/callback?next=/update-password`,
+        redirect_to: `${window.location.origin}/auth/callback?next=${encodeURIComponent(`/update-password?portal=${portalSlug}`)}`,
       },
     });
     if (error) {

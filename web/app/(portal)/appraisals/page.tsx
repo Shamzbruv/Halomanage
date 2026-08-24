@@ -8,7 +8,7 @@ import { statusBadgeClass } from "@/lib/ui";
 export default async function AppraisalsPage() {
   const session = await getCurrentSession();
   if (!session) redirect("/login");
-  if (!session.employee) return null;
+  if (!session.employee) redirect("/signup/complete?repair=1");
   const supabase = await createClient();
   const [{ data: own }, { data: reviewing }] = await Promise.all([
     supabase.from("appraisal_instances").select("*").eq("employee_id", session.employee.id).order("created_at", { ascending: false }),
@@ -24,6 +24,9 @@ export default async function AppraisalsPage() {
         <div className="metric-card"><span className="metric-icon mint"><Icon name="performance" /></span><div><small>My active checkpoints</small><strong>{active}</strong><em>in progress</em></div></div>
         <div className="metric-card"><span className="metric-icon sun"><Icon name="team" /></span><div><small>Reviews to complete</small><strong>{reviewingOthers.length}</strong><em>for your team</em></div></div>
       </div>
+      {(own ?? []).length === 0 && reviewingOthers.length === 0 && session.roles.includes("admin") && (
+        <div className="workspace-nudge"><span className="metric-icon sun"><Icon name="spark" /></span><div><strong>Your growth framework is ready to shape</strong><p>Review the starter quarterly template, adjust the questions, then launch the first checkpoint when your team is ready.</p></div><Link className="btn-secondary" href="/admin/appraisals">Open performance setup</Link></div>
+      )}
       <div className="grid gap-6 xl:grid-cols-2">
         <section className="card">
           <div className="panel-heading"><div><span className="panel-icon"><Icon name="performance" /></span><div><h3>My checkpoints</h3><p>Your current and previous performance conversations.</p></div></div></div>

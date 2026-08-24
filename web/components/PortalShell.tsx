@@ -21,15 +21,18 @@ const personalItems: NavGroup[] = [
   {
     label: "My work",
     items: [
-      { href: "/leave", label: "Time & leave", icon: "leave" },
+      { href: "/time", label: "Time & attendance", icon: "clock" },
+      { href: "/leave", label: "Leave", icon: "leave" },
       { href: "/onboarding", label: "Onboarding", icon: "onboarding" },
       { href: "/appraisals", label: "Performance", icon: "performance" },
+      { href: "/development", label: "Learning & assets", icon: "spark" },
       { href: "/documents", label: "Documents", icon: "document" },
     ],
   },
 ];
 
 const adminItems: NavItem[] = [
+  { href: "/admin/setup", label: "Setup guide", icon: "spark" },
   { href: "/admin/employees", label: "People", icon: "people" },
   { href: "/admin/organization", label: "Organization", icon: "organization" },
   { href: "/admin/leave-types", label: "Leave policies", icon: "calendar" },
@@ -43,11 +46,14 @@ const adminItems: NavItem[] = [
 const pageTitles: Array<{ pattern: RegExp; title: string; eyebrow: string }> = [
   { pattern: /^\/dashboard/, title: "Overview", eyebrow: "Your workspace" },
   { pattern: /^\/profile/, title: "My profile", eyebrow: "Personal workspace" },
-  { pattern: /^\/leave/, title: "Time & leave", eyebrow: "Personal workspace" },
+  { pattern: /^\/time/, title: "Time & attendance", eyebrow: "Personal workspace" },
+  { pattern: /^\/leave/, title: "Leave", eyebrow: "Personal workspace" },
   { pattern: /^\/onboarding/, title: "Onboarding", eyebrow: "Personal workspace" },
   { pattern: /^\/appraisals/, title: "Performance", eyebrow: "Personal workspace" },
+  { pattern: /^\/development/, title: "Learning & assets", eyebrow: "Personal workspace" },
   { pattern: /^\/documents/, title: "Documents", eyebrow: "Personal workspace" },
   { pattern: /^\/team/, title: "Team hub", eyebrow: "Manager workspace" },
+  { pattern: /^\/admin\/setup/, title: "Setup guide", eyebrow: "Administration" },
   { pattern: /^\/admin\/employees/, title: "People", eyebrow: "Administration" },
   { pattern: /^\/admin\/organization/, title: "Organization", eyebrow: "Administration" },
   { pattern: /^\/admin\/leave-types/, title: "Leave policies", eyebrow: "Administration" },

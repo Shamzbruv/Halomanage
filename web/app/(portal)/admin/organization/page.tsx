@@ -4,6 +4,7 @@ import { getCurrentSession } from "@/lib/session";
 import { OrgUnitForm } from "@/components/OrgUnitForm";
 import { PositionForm } from "@/components/PositionForm";
 import { LocationForm } from "@/components/LocationForm";
+import { OrganizationPortalCard } from "@/components/OrganizationPortalCard";
 
 // Ref: PRODUCT_BLUEPRINT.md "Organization Structure" — departments, teams,
 // locations, positions, reporting lines. Until this page existed, an admin
@@ -12,7 +13,7 @@ export default async function OrganizationAdminPage() {
   const session = await getCurrentSession();
   if (!session) redirect("/login");
   if (!session.roles.includes("admin")) redirect("/dashboard");
-  if (!session.organizationId) redirect("/dashboard");
+  if (!session.organizationId || !session.organization) redirect("/dashboard");
 
   const supabase = await createClient();
   const [{ data: orgUnits }, { data: positions }, { data: locations }] = await Promise.all([
@@ -22,10 +23,13 @@ export default async function OrganizationAdminPage() {
   ]);
 
   const unitById = new Map((orgUnits ?? []).map((u) => [u.id, u]));
+  const portalTitle = typeof session.organization.settings.portal_title === "string" ? session.organization.settings.portal_title : `Welcome to ${session.organization.name}`;
+  const portalMessage = typeof session.organization.settings.portal_message === "string" ? session.organization.settings.portal_message : "Sign in to manage your workday, time away, documents, and development.";
 
   return (
     <div className="space-y-6">
       <div className="page-intro"><span className="eyebrow">Structure & reporting</span><h1>Model how your organization really works.</h1><p>Keep locations, departments, teams, and positions configurable so every workflow follows the right relationships.</p></div>
+      <OrganizationPortalCard organizationId={session.organizationId} organizationName={session.organization.name} initialSlug={session.organization.slug} initialTitle={portalTitle} initialMessage={portalMessage} siteUrl={process.env.NEXT_PUBLIC_SITE_URL ?? ""} />
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="card space-y-4">
           <h2 className="text-sm font-semibold text-stone-900">Departments &amp; teams</h2>

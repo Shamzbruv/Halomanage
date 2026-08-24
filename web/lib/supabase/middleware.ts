@@ -9,6 +9,7 @@ export async function updateSession(request: NextRequest) {
   const isSetupPage = pathname.startsWith("/setup-required");
   const isPublicAsset = pathname.startsWith("/_next");
   const isHomeRoute = pathname === "/";
+  const isPublicPortalRoute = pathname.startsWith("/portal/");
   const isPublicAuthRoute = pathname === "/login" || pathname === "/signup" || pathname.startsWith("/auth/");
 
   // The public product page is intentionally backend-independent. It stays
@@ -24,7 +25,7 @@ export async function updateSession(request: NextRequest) {
   // Keeping them independent means a transient Auth outage can still show a
   // useful sign-in or signup screen (the form itself will report submission
   // errors), and it keeps the public account story fast.
-  if (pathname === "/login" || pathname === "/signup" || pathname === "/auth/error") {
+  if (pathname === "/login" || pathname === "/signup" || pathname === "/auth/error" || isPublicPortalRoute) {
     return NextResponse.next({ request });
   }
 

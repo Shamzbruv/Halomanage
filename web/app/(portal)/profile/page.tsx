@@ -7,7 +7,7 @@ import { PrivateInfoForm } from "@/components/PrivateInfoForm";
 export default async function ProfilePage() {
   const session = await getCurrentSession();
   if (!session) redirect("/login");
-  if (!session.employee) return null;
+  if (!session.employee) redirect("/signup/complete?repair=1");
 
   const supabase = await createClient();
   const { data: privateInfo } = await supabase

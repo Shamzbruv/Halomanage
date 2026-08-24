@@ -49,6 +49,11 @@ Halomanage/
    Admin-issued invitations.
 6. `cd web && npm install && npm run dev`, then open `/signup` to create the first workspace.
 
+New workspaces are provisioned with an editable starter foundation: organization structure, owner
+assignment, Monday-Friday schedule, attendance policy, vacation/sick/unpaid leave, onboarding and
+performance templates, and workplace orientation. Administrators can review this at `/admin/setup`
+and share the organization-specific employee sign-in page at `/portal/{organization-slug}`.
+
 ## Non-negotiable design rules
 
 These carry over from the architecture doc and should not be relaxed as the product grows:

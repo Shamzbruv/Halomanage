@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { CompleteOnboardingTaskButton } from "@/components/CompleteOnboardingTaskButton";
 import { Icon } from "@/components/Icon";
@@ -7,7 +8,7 @@ import { getCurrentSession } from "@/lib/session";
 export default async function OnboardingPage() {
   const session = await getCurrentSession();
   if (!session) redirect("/login");
-  if (!session.employee) return null;
+  if (!session.employee) redirect("/signup/complete?repair=1");
 
   const supabase = await createClient();
   const { data: tasks } = await supabase.from("onboarding_tasks").select("*").order("run_id").order("sequence");
@@ -25,7 +26,7 @@ export default async function OnboardingPage() {
       <div className="page-intro"><span className="eyebrow">Getting settled</span><h1>Your path from new to fully onboarded.</h1><p>Work through each step in order. Dependencies, owners, and evidence stay attached to the task so everyone knows what comes next.</p></div>
 
       {runs.size === 0 ? (
-        <div className="empty-state card"><span><Icon name="onboarding" size={26} /></span><h2>No onboarding work right now</h2><p>You have no assigned onboarding tasks. New steps will appear here automatically when HR starts a workflow.</p></div>
+        <div className="empty-state card"><span><Icon name="onboarding" size={26} /></span><h2>No onboarding work right now</h2><p>You have no assigned onboarding tasks. New steps will appear here automatically when HR starts a workflow.</p>{session.roles.includes("admin") && <Link className="btn-primary empty-state-action" href="/admin/onboarding">Start an onboarding plan</Link>}</div>
       ) : (
         <>
           <div className="onboarding-summary card">

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Icon } from "@/components/Icon";
 import { createClient } from "@/lib/supabase/client";
 
-export function LoginForm() {
+export function LoginForm({ portal }: { portal?: { name: string; slug: string } }) {
   const router = useRouter();
   const supabase = createClient();
   const [email, setEmail] = useState("");
@@ -22,8 +22,9 @@ export function LoginForm() {
     setMessage(null);
 
     if (recoveryMode) {
+      const recoveryDestination = portal ? `/update-password?portal=${encodeURIComponent(portal.slug)}` : "/update-password";
       const { error: recoveryError } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/auth/callback?next=/update-password`,
+        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(recoveryDestination)}`,
       });
       if (recoveryError) setError(recoveryError.message);
       else setMessage("Check your email for a secure password reset link.");
@@ -31,11 +32,50 @@ export function LoginForm() {
       return;
     }
 
-    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+    const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
     if (signInError) {
       setError("We couldn’t sign you in. Check your email and password, then try again.");
       setLoading(false);
       return;
+    }
+
+    const user = signInData.user;
+    const { data: employee, error: employeeError } = await supabase
+      .from("employees")
+      .select("organization_id")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (employeeError) {
+      setError("Your password is correct, but Halomanage could not load your employee record. Please try again or contact your HR administrator.");
+      setLoading(false);
+      return;
+    }
+
+    if (!employee) {
+      if (user.user_metadata?.signup_intent === "organization_owner") {
+        router.push("/signup/complete?repair=1");
+        router.refresh();
+        return;
+      }
+      await supabase.auth.signOut();
+      setError("This login is not connected to an employee record yet. Ask your HR administrator to resend or repair your invitation.");
+      setLoading(false);
+      return;
+    }
+
+    if (portal) {
+      const { data: organization, error: organizationError } = await supabase
+        .from("organizations")
+        .select("slug")
+        .eq("id", employee.organization_id)
+        .maybeSingle();
+      if (organizationError || String(organization?.slug) !== portal.slug) {
+        await supabase.auth.signOut();
+        setError(`This account is not connected to ${portal.name}. Use the employee portal link supplied by your organization.`);
+        setLoading(false);
+        return;
+      }
     }
 
     router.push("/dashboard");
@@ -67,7 +107,7 @@ export function LoginForm() {
       <button type="submit" disabled={loading || Boolean(message)} className="btn-primary w-full">
         {loading ? "Please wait…" : recoveryMode ? "Send reset link" : <>Sign in <Icon name="arrow-right" size={16} /></>}
       </button>
-      {!recoveryMode && <p className="auth-invite-note"><Icon name="shield" size={15} /> Employee accounts are created through a secure invitation from your HR team.</p>}
+      {!recoveryMode && <p className="auth-invite-note"><Icon name="shield" size={15} /> {portal ? `Only accounts invited by ${portal.name} can sign in here.` : "Employee accounts are created through a secure invitation from your HR team."}</p>}
     </form>
   );
 }

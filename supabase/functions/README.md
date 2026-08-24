@@ -59,6 +59,11 @@ npx supabase functions serve --env-file ./supabase/.env.local
   switch to a `service_role` client for the privileged step (Auth admin
   call; file download + bulk staging insert). The authorization check is
   never skipped, just moved earlier.
+- `invite-employee` additionally requires the explicit `employee.manage`
+  permission. After Auth creates the invited user, employee linking and the
+  baseline `employee` role are committed by one service-role-only database
+  function; if that transaction fails, the newly-created Auth user is removed
+  so the employee can be invited again instead of being left half-connected.
 - `send-notifications` and `signature-webhook` have no interactive caller at
   all (Cron and an external provider, respectively) — trust is established
   by the invocation context itself (a scheduled job authenticated by

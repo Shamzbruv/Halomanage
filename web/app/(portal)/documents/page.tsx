@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AcknowledgeDocumentButton } from "@/components/AcknowledgeDocumentButton";
 import { DocumentDownloadButton } from "@/components/DocumentDownloadButton";
@@ -8,7 +9,7 @@ import { getCurrentSession } from "@/lib/session";
 export default async function DocumentsPage() {
   const session = await getCurrentSession();
   if (!session) redirect("/login");
-  if (!session.employee) return null;
+  if (!session.employee) redirect("/signup/complete?repair=1");
   const supabase = await createClient();
   const { data: documents } = await supabase.from("documents").select("*").order("created_at", { ascending: false });
   const versionIds = (documents ?? []).map((item) => item.current_version_id).filter(Boolean);
@@ -30,7 +31,13 @@ export default async function DocumentsPage() {
       <section className="card">
         <div className="panel-heading"><div><span className="panel-icon"><Icon name="document" /></span><div><h3>My documents</h3><p>Only items you are authorized to see appear here.</p></div></div></div>
         <div className="document-list">
-          {(documents ?? []).length === 0 && <div className="list-empty">No documents have been shared with you yet.</div>}
+          {(documents ?? []).length === 0 && (
+            <div className="context-empty">
+              <span><Icon name="document" size={22} /></span>
+              <div><strong>Your document hub is ready</strong><p>Policies, contracts, certificates, handbooks, and HR letters will stay organized here as they are published.</p></div>
+              {session.roles.includes("admin") && <Link className="btn-secondary" href="/admin/documents">Add the first document</Link>}
+            </div>
+          )}
           {(documents ?? []).map((document) => {
             const version = document.current_version_id ? versionById.get(document.current_version_id) : null;
             const needsAck = document.requires_acknowledgement && document.current_version_id && !acknowledgedIds.has(document.current_version_id);

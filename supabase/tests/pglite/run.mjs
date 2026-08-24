@@ -145,11 +145,60 @@ async function main() {
   const orgCountAfter = await db.query(`select count(*) from public.organizations`);
   ok("the attempted second bootstrap created no organization", Number(orgCountAfter.rows[0].count) === 1);
 
+  let independentOrgId;
   await as(IMPOSTER_USER, async () => {
     const org = await db.query(`select * from public.create_organization_workspace(
       'Independent Co', 'independent', 'Second', 'Founder', 'America/Jamaica', 'JM'
     )`);
+    independentOrgId = org.rows[0].id;
     ok("a new organization owner can create an isolated workspace", org.rows[0].name === "Independent Co");
+
+    const structure = await db.query(`
+      select
+        (select count(*) from public.org_units where organization_id = '${independentOrgId}') as units,
+        (select count(*) from public.positions where organization_id = '${independentOrgId}') as positions,
+        (select count(*) from public.locations where organization_id = '${independentOrgId}') as locations
+    `);
+    ok("workspace provisioning creates a usable organization structure", Number(structure.rows[0].units) === 1 && Number(structure.rows[0].positions) === 1 && Number(structure.rows[0].locations) === 1);
+
+    const workday = await db.query(`
+      select
+        (select count(*) from public.employee_assignments where organization_id = '${independentOrgId}' and end_date is null) as assignments,
+        (select count(*) from public.schedule_assignments where organization_id = '${independentOrgId}' and end_date is null) as schedules,
+        (select count(*) from public.schedule_shifts ss join public.work_schedules ws on ws.id = ss.schedule_id where ws.organization_id = '${independentOrgId}') as shifts
+    `);
+    ok("workspace provisioning assigns the owner to a five-day work schedule", Number(workday.rows[0].assignments) === 1 && Number(workday.rows[0].schedules) === 1 && Number(workday.rows[0].shifts) === 5);
+
+    const leave = await db.query(`
+      select
+        (select count(*) from public.leave_types where organization_id = '${independentOrgId}') as types,
+        (select coalesce(sum(amount), 0) from public.leave_ledger where organization_id = '${independentOrgId}') as balance
+    `);
+    ok("workspace provisioning gives the owner practical starter leave", Number(leave.rows[0].types) === 3 && Number(leave.rows[0].balance) === 25);
+
+    const workflows = await db.query(`
+      select
+        (select count(*) from public.onboarding_templates where organization_id = '${independentOrgId}') as onboarding,
+        (select count(*) from public.appraisal_templates where organization_id = '${independentOrgId}') as appraisals,
+        (select count(*) from public.training_courses where organization_id = '${independentOrgId}') as courses,
+        (select count(*) from public.employee_training where organization_id = '${independentOrgId}') as assigned_courses
+    `);
+    ok("workspace provisioning includes onboarding, performance, and assigned learning", Number(workflows.rows[0].onboarding) === 1 && Number(workflows.rows[0].appraisals) === 1 && Number(workflows.rows[0].courses) === 1 && Number(workflows.rows[0].assigned_courses) === 1);
+
+    await db.query(`select public.initialize_organization_workspace('${independentOrgId}')`);
+    const idempotent = await db.query(`select count(*) from public.leave_types where organization_id = '${independentOrgId}'`);
+    ok("re-running starter initialization is idempotent", Number(idempotent.rows[0].count) === 3);
+
+    const portal = await db.query(`select * from public.update_organization_portal(
+      '${independentOrgId}', 'independent-team', 'Welcome, Independent team', 'Clock in, request leave, and manage your employee account.'
+    )`);
+    ok("an administrator can customize the organization employee portal", portal.rows[0].slug === "independent-team" && portal.rows[0].settings.portal_title === "Welcome, Independent team");
+
+    let reservedThrew = false;
+    try {
+      await db.query(`select public.update_organization_portal('${independentOrgId}', 'admin', 'Bad address', 'Should not save')`);
+    } catch { reservedThrew = true; }
+    ok("reserved employee portal addresses are rejected", reservedThrew);
 
     let threw = false;
     try {
@@ -161,9 +210,14 @@ async function main() {
   const orgCountWithWorkspace = await db.query(`select count(*) from public.organizations`);
   ok("self-service provisioning creates exactly one additional organization", Number(orgCountWithWorkspace.rows[0].count) === 2);
 
+  await db.exec(`set role anon; select set_config('request.jwt.uid', '', false);`);
+  const publicPortal = await db.query(`select * from public.get_organization_portal('independent-team')`);
+  await db.exec(`reset role;`);
+  ok("the anonymous employee portal lookup returns only safe branded fields", publicPortal.rows.length === 1 && publicPortal.rows[0].name === "Independent Co" && Object.keys(publicPortal.rows[0]).sort().join(",") === "name,portal_message,portal_title,slug");
+
   // Clean up the bootstrap-test org/employee/roles so it doesn't collide
   // with seed.sql's fixed UUIDs or pollute the persona tests below.
-  await db.exec(`delete from public.organizations where slug in ('newco', 'independent');`);
+  await db.exec(`delete from public.organizations where id in ('${independentOrgId}') or slug = 'newco';`);
   await db.exec(`delete from auth.users where id in ('${FOUNDER_USER}', '${IMPOSTER_USER}');`);
 
   await db.exec(fs.readFileSync(path.join(repoRoot, "supabase/seed.sql"), "utf8"));
@@ -196,6 +250,30 @@ async function main() {
   `);
   console.log("Five RLS test personas linked (Alice/Bob/Carol/David/Erin — see docs/ARCHITECTURE.md).\n");
 
+  await db.exec(`delete from public.role_assignments where user_id = '${ALICE_USER}';`);
+  await as(ALICE_USER, async () => {
+    const repaired = await db.query(`select public.repair_current_workspace('Alice', 'Employee') as result`);
+    ok("repair restores a missing baseline role without elevating the employee", repaired.rows[0].result.repaired === true);
+    const roles = await db.query(`select role from public.role_assignments where user_id = '${ALICE_USER}'`);
+    ok("employee-side workspace repair restores only the employee role", roles.rows.length === 1 && roles.rows[0].role === "employee");
+  });
+
+  const PARTIAL_USER = "10000000-0000-0000-0000-0000000000f2";
+  await db.exec(`
+    insert into auth.users (id, email, raw_user_meta_data) values ('${PARTIAL_USER}', 'partial@acme.test', '{"first_name":"Partial","last_name":"Member"}');
+    insert into public.role_assignments (organization_id, user_id, role) values ('${ORG}', '${PARTIAL_USER}', 'employee');
+  `);
+  await as(PARTIAL_USER, async () => {
+    const repaired = await db.query(`select public.repair_current_workspace(null, null) as result`);
+    const employee = await db.query(`select first_name, last_name from public.employees where user_id = '${PARTIAL_USER}'`);
+    ok("repair creates a missing employee record for an already-granted role", repaired.rows[0].result.repaired === true && employee.rows[0].first_name === "Partial");
+  });
+  await db.exec(`
+    delete from public.audit_events where employee_id = (select id from public.employees where user_id = '${PARTIAL_USER}');
+    delete from public.employees where user_id = '${PARTIAL_USER}';
+    delete from auth.users where id = '${PARTIAL_USER}';
+  `);
+
   // =========================== DIRECTORY / RLS SCOPE =========================
   await as(ALICE_USER, async () => {
     ok("Alice sees her own employee row",
@@ -208,11 +286,34 @@ async function main() {
       Number((await db.query(`select count(*) from public.employees where id = '${ALICE_EMP}'`)).rows[0].count) === 1);
     ok("Bob cannot see David (outside his management scope)",
       Number((await db.query(`select count(*) from public.employees where id = '${DAVID_EMP}'`)).rows[0].count) === 0);
+    const canInvite = await db.query(`select public.can_invite_employee('${ALICE_EMP}') as allowed`);
+    ok("a supervisor who can read a direct report still cannot invite accounts", canInvite.rows[0].allowed === false);
+  });
+  await as(ERIN_USER, async () => {
+    const canInvite = await db.query(`select public.can_invite_employee('${ALICE_EMP}') as allowed`);
+    ok("an administrator with employee.manage can invite accounts", canInvite.rows[0].allowed === true);
   });
   await as(BOB_USER, async () => {
     const priv = await db.query(`select count(*) from public.employee_private where employee_id = '${ALICE_EMP}'`);
     ok("Bob (Supervisor, no employee.manage) cannot see Alice's private PII", Number(priv.rows[0].count) === 0);
   });
+
+  const INVITED_USER = "10000000-0000-0000-0000-0000000000f1";
+  const INVITED_EMP = "00000000-0000-0000-0000-0000000000f1";
+  await db.exec(`
+    insert into auth.users (id, email) values ('${INVITED_USER}', 'invited@acme.test');
+    insert into public.employees (id, organization_id, employee_number, first_name, last_name, work_email, status)
+    values ('${INVITED_EMP}', '${ORG}', 'TEST-INVITE', 'Invited', 'Employee', 'invited@acme.test', 'prehire');
+    select public.link_invited_employee_account('${INVITED_EMP}', '${INVITED_USER}');
+    select public.link_invited_employee_account('${INVITED_EMP}', '${INVITED_USER}');
+  `);
+  const linkedInvite = await db.query(`
+    select e.user_id,
+      (select count(*) from public.role_assignments ra where ra.user_id = '${INVITED_USER}' and ra.organization_id = '${ORG}' and ra.role = 'employee') as role_count
+    from public.employees e where e.id = '${INVITED_EMP}'
+  `);
+  ok("invitation linking atomically connects the employee and exactly one baseline role", linkedInvite.rows[0].user_id === INVITED_USER && Number(linkedInvite.rows[0].role_count) === 1);
+  await db.exec(`delete from public.employees where id = '${INVITED_EMP}'; delete from auth.users where id = '${INVITED_USER}';`);
 
   // =============================== ATTENDANCE =================================
   await as(ALICE_USER, async () => {

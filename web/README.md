@@ -24,12 +24,15 @@ app/
   auth/                           email confirmation and PKCE callback routes
   (portal)/                       route group — shared nav shell, requires a session
     dashboard/                     Employee home: clock in/out, leave balances, notifications
+    time/                          schedule, shift clock, attendance history + correction requests
     leave/                         submit + view own leave requests
     onboarding/                    complete own/assigned onboarding tasks
     appraisals/, appraisals/[id]/  own checkpoints + reviews awaiting you; fill/submit/acknowledge
     documents/                     view, download, acknowledge documents visible to you
+    development/                   assigned learning, certifications, and company assets
     profile/                       edit own preferred name/phone + private info (address, emergency contact)
     team/                          Supervisor/Manager: pending approvals, team attendance
+    admin/setup/                   Admin: launch checklist, starter setup, employee portal link
     admin/organization/            Admin: departments/teams, positions, locations
     admin/leave-types/             Admin: leave type builder
     admin/employees/, [id]/        Admin: directory, create, invite, assignment history + transfer form
@@ -38,6 +41,7 @@ app/
     admin/documents/               Admin: upload (org-wide or employee-specific)
     admin/payroll/                 Admin: payroll import upload, reconciliation status, approve
     admin/reports/                 Admin: headcount, pending leave, onboarding %, expiring items, recent imports
+  portal/[slug]/                  public-safe, organization-branded employee sign-in page
 lib/
   supabase/                 browser/server Supabase clients + session-refresh middleware helper
   session.ts                getCurrentSession() — the one place that resolves "who is this and what can they do"
@@ -49,11 +53,12 @@ components/                 client components (forms/buttons) that call Supabase
 
 Covers every Phase-1 module end-to-end, including the admin configuration
 screens (org structure, leave types, onboarding/appraisal template
-builders) — an admin can set up the whole product through the UI now, not
-just use what's pre-seeded. Still missing: offboarding task UI (backend
-auto-triggers on termination but nothing surfaces the resulting checklist —
-currently the top gap), training/certifications, asset/equipment
-management, notification preferences, and per-row payroll reconciliation
+builders) plus a guided launch checklist and branded employee portal. New
+workspaces receive editable starter content so the first visit is useful.
+Still missing: offboarding task UI (backend auto-triggers on termination but
+nothing surfaces the resulting checklist — currently the top gap), admin
+assignment/authoring UI for training/certifications and asset/equipment
+management (employees can now see their assignments), notification preferences, and per-row payroll reconciliation
 (admin sees aggregate match counts but can't fix an individual unmatched
 row without SQL). See `../docs/ROADMAP.md` for the full, current list.
 Adding a page for one of those follows the exact same pattern as
