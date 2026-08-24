@@ -1,11 +1,19 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { BootstrapOrganizationForm } from "@/components/BootstrapOrganizationForm";
+import { ClockButton } from "@/components/ClockButton";
+import { Icon } from "@/components/Icon";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession } from "@/lib/session";
-import { ClockButton } from "@/components/ClockButton";
-import { BootstrapOrganizationForm } from "@/components/BootstrapOrganizationForm";
 import { statusBadgeClass } from "@/lib/ui";
 import type { AttendanceSession, LeaveRequest } from "@/lib/supabase/types";
+
+function greeting() {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 18) return "Good afternoon";
+  return "Good evening";
+}
 
 export default async function DashboardPage() {
   const session = await getCurrentSession();
@@ -13,127 +21,103 @@ export default async function DashboardPage() {
 
   if (!session.employee) {
     const supabase = await createClient();
-    // Two genuinely different situations that used to show the identical
-    // "ask an HR administrator" dead end: someone who hasn't been invited
-    // yet on a deployment that already has an organization (that message
-    // is correct for them), and the very first person on a brand-new
-    // deployment with no organization — and by definition no HR
-    // administrator yet — to ask. See
-    // supabase/migrations/20260818001900_bootstrap_first_organization.sql.
     const { data: needsBootstrap } = await supabase.rpc("deployment_needs_bootstrap");
-
-    if (needsBootstrap) {
-      return <BootstrapOrganizationForm />;
-    }
-
+    if (needsBootstrap) return <BootstrapOrganizationForm />;
     return (
-      <div className="card">
-        <h1 className="text-lg font-semibold">No employee record linked</h1>
-        <p className="mt-2 text-sm text-stone-600">
-          Your login exists but isn&apos;t linked to an employee record in this organization yet.
-          Ask an HR administrator to check your invitation.
-        </p>
+      <div className="empty-state card">
+        <span><Icon name="profile" size={26} /></span>
+        <h2>Your account needs to be connected</h2>
+        <p>Your login exists, but it is not linked to an employee record. Ask your HR administrator to check your invitation.</p>
       </div>
     );
   }
 
   const supabase = await createClient();
   const employeeId = session.employee.id;
+  const [
+    { data: openSession },
+    { data: balances },
+    { data: leaveRequests },
+    { data: notifications },
+    { data: onboardingTasks },
+    { data: reviews },
+    { data: assignment },
+  ] = await Promise.all([
+    supabase.from("attendance_sessions").select("*").eq("employee_id", employeeId).is("clock_out_at", null).maybeSingle(),
+    supabase.from("leave_balance_v").select("balance, leave_type_id, leave_type_name").eq("employee_id", employeeId),
+    supabase.from("leave_requests").select("*, leave_types(name)").eq("employee_id", employeeId).order("submitted_at", { ascending: false }).limit(4),
+    supabase.from("notifications").select("id, title, body, link_url, is_read, created_at").eq("recipient_user_id", session.userId).order("created_at", { ascending: false }).limit(5),
+    supabase.from("onboarding_tasks").select("id, title, due_date, status").neq("status", "completed").order("due_date", { ascending: true }).limit(4),
+    supabase.from("appraisal_reviewers").select("id, role, appraisal_instance_id").eq("reviewer_user_id", session.userId).eq("status", "pending").limit(4),
+    supabase.from("employee_assignments").select("positions(title), org_units(name)").eq("employee_id", employeeId).is("end_date", null).maybeSingle(),
+  ]);
 
-  const [{ data: openSession }, { data: balances }, { data: leaveRequests }, { data: notifications }] =
-    await Promise.all([
-      supabase
-        .from("attendance_sessions")
-        .select("*")
-        .eq("employee_id", employeeId)
-        .is("clock_out_at", null)
-        .maybeSingle(),
-      supabase
-        .from("leave_balance_v")
-        .select("balance, leave_type_id, leave_type_name")
-        .eq("employee_id", employeeId),
-      supabase
-        .from("leave_requests")
-        .select("*, leave_types(name)")
-        .eq("employee_id", employeeId)
-        .order("submitted_at", { ascending: false })
-        .limit(5),
-      supabase
-        .from("notifications")
-        .select("id, title, body, link_url, is_read, created_at")
-        .eq("recipient_user_id", session.userId)
-        .order("created_at", { ascending: false })
-        .limit(5),
-    ]);
+  const firstName = session.employee.preferred_name || session.employee.first_name;
+  const unreadCount = (notifications ?? []).filter((item) => !item.is_read).length;
+  const openTaskCount = (onboardingTasks ?? []).length + (reviews ?? []).length;
+  const totalLeave = (balances ?? []).reduce((sum, item) => sum + Number(item.balance || 0), 0);
+  const assignmentData = assignment as any;
+  const canManage = session.roles.some((role) => role === "supervisor" || role === "manager" || role === "admin");
 
   return (
-    <div className="grid gap-6 lg:grid-cols-3">
-      <div className="space-y-6 lg:col-span-1">
-        <div className="card">
-          <h2 className="text-sm font-medium text-stone-500">
-            {session.employee.first_name} {session.employee.last_name}
-          </h2>
-          <p className="mt-1 text-xs text-stone-400">{session.employee.employee_number}</p>
-          <div className="mt-4">
-            <ClockButton openSession={(openSession as AttendanceSession) ?? null} />
+    <div className="dashboard-space">
+      <section className="dashboard-welcome">
+        <div>
+          <span className="dashboard-date">{new Intl.DateTimeFormat("en", { weekday: "long", month: "long", day: "numeric" }).format(new Date())}</span>
+          <h2>{greeting()}, {firstName}.</h2>
+          <p>{assignmentData?.positions?.title || "Your workspace"}{assignmentData?.org_units?.name ? ` · ${assignmentData.org_units.name}` : ""}</p>
+        </div>
+        <div className="dashboard-welcome-action">
+          <span className={openSession ? "status-light online" : "status-light"} />
+          <div><small>{openSession ? "You’re working" : "You’re off the clock"}</small><strong>{openSession ? `Since ${new Date(openSession.clock_in_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "Ready when you are"}</strong></div>
+        </div>
+      </section>
+
+      <section className="dashboard-metrics" aria-label="Workspace summary">
+        <div className="metric-card"><span className="metric-icon mint"><Icon name="leave" /></span><div><small>Available leave</small><strong>{totalLeave.toLocaleString(undefined, { maximumFractionDigits: 1 })}</strong><em>days across all policies</em></div></div>
+        <div className="metric-card"><span className="metric-icon sun"><Icon name="onboarding" /></span><div><small>Open actions</small><strong>{openTaskCount}</strong><em>{openTaskCount === 1 ? "item needs" : "items need"} your attention</em></div></div>
+        <div className="metric-card"><span className="metric-icon coral"><Icon name="document" /></span><div><small>Unread updates</small><strong>{unreadCount}</strong><em>{unreadCount ? "new in your inbox" : "you’re all caught up"}</em></div></div>
+      </section>
+
+      <section className="dashboard-grid">
+        <div className="dashboard-column wide">
+          <div className="card dashboard-attendance">
+            <div className="panel-heading"><div><span className="panel-icon"><Icon name="clock" /></span><div><h3>Today&apos;s attendance</h3><p>Your time is recorded using a trusted server timestamp.</p></div></div><span className={`badge ${openSession ? "badge-emerald" : "badge-neutral"}`}>{openSession ? "Clocked in" : "Not clocked in"}</span></div>
+            <div className="attendance-action"><div><small>{openSession ? "Session started" : "Current local time"}</small><strong>{openSession ? new Date(openSession.clock_in_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</strong></div><ClockButton openSession={(openSession as AttendanceSession) ?? null} /></div>
+          </div>
+
+          <div className="card">
+            <div className="panel-heading"><div><span className="panel-icon"><Icon name="leave" /></span><div><h3>Recent leave</h3><p>Your latest requests and decisions.</p></div></div><Link href="/leave" className="panel-link">View all <Icon name="arrow-right" size={15} /></Link></div>
+            <div className="dashboard-list">
+              {(leaveRequests ?? []).length === 0 && <div className="list-empty">No leave requests yet. <Link href="/leave">Plan some time away</Link></div>}
+              {(leaveRequests as (LeaveRequest & { leave_types: { name: string } })[] | null)?.map((request) => (
+                <div className="dashboard-list-row" key={request.id}><span className="list-date"><strong>{new Date(request.start_date).toLocaleDateString("en", { day: "2-digit" })}</strong><small>{new Date(request.start_date).toLocaleDateString("en", { month: "short" })}</small></span><div><strong>{request.leave_types?.name}</strong><small>{request.start_date} → {request.end_date} · {request.total_days} day(s)</small></div><span className={`badge ${statusBadgeClass(request.status)}`}>{request.status.replace(/_/g, " ")}</span></div>
+              ))}
+            </div>
           </div>
         </div>
 
-        <div className="card">
-          <h2 className="mb-3 text-sm font-semibold text-stone-900">Leave balances</h2>
-          <ul className="space-y-2">
-            {(balances ?? []).length === 0 && (
-              <li className="text-sm text-stone-400">No leave policy assigned yet.</li>
-            )}
-            {(balances ?? []).map((b: any) => (
-              <li key={b.leave_type_id} className="flex items-center justify-between text-sm">
-                <span className="text-stone-600">{b.leave_type_name}</span>
-                <span className="font-medium text-stone-900">{b.balance} days</span>
-              </li>
-            ))}
-          </ul>
-          <Link href="/leave" className="mt-4 inline-block text-sm font-medium text-royal-700 hover:text-royal-800">
-            Request leave →
-          </Link>
-        </div>
-      </div>
+        <div className="dashboard-column">
+          <div className="card">
+            <div className="panel-heading"><div><span className="panel-icon"><Icon name="spark" /></span><div><h3>Next actions</h3><p>Keep your work moving.</p></div></div></div>
+            <div className="action-list">
+              {(onboardingTasks ?? []).map((task) => <Link href="/onboarding" key={task.id}><span className="metric-icon sun small"><Icon name="onboarding" size={16} /></span><div><strong>{task.title}</strong><small>{task.due_date ? `Due ${task.due_date}` : "Onboarding task"}</small></div><Icon name="arrow-right" size={15} /></Link>)}
+              {(reviews ?? []).map((review) => <Link href={`/appraisals/${review.appraisal_instance_id}`} key={review.id}><span className="metric-icon mint small"><Icon name="performance" size={16} /></span><div><strong>Complete your {review.role} review</strong><small>Performance checkpoint</small></div><Icon name="arrow-right" size={15} /></Link>)}
+              {openTaskCount === 0 && <div className="list-empty compact"><Icon name="check" size={17} /> You&apos;re all caught up.</div>}
+            </div>
+          </div>
 
-      <div className="space-y-6 lg:col-span-2">
-        <div className="card">
-          <h2 className="mb-3 text-sm font-semibold text-stone-900">Recent leave requests</h2>
-          <ul className="divide-y divide-stone-100">
-            {(leaveRequests ?? []).length === 0 && (
-              <li className="py-3 text-sm text-stone-400">No leave requests yet.</li>
-            )}
-            {(leaveRequests as (LeaveRequest & { leave_types: { name: string } })[] | null)?.map((r) => (
-              <li key={r.id} className="flex items-center justify-between py-3 text-sm">
-                <div>
-                  <p className="font-medium text-stone-900">{r.leave_types?.name}</p>
-                  <p className="text-xs text-stone-500">
-                    {r.start_date} → {r.end_date} · {r.total_days} day(s)
-                  </p>
-                </div>
-                <span className={`badge ${statusBadgeClass(r.status)}`}>{r.status.replace(/_/g, " ")}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
+          <div className="card">
+            <div className="panel-heading"><div><span className="panel-icon"><Icon name="spark" /></span><div><h3>Updates</h3><p>Recent activity for you.</p></div></div></div>
+            <div className="notification-list">
+              {(notifications ?? []).length === 0 && <div className="list-empty compact">No new updates.</div>}
+              {(notifications ?? []).map((item) => <div key={item.id} className={item.is_read ? "read" : ""}><span /><div><strong>{item.title}</strong>{item.body && <small>{item.body}</small>}<time>{new Date(item.created_at).toLocaleDateString("en", { month: "short", day: "numeric" })}</time></div></div>)}
+            </div>
+          </div>
 
-        <div className="card">
-          <h2 className="mb-3 text-sm font-semibold text-stone-900">Notifications</h2>
-          <ul className="divide-y divide-stone-100">
-            {(notifications ?? []).length === 0 && (
-              <li className="py-3 text-sm text-stone-400">You&apos;re all caught up.</li>
-            )}
-            {(notifications ?? []).map((n) => (
-              <li key={n.id} className="py-3 text-sm">
-                <p className={n.is_read ? "text-stone-500" : "font-medium text-stone-900"}>{n.title}</p>
-                {n.body && <p className="text-xs text-stone-500">{n.body}</p>}
-              </li>
-            ))}
-          </ul>
+          {canManage && <Link href="/team" className="team-callout"><span><Icon name="team" /></span><div><small>Manager workspace</small><strong>Open your team hub</strong><p>Approvals, attendance, and direct reports in one place.</p></div><Icon name="arrow-right" /></Link>}
         </div>
-      </div>
+      </section>
     </div>
   );
 }

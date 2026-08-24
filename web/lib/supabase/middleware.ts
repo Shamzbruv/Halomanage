@@ -4,62 +4,49 @@ import { hasSupabaseEnv } from "@/lib/supabase/env";
 
 type CookieToSet = { name: string; value: string; options: CookieOptions };
 
-// Refreshes the Supabase auth session on every request and redirects
-// signed-out users away from the portal. This is a convenience redirect for
-// UX only — it is NOT the security boundary. The security boundary is
-// Postgres RLS (see docs/ARCHITECTURE.md); this middleware never grants
-// data access, it only decides which page to render.
-//
-// This function must never throw. Middleware runs before Next.js has even
-// chosen a route to render, so a thrown error here can't reach any
-// page-level error boundary (app/error.tsx doesn't apply — that's only for
-// errors inside the App Router's own render tree) or the setup-required
-// rewrite below it — Next.js falls back to its lowest-level generic 500,
-// which is what a first attempt at this fix (env vars entirely absent)
-// didn't fully cover: env vars can also be *present but wrong* (a typo, a
-// stale/rotated key, a paused or deleted Supabase project), which still
-// makes createServerClient()/getUser() throw or reject. Both cases now
-// degrade to the same setup-required page instead of crashing.
 export async function updateSession(request: NextRequest) {
-  const isSetupPage = request.nextUrl.pathname.startsWith("/setup-required");
-  const isPublicAsset = request.nextUrl.pathname.startsWith("/_next");
+  const pathname = request.nextUrl.pathname;
+  const isSetupPage = pathname.startsWith("/setup-required");
+  const isPublicAsset = pathname.startsWith("/_next");
+  const isHomeRoute = pathname === "/";
+  const isPublicAuthRoute = pathname === "/login" || pathname === "/signup" || pathname.startsWith("/auth/");
+
+  // The public product page is intentionally backend-independent. It stays
+  // available while a deployment is being configured or Supabase is down.
+  if (isHomeRoute) return NextResponse.next({ request });
 
   if (!hasSupabaseEnv()) {
     if (isSetupPage || isPublicAsset) return NextResponse.next({ request });
     return NextResponse.rewrite(new URL("/setup-required?reason=missing", request.url));
   }
 
+  // These entry screens do not need a server-side session lookup to render.
+  // Keeping them independent means a transient Auth outage can still show a
+  // useful sign-in or signup screen (the form itself will report submission
+  // errors), and it keeps the public account story fast.
+  if (pathname === "/login" || pathname === "/signup" || pathname === "/auth/error") {
+    return NextResponse.next({ request });
+  }
+
   try {
     let response = NextResponse.next({ request });
-
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
         cookies: {
-          getAll() {
-            return request.cookies.getAll();
-          },
+          getAll() { return request.cookies.getAll(); },
           setAll(cookiesToSet: CookieToSet[]) {
             cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
             response = NextResponse.next({ request });
-            cookiesToSet.forEach(({ name, value, options }) =>
-              response.cookies.set(name, value, options),
-            );
+            cookiesToSet.forEach(({ name, value, options }) => response.cookies.set(name, value, options));
           },
         },
       },
     );
 
-    const {
-      data: { user },
-      error,
-    } = await supabase.auth.getUser();
+    const { data: { user }, error } = await supabase.auth.getUser();
 
-    // getUser() itself resolves (doesn't throw) for most auth failures —
-    // this branch is specifically for a broken/unreachable project (wrong
-    // URL, paused project, network failure to Supabase), which surfaces as
-    // an error result here rather than a rejected promise.
     if (error && error.name !== "AuthSessionMissingError") {
       console.error("middleware: Supabase auth check failed", error.message);
       if (isSetupPage) return NextResponse.next({ request });
@@ -69,26 +56,19 @@ export async function updateSession(request: NextRequest) {
       return NextResponse.rewrite(url);
     }
 
-    const isAuthRoute = request.nextUrl.pathname.startsWith("/login");
-    // "/" is the public marketing page (app/page.tsx) — it must be visible
-    // to signed-out visitors instead of bouncing them straight to /login,
-    // which is what "where's the front page that advertises the system?"
-    // was actually running into (app/page.tsx used to unconditionally
-    // redirect to /dashboard, and an unauthenticated /dashboard visit then
-    // redirected here again — net effect: "/" never showed anything but a
-    // login wall). Signed-in visitors skip the marketing page and go
-    // straight to their dashboard, same as landing on /login while signed in.
-    const isHomeRoute = request.nextUrl.pathname === "/";
-
-    if (!user && !isAuthRoute && !isHomeRoute && !isPublicAsset) {
+    if (!user && !isPublicAuthRoute && !isPublicAsset) {
       const url = request.nextUrl.clone();
       url.pathname = "/login";
+      url.search = "";
       return NextResponse.redirect(url);
     }
 
-    if (user && (isAuthRoute || isHomeRoute)) {
+    // The completion and callback routes must remain reachable after a new
+    // session is established, so only the two entry screens redirect here.
+    if (user && (pathname === "/login" || pathname === "/signup")) {
       const url = request.nextUrl.clone();
       url.pathname = "/dashboard";
+      url.search = "";
       return NextResponse.redirect(url);
     }
 

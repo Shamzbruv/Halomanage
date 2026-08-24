@@ -3,7 +3,7 @@
 Next.js (App Router) frontend. Talks to Supabase directly via
 `@supabase/supabase-js` / `@supabase/ssr` — there is no custom REST backend
 here by design (see `../docs/ARCHITECTURE.md`). Every page's authorization is
-enforced twice, on purpose: `middleware.ts` bounces signed-out visitors to
+enforced twice, on purpose: `proxy.ts` bounces signed-out visitors to
 `/login` as a UX convenience, and Postgres RLS is the actual security
 boundary underneath every query.
 
@@ -19,7 +19,9 @@ npm run dev
 
 ```
 app/
-  login/                          public — sign-in only, no sign-up (see docs/PRODUCT_BLUEPRINT.md)
+  login/                          public sign-in and password recovery
+  signup/                         organization-owner workspace creation
+  auth/                           email confirmation and PKCE callback routes
   (portal)/                       route group — shared nav shell, requires a session
     dashboard/                     Employee home: clock in/out, leave balances, notifications
     leave/                         submit + view own leave requests

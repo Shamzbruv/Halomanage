@@ -1,11 +1,7 @@
 import type { Config } from "tailwindcss";
 
-// Halomanage skeuomorphic theme: Royal Blue + Gold + White/parchment.
-// These scales back the hand-built surfaces in app/globals.css (buttons,
-// panels, inputs, badges all use real multi-stop gradients + layered
-// shadows there, since Tailwind's flat utility classes can't express a
-// bevel by themselves) as well as ordinary utility usage (text-royal-700,
-// border-gold-300, etc.) in components.
+// The legacy color names stay in place so every existing feature screen
+// inherits the new visual system without a risky class-by-class rewrite.
 const config: Config = {
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./lib/**/*.{ts,tsx}"],
   theme: {
@@ -15,59 +11,24 @@ const config: Config = {
         sans: ["var(--font-body)", "ui-sans-serif", "system-ui", "sans-serif"],
       },
       colors: {
-        // Primary chrome — deep, rich monarch blue.
         royal: {
-          50: "#EFF3FC",
-          100: "#DCE6F8",
-          200: "#B9CDF1",
-          300: "#8CAAE6",
-          400: "#5C81D6",
-          500: "#3A62BF",
-          600: "#26439C",
-          700: "#1E3480",
-          800: "#16265F",
-          900: "#0E1A42",
-          950: "#080F28",
+          50: "#F0F7F4", 100: "#DCECE7", 200: "#BBD8CF", 300: "#8DBCAD",
+          400: "#5A9A88", 500: "#377A69", 600: "#246052", 700: "#174F43",
+          800: "#123D35", 900: "#0D2E28", 950: "#071D19",
         },
-        // Accent metal — antique/polished gold.
         gold: {
-          50: "#FDF9EC",
-          100: "#FBF0CB",
-          200: "#F5DE95",
-          300: "#EDC85F",
-          400: "#DDAE3C",
-          500: "#C4922A",
-          600: "#A2761F",
-          700: "#7D5A19",
-          800: "#5C4213",
-          900: "#3D2C0D",
+          50: "#FFF9EA", 100: "#FFF1C9", 200: "#FBE29A", 300: "#F6CE6E",
+          400: "#F2B84B", 500: "#DB9830", 600: "#B87721", 700: "#8E571C",
+          800: "#6A421C", 900: "#4C321A",
         },
-        // Base surface — warm parchment/ivory rather than clinical white.
         cream: {
-          50: "#FFFEFA",
-          100: "#FBF7ED",
-          200: "#F5EDD8",
-          300: "#EDE0BE",
-          400: "#DFCB99",
+          50: "#FFFFFF", 100: "#F6F7F4", 200: "#ECEFEB", 300: "#DEE4DF", 400: "#CBD5CF",
         },
-        // Jewel-toned status colors, kept semantically conventional
-        // (approve=green, reject=red) but pulled into the same rich,
-        // saturated family as royal/gold rather than stock Tailwind hues.
-        ruby: {
-          100: "#FBE2E4",
-          200: "#F3B8BE",
-          600: "#A6233A",
-          700: "#841B2E",
-        },
-        emerald: {
-          100: "#DCEEE1",
-          200: "#AEDBBB",
-          600: "#1F7A45",
-          700: "#185E36",
-        },
+        ruby: { 100: "#FCE9E8", 200: "#F4C6C3", 600: "#B94042", 700: "#973337" },
+        emerald: { 100: "#E3F4ED", 200: "#BDE4D7", 600: "#248063", 700: "#17684F" },
       },
       boxShadow: {
-        gem: "inset 0 1px 1px rgba(255,255,255,0.6), inset 0 -1px 2px rgba(0,0,0,0.15), 0 1px 2px rgba(0,0,0,0.15)",
+        gem: "0 1px 2px rgba(20,45,36,0.05), 0 8px 24px rgba(20,45,36,0.08)",
       },
     },
   },

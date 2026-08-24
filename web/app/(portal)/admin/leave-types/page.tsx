@@ -18,8 +18,8 @@ export default async function LeaveTypesAdminPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold text-stone-900">Leave types</h1>
+      <div className="admin-page-head">
+        <div className="page-intro"><span className="eyebrow">Policy configuration</span><h1>Make leave rules clear and consistent.</h1><p>Create the paid, unpaid, balance, notice, and approval rules your organization uses.</p></div>
         <LeaveTypeForm organizationId={session.organizationId} />
       </div>
 

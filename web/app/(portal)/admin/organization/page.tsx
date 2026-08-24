@@ -25,7 +25,7 @@ export default async function OrganizationAdminPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-lg font-semibold text-stone-900">Organization structure</h1>
+      <div className="page-intro"><span className="eyebrow">Structure & reporting</span><h1>Model how your organization really works.</h1><p>Keep locations, departments, teams, and positions configurable so every workflow follows the right relationships.</p></div>
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="card space-y-4">
           <h2 className="text-sm font-semibold text-stone-900">Departments &amp; teams</h2>

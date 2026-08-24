@@ -41,8 +41,12 @@ whole backend:
 
 ## Auth strategy
 
-- Employer-controlled invitations, **not** public signup: Admin creates the `employees` row first,
-  then a server-side `invite-employee` Edge Function performs the privileged Auth admin call, links
+- **Two deliberate entry paths:** an organization owner can create a new workspace through `/signup`;
+  ordinary employees cannot join an organization through public signup. The owner flow creates the
+  Auth identity first and then calls the guarded `create_organization_workspace()` RPC to atomically
+  create the organization, owner employee record, Admin role, and audit event.
+- Employee access is employer-controlled. An Admin creates the `employees` row first, then the
+  server-side `invite-employee` Edge Function performs the privileged Auth admin call, links
   `employees.user_id`, and records an audit event. Service-role/secret credentials never reach the
   browser.
 - Standard orgs: email + password or magic link/OTP. Security-conscious orgs: require MFA (TOTP or

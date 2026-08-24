@@ -27,7 +27,7 @@ export default async function DocumentsAdminPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-lg font-semibold text-stone-900">Documents</h1>
+      <div className="page-intro"><span className="eyebrow">Document administration</span><h1>Share the right file with the right people.</h1><p>Manage versions, visibility, expiry, and employee acknowledgements from one secure library.</p></div>
 
       <div className="card">
         <h2 className="mb-3 text-sm font-semibold text-stone-900">Upload</h2>

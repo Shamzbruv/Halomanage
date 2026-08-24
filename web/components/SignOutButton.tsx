@@ -2,21 +2,23 @@
 
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { Icon } from "@/components/Icon";
 
-export function SignOutButton() {
+export function SignOutButton({ compact = false }: { compact?: boolean }) {
   const supabase = createClient();
   const router = useRouter();
 
   return (
     <button
-      className="text-sm font-medium text-royal-100/80 transition-colors hover:text-gold-200"
+      className={compact ? "account-signout" : "btn-ghost"}
+      aria-label={compact ? "Sign out" : undefined}
       onClick={async () => {
         await supabase.auth.signOut();
         router.push("/login");
         router.refresh();
       }}
     >
-      Sign out
+      {compact ? <Icon name="logout" size={18} /> : "Sign out"}
     </button>
   );
 }

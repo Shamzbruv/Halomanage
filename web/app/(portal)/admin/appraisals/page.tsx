@@ -23,7 +23,7 @@ export default async function AppraisalsAdminPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-lg font-semibold text-stone-900">Performance checkpoints</h1>
+      <div className="page-intro"><span className="eyebrow">Performance configuration</span><h1>Design checkpoints that fit the moment.</h1><p>Create templates for probation, quarterly conversations, annual reviews, or any development rhythm you need.</p></div>
 
       <div className="card">
         <h2 className="mb-3 text-sm font-semibold text-stone-900">Checkpoint templates</h2>

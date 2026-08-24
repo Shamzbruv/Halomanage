@@ -145,9 +145,25 @@ async function main() {
   const orgCountAfter = await db.query(`select count(*) from public.organizations`);
   ok("the attempted second bootstrap created no organization", Number(orgCountAfter.rows[0].count) === 1);
 
+  await as(IMPOSTER_USER, async () => {
+    const org = await db.query(`select * from public.create_organization_workspace(
+      'Independent Co', 'independent', 'Second', 'Founder', 'America/Jamaica', 'JM'
+    )`);
+    ok("a new organization owner can create an isolated workspace", org.rows[0].name === "Independent Co");
+
+    let threw = false;
+    try {
+      await db.query(`select * from public.create_organization_workspace('Duplicate Co', 'duplicate', 'Second', 'Founder')`);
+    } catch { threw = true; }
+    ok("an account cannot provision a second workspace", threw);
+  });
+
+  const orgCountWithWorkspace = await db.query(`select count(*) from public.organizations`);
+  ok("self-service provisioning creates exactly one additional organization", Number(orgCountWithWorkspace.rows[0].count) === 2);
+
   // Clean up the bootstrap-test org/employee/roles so it doesn't collide
   // with seed.sql's fixed UUIDs or pollute the persona tests below.
-  await db.exec(`delete from public.organizations where slug = 'newco';`);
+  await db.exec(`delete from public.organizations where slug in ('newco', 'independent');`);
   await db.exec(`delete from auth.users where id in ('${FOUNDER_USER}', '${IMPOSTER_USER}');`);
 
   await db.exec(fs.readFileSync(path.join(repoRoot, "supabase/seed.sql"), "utf8"));
@@ -222,12 +238,14 @@ async function main() {
   await as(ALICE_USER, async () => {
     const res = await db.query(`select * from public.submit_leave(
       (select id from public.leave_types where organization_id = '${ORG}' and code = 'VAC'),
-      (current_date + 5)::date, (current_date + 6)::date, false, 'Family trip', null
+      (date_trunc('week', current_date)::date + 7),
+      (date_trunc('week', current_date)::date + 8),
+      false, 'Family trip', null
     )`);
     leaveRequestId = res.rows[0].id;
     leaveTotalDays = Number(res.rows[0].total_days);
     ok("Alice can submit a vacation request", res.rows[0].status === "pending_supervisor");
-    ok("total_days excludes weekends", leaveTotalDays === 1 || leaveTotalDays === 2);
+    ok("total_days counts the deterministic Monday-Tuesday range", leaveTotalDays === 2);
   });
   await as(BOB_USER, async () => {
     const n = await db.query(`select count(*) from public.notifications where recipient_user_id = '${BOB_USER}' and type = 'leave.requested'`);

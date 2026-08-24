@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession } from "@/lib/session";
+import { Icon } from "@/components/Icon";
 
 export default async function ReportsPage() {
   const session = await getCurrentSession();
@@ -33,31 +34,34 @@ export default async function ReportsPage() {
     : null;
 
   const soon = (expiring ?? []).filter((e) => {
+    // This is a request-time Server Component report, so "now" is the
+    // intended reporting boundary rather than client render state.
+    // eslint-disable-next-line react-hooks/purity
     const days = (new Date(e.expires_on).getTime() - Date.now()) / 86400000;
     return days <= 60;
   });
 
   return (
     <div className="space-y-6">
-      <h1 className="text-lg font-semibold text-stone-900">Reports</h1>
+      <div className="page-intro"><span className="eyebrow">Workforce intelligence</span><h1>See what needs attention, then act.</h1><p>Every report honors the same role and scope rules as the employee record behind it.</p></div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="card">
+        <div className="card"><span className="metric-icon mint mb-3"><Icon name="people" /></span>
           <p className="text-xs uppercase text-stone-400">Total employees</p>
           <p className="font-display text-3xl font-bold text-royal-800">{totalHeadcount}</p>
           <p className="text-xs text-stone-500">{activeHeadcount} active</p>
         </div>
-        <div className="card">
+        <div className="card"><span className="metric-icon sun mb-3"><Icon name="leave" /></span>
           <p className="text-xs uppercase text-stone-400">Pending leave</p>
           <p className="font-display text-3xl font-bold text-royal-800">{(pendingLeave ?? []).length}</p>
           <p className="text-xs text-stone-500">awaiting a decision</p>
         </div>
-        <div className="card">
+        <div className="card"><span className="metric-icon mint mb-3"><Icon name="onboarding" /></span>
           <p className="text-xs uppercase text-stone-400">Onboarding in progress</p>
           <p className="font-display text-3xl font-bold text-royal-800">{onboardingInProgress}</p>
           <p className="text-xs text-stone-500">{avgOnboardingProgress !== null ? `${avgOnboardingProgress}% avg. complete` : "—"}</p>
         </div>
-        <div className="card">
+        <div className="card"><span className="metric-icon coral mb-3"><Icon name="document" /></span>
           <p className="text-xs uppercase text-stone-400">Expiring within 60 days</p>
           <p className="font-display text-3xl font-bold text-royal-800">{soon.length}</p>
           <p className="text-xs text-stone-500">documents, certs &amp; training</p>

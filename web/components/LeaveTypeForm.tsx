@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { Icon } from "@/components/Icon";
 
 // Ref: PRODUCT_BLUEPRINT.md "Build a Leave Type Builder" — every field here
 // maps directly to a leave_types column (20260818000700_leave.sql). No
@@ -65,14 +66,16 @@ export function LeaveTypeForm({ organizationId }: { organizationId: string }) {
   if (!open) {
     return (
       <button className="btn-primary" onClick={() => setOpen(true)}>
-        New leave type
+        <Icon name="leave" size={17} /> New leave type
       </button>
     );
   }
 
   return (
-    <form onSubmit={handleSubmit} className="card max-w-xl space-y-3">
-      <h3 className="text-sm font-semibold text-stone-900">New leave type</h3>
+    <div className="modal-layer" role="presentation">
+      <button className="modal-backdrop" aria-label="Close dialog" onClick={() => setOpen(false)} />
+      <form onSubmit={handleSubmit} className="modal-card space-y-3" role="dialog" aria-modal="true" aria-labelledby="new-leave-type-title">
+      <div className="modal-head"><div><span className="eyebrow">Policy builder</span><h3 id="new-leave-type-title">New leave type</h3><p>Configure how this leave behaves. These settings drive validation and approvals.</p></div><button type="button" className="icon-button" aria-label="Close dialog" onClick={() => setOpen(false)}><Icon name="x" size={18} /></button></div>
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="label">Name</label>
@@ -126,6 +129,7 @@ export function LeaveTypeForm({ organizationId }: { organizationId: string }) {
         <button type="submit" disabled={loading} className="btn-primary">{loading ? "Saving…" : "Create"}</button>
         <button type="button" className="btn-secondary" onClick={() => setOpen(false)}>Cancel</button>
       </div>
-    </form>
+      </form>
+    </div>
   );
 }

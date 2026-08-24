@@ -6,6 +6,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Keep current developer sessions on their existing .next cache while
+  // production verification uses a clean directory. This also avoids stale
+  // manifests when the framework major version changes.
+  distDir: "build",
   // This repo has lockfiles at the root, web/, and supabase/tests/pglite/
   // (three independent Node projects sharing one repo, not a workspace) —
   // Next.js's root-detection heuristic sees the extra lockfiles and warns

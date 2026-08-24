@@ -1,7 +1,8 @@
 import { redirect } from "next/navigation";
+import { CompleteOnboardingTaskButton } from "@/components/CompleteOnboardingTaskButton";
+import { Icon } from "@/components/Icon";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession } from "@/lib/session";
-import { CompleteOnboardingTaskButton } from "@/components/CompleteOnboardingTaskButton";
 
 export default async function OnboardingPage() {
   const session = await getCurrentSession();
@@ -9,57 +10,52 @@ export default async function OnboardingPage() {
   if (!session.employee) return null;
 
   const supabase = await createClient();
-
-  // RLS already scopes this to tasks the caller is entitled to see (their
-  // own onboarding, or tasks assigned to them as someone else's supervisor)
-  // — no extra filtering needed here beyond ordering.
-  const { data: tasks } = await supabase
-    .from("onboarding_tasks")
-    .select("*")
-    .order("run_id")
-    .order("sequence");
-
+  const { data: tasks } = await supabase.from("onboarding_tasks").select("*").order("run_id").order("sequence");
   const runs = new Map<string, any[]>();
-  for (const t of tasks ?? []) {
-    if (!runs.has(t.run_id)) runs.set(t.run_id, []);
-    runs.get(t.run_id)!.push(t);
+  for (const task of tasks ?? []) {
+    if (!runs.has(task.run_id)) runs.set(task.run_id, []);
+    runs.get(task.run_id)!.push(task);
   }
+  const total = (tasks ?? []).length;
+  const completed = (tasks ?? []).filter((task) => task.status === "completed" || task.status === "skipped").length;
+  const progress = total ? Math.round((completed / total) * 100) : 0;
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
-      <h1 className="text-lg font-semibold text-stone-900">Onboarding</h1>
+    <div className="space-y-6">
+      <div className="page-intro"><span className="eyebrow">Getting settled</span><h1>Your path from new to fully onboarded.</h1><p>Work through each step in order. Dependencies, owners, and evidence stay attached to the task so everyone knows what comes next.</p></div>
 
-      {runs.size === 0 && (
-        <div className="card text-sm text-stone-400">No onboarding tasks assigned to you right now.</div>
+      {runs.size === 0 ? (
+        <div className="empty-state card"><span><Icon name="onboarding" size={26} /></span><h2>No onboarding work right now</h2><p>You have no assigned onboarding tasks. New steps will appear here automatically when HR starts a workflow.</p></div>
+      ) : (
+        <>
+          <div className="onboarding-summary card">
+            <div><span className="metric-icon mint"><Icon name="onboarding" /></span><div><small>Overall progress</small><strong>{progress}% complete</strong><p>{completed} of {total} tasks finished</p></div></div>
+            <div className="progress-track"><span style={{ width: `${progress}%` }} /></div>
+          </div>
+          <div className="onboarding-runs">
+            {[...runs.entries()].map(([runId, runTasks]) => {
+              const runCompleted = runTasks.filter((task) => task.status === "completed" || task.status === "skipped").length;
+              return (
+                <section key={runId} className="card">
+                  <div className="panel-heading"><div><span className="panel-icon"><Icon name="onboarding" /></span><div><h3>{runTasks[0].employee_id === session.employee!.id ? "Your onboarding plan" : "Tasks assigned to you"}</h3><p>{runCompleted} of {runTasks.length} steps completed.</p></div></div><span className="badge badge-neutral">{runTasks.length - runCompleted} remaining</span></div>
+                  <ol className="onboarding-task-list">
+                    {runTasks.map((task) => {
+                      const done = task.status === "completed" || task.status === "skipped";
+                      return (
+                        <li key={task.id} className={done ? "done" : ""}>
+                          <span className="task-marker">{done ? <Icon name="check" size={15} /> : task.sequence}</span>
+                          <div><strong>{task.title}</strong>{task.description && <p>{task.description}</p>}<small>{task.step_type.replace(/_/g, " ")}{task.due_date ? ` · Due ${task.due_date}` : ""}</small></div>
+                          <div>{done ? <span className="badge badge-emerald">Done</span> : <CompleteOnboardingTaskButton taskId={task.id} />}</div>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                </section>
+              );
+            })}
+          </div>
+        </>
       )}
-
-      {[...runs.entries()].map(([runId, runTasks]) => (
-        <div key={runId} className="card">
-          <h2 className="mb-3 text-sm font-semibold text-stone-900">
-            {runTasks[0].employee_id === session.employee!.id ? "Your onboarding" : "Assigned to you"}
-          </h2>
-          <ul className="divide-y divide-stone-100">
-            {runTasks.map((t) => (
-              <li key={t.id} className="flex items-center justify-between gap-3 py-3">
-                <div>
-                  <p className={t.status === "completed" ? "text-sm text-stone-400 line-through" : "text-sm font-medium text-stone-900"}>
-                    {t.sequence}. {t.title}
-                  </p>
-                  {t.description && <p className="text-xs text-stone-500">{t.description}</p>}
-                  <p className="text-xs text-stone-400">
-                    {t.step_type.replace(/_/g, " ")} {t.due_date && `· due ${t.due_date}`}
-                  </p>
-                </div>
-                {t.status === "completed" ? (
-                  <span className="badge badge-emerald">Done</span>
-                ) : (
-                  <CompleteOnboardingTaskButton taskId={t.id} />
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ))}
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { Icon } from "@/components/Icon";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession } from "@/lib/session";
 import { statusBadgeClass } from "@/lib/ui";
@@ -8,54 +9,37 @@ export default async function AppraisalsPage() {
   const session = await getCurrentSession();
   if (!session) redirect("/login");
   if (!session.employee) return null;
-
   const supabase = await createClient();
-
   const [{ data: own }, { data: reviewing }] = await Promise.all([
     supabase.from("appraisal_instances").select("*").eq("employee_id", session.employee.id).order("created_at", { ascending: false }),
-    supabase
-      .from("appraisal_reviewers")
-      .select("*, appraisal_instances(*)")
-      .eq("reviewer_user_id", session.userId)
-      .eq("status", "pending"),
+    supabase.from("appraisal_reviewers").select("*, appraisal_instances(*)").eq("reviewer_user_id", session.userId).eq("status", "pending"),
   ]);
-
-  const reviewingOthers = (reviewing ?? []).filter((r: any) => r.appraisal_instances?.employee_id !== session.employee!.id);
+  const reviewingOthers = (reviewing ?? []).filter((row: any) => row.appraisal_instances?.employee_id !== session.employee!.id);
+  const active = (own ?? []).filter((item) => !["completed", "acknowledged", "cancelled"].includes(item.status)).length;
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
-      <h1 className="text-lg font-semibold text-stone-900">Performance checkpoints</h1>
-
-      <div className="card">
-        <h2 className="mb-3 text-sm font-semibold text-stone-900">My checkpoints</h2>
-        <ul className="divide-y divide-stone-100">
-          {(own ?? []).length === 0 && <li className="py-3 text-sm text-stone-400">Nothing scheduled yet.</li>}
-          {(own ?? []).map((i) => (
-            <li key={i.id} className="flex items-center justify-between py-3 text-sm">
-              <Link href={`/appraisals/${i.id}`} className="font-medium text-royal-700 hover:text-royal-800 hover:underline">
-                {i.label ?? "Performance checkpoint"}
-              </Link>
-              <span className={`badge ${statusBadgeClass(i.status)}`}>{i.status.replace(/_/g, " ")}</span>
-            </li>
-          ))}
-        </ul>
+    <div className="space-y-6">
+      <div className="page-intro"><span className="eyebrow">Growth & performance</span><h1>Clear conversations, not annual surprises.</h1><p>Keep self-reflection, manager feedback, and acknowledgement connected across every checkpoint.</p></div>
+      <div className="performance-summary">
+        <div className="metric-card"><span className="metric-icon mint"><Icon name="performance" /></span><div><small>My active checkpoints</small><strong>{active}</strong><em>in progress</em></div></div>
+        <div className="metric-card"><span className="metric-icon sun"><Icon name="team" /></span><div><small>Reviews to complete</small><strong>{reviewingOthers.length}</strong><em>for your team</em></div></div>
       </div>
-
-      {reviewingOthers.length > 0 && (
-        <div className="card">
-          <h2 className="mb-3 text-sm font-semibold text-stone-900">Awaiting your review</h2>
-          <ul className="divide-y divide-stone-100">
-            {reviewingOthers.map((r: any) => (
-              <li key={r.id} className="flex items-center justify-between py-3 text-sm">
-                <Link href={`/appraisals/${r.appraisal_instances.id}`} className="font-medium text-royal-700 hover:text-royal-800 hover:underline">
-                  {r.appraisal_instances.label ?? "Performance checkpoint"}
-                </Link>
-                <span className="badge badge-gold">Your {r.role} review</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      <div className="grid gap-6 xl:grid-cols-2">
+        <section className="card">
+          <div className="panel-heading"><div><span className="panel-icon"><Icon name="performance" /></span><div><h3>My checkpoints</h3><p>Your current and previous performance conversations.</p></div></div></div>
+          <div className="checkpoint-list">
+            {(own ?? []).length === 0 && <div className="list-empty">No checkpoints scheduled yet.</div>}
+            {(own ?? []).map((item) => <Link href={`/appraisals/${item.id}`} key={item.id}><span className="metric-icon mint small"><Icon name="performance" size={16} /></span><div><strong>{item.label ?? "Performance checkpoint"}</strong><small>{item.created_at ? new Date(item.created_at).toLocaleDateString("en", { month: "short", day: "numeric", year: "numeric" }) : "Checkpoint"}</small></div><span className={`badge ${statusBadgeClass(item.status)}`}>{item.status.replace(/_/g, " ")}</span></Link>)}
+          </div>
+        </section>
+        <section className="card">
+          <div className="panel-heading"><div><span className="panel-icon"><Icon name="team" /></span><div><h3>Awaiting your review</h3><p>Checkpoints where your perspective is the next step.</p></div></div></div>
+          <div className="checkpoint-list">
+            {reviewingOthers.length === 0 && <div className="list-empty">You have no team reviews waiting.</div>}
+            {reviewingOthers.map((row: any) => <Link href={`/appraisals/${row.appraisal_instances.id}`} key={row.id}><span className="metric-icon sun small"><Icon name="profile" size={16} /></span><div><strong>{row.appraisal_instances.label ?? "Performance checkpoint"}</strong><small>Your {row.role.replace(/_/g, " ")} review</small></div><Icon name="arrow-right" size={16} /></Link>)}
+          </div>
+        </section>
+      </div>
     </div>
   );
 }

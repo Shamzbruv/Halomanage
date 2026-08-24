@@ -17,8 +17,8 @@ export default async function ProfilePage() {
     .maybeSingle();
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
-      <h1 className="text-lg font-semibold text-stone-900">My profile</h1>
+    <div className="mx-auto max-w-4xl space-y-6">
+      <div className="page-intro"><span className="eyebrow">Your employee record</span><h1>Keep your details current.</h1><p>Update the information you control. Employment details stay managed by your HR team and every sensitive field remains separately protected.</p></div>
 
       <div className="card">
         <h2 className="mb-3 text-sm font-semibold text-stone-900">Basic details</h2>

@@ -28,7 +28,7 @@ export default async function OnboardingAdminPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-lg font-semibold text-stone-900">Onboarding</h1>
+      <div className="page-intro"><span className="eyebrow">Workflow design</span><h1>Turn every first day into a reliable plan.</h1><p>Build reusable onboarding templates, then start the right version for each new hire.</p></div>
 
       <div className="card">
         <h2 className="mb-3 text-sm font-semibold text-stone-900">Templates</h2>

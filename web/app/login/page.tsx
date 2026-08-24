@@ -1,4 +1,5 @@
 import { AuthScreen } from "@/components/AuthScreen";
+import type { Metadata } from "next";
 
 // Force this page to render per-request instead of being statically
 // prerendered at build time. Without this, Next.js has no dynamic marker
@@ -17,6 +18,7 @@ import { AuthScreen } from "@/components/AuthScreen";
 // components/AuthScreen.tsx (which itself picks between LoginForm and
 // CreateOrganizationForm) and this file just renders it.
 export const dynamic = "force-dynamic";
+export const metadata: Metadata = { title: "Sign in" };
 
 export default function LoginPage() {
   return <AuthScreen />;

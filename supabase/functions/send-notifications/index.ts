@@ -15,7 +15,7 @@
 // under sendEmail/sendSms/sendPush and set the corresponding secret via
 // `supabase secrets set`. See docs/ROADMAP.md.
 
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.112.4";
 import { jsonResponse } from "../_shared/cors.ts";
 
 async function sendEmail(to: string, subject: string, body: string) {

@@ -22,7 +22,10 @@ export function InviteButton({ employeeId, alreadyInvited }: { employeeId: strin
     setLoading(true);
     setError(null);
     const { error } = await supabase.functions.invoke("invite-employee", {
-      body: { employee_id: employeeId },
+      body: {
+        employee_id: employeeId,
+        redirect_to: `${window.location.origin}/auth/callback?next=/update-password`,
+      },
     });
     if (error) {
       setError(error.message);

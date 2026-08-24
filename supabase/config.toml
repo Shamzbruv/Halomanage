@@ -24,12 +24,12 @@ port = 54323
 [auth]
 enabled = true
 site_url = "http://localhost:3000"
-additional_redirect_urls = ["http://localhost:3000"]
+additional_redirect_urls = ["http://localhost:3000/**"]
 jwt_expiry = 3600
-enable_signup = false # employer-controlled invitations only — see invite-employee function
+enable_signup = true # organization owners may create a workspace; employees remain invitation-only
 
 [auth.email]
-enable_signup = false
+enable_signup = true
 enable_confirmations = true
 
 [auth.mfa]

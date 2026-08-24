@@ -23,7 +23,9 @@ export default async function PayrollAdminPage() {
     .order("uploaded_at", { ascending: false });
 
   return (
-    <div className="grid gap-6 lg:grid-cols-3">
+    <div className="space-y-6">
+      <div className="page-intro"><span className="eyebrow">External pay records</span><h1>Import finalized pay with a clear audit trail.</h1><p>Validate, reconcile, approve, and preserve external payroll results without calculating payroll inside Halomanage.</p></div>
+      <div className="grid gap-6 lg:grid-cols-3">
       <div className="lg:col-span-1">
         <PayrollUploadForm organizationId={session.organizationId} />
       </div>
@@ -69,6 +71,7 @@ export default async function PayrollAdminPage() {
             </tbody>
           </table>
         </div>
+      </div>
       </div>
     </div>
   );

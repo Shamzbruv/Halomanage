@@ -2,32 +2,38 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Icon } from "@/components/Icon";
 import { createClient } from "@/lib/supabase/client";
 
-// PRODUCT_BLUEPRINT.md: employer-controlled invitations, not public
-// signup — there is deliberately no "create account" link here once an
-// organization exists. Accounts are then created by an Admin via the
-// invite-employee Edge Function; this page only signs an existing account
-// in. The one exception is the very first account on a brand-new
-// deployment, before any organization exists at all — that case is handled
-// by AuthScreen rendering CreateOrganizationForm instead of this component.
-export function LoginForm({ showInviteOnlyNotice = true }: { showInviteOnlyNotice?: boolean }) {
+export function LoginForm() {
   const router = useRouter();
   const supabase = createClient();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [recoveryMode, setRecoveryMode] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setMessage(null);
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (recoveryMode) {
+      const { error: recoveryError } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/auth/callback?next=/update-password`,
+      });
+      if (recoveryError) setError(recoveryError.message);
+      else setMessage("Check your email for a secure password reset link.");
+      setLoading(false);
+      return;
+    }
 
-    if (error) {
-      setError(error.message);
+    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+    if (signInError) {
+      setError("We couldn’t sign you in. Check your email and password, then try again.");
       setLoading(false);
       return;
     }
@@ -37,50 +43,31 @@ export function LoginForm({ showInviteOnlyNotice = true }: { showInviteOnlyNotic
   }
 
   return (
-    <>
-      <form onSubmit={handleSubmit} className="card space-y-4">
-        <div>
-          <label className="label" htmlFor="email">Work email</label>
-          <input
-            id="email"
-            type="email"
-            required
-            autoComplete="email"
-            className="input"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="label" htmlFor="password">Password</label>
-          <input
-            id="password"
-            type="password"
-            required
-            autoComplete="current-password"
-            className="input"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-        </div>
-
-        {error && (
-          <p role="alert" className="alert-error">
-            {error}
-          </p>
-        )}
-
-        <button type="submit" disabled={loading} className="btn-primary w-full">
-          {loading ? "Signing in…" : "Sign in"}
+    <form onSubmit={handleSubmit} className="auth-form">
+      {recoveryMode && (
+        <button type="button" className="auth-back-link" onClick={() => { setRecoveryMode(false); setError(null); setMessage(null); }}>
+          ← Back to sign in
         </button>
-      </form>
-
-      {showInviteOnlyNotice && (
-        <p className="mt-5 text-center text-xs text-royal-200/70">
-          New here? Ask your HR administrator to invite you — Halomanage doesn&apos;t use public
-          sign-up.
-        </p>
       )}
-    </>
+      <div>
+        <label className="label" htmlFor="email">Work email</label>
+        <input id="email" type="email" required autoComplete="email" className="input" placeholder="you@company.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+      </div>
+      {!recoveryMode && (
+        <div>
+          <label className="label" htmlFor="password">
+            Password
+            <button type="button" className="label-hint" onClick={() => { setRecoveryMode(true); setError(null); setMessage(null); }}>Forgot password?</button>
+          </label>
+          <input id="password" type="password" required autoComplete="current-password" className="input" placeholder="Enter your password" value={password} onChange={(e) => setPassword(e.target.value)} />
+        </div>
+      )}
+      {error && <p role="alert" className="alert-error">{error}</p>}
+      {message && <p role="status" className="alert-success">{message}</p>}
+      <button type="submit" disabled={loading || Boolean(message)} className="btn-primary w-full">
+        {loading ? "Please wait…" : recoveryMode ? "Send reset link" : <>Sign in <Icon name="arrow-right" size={16} /></>}
+      </button>
+      {!recoveryMode && <p className="auth-invite-note"><Icon name="shield" size={15} /> Employee accounts are created through a secure invitation from your HR team.</p>}
+    </form>
   );
 }

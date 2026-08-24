@@ -1,60 +1,49 @@
 import { redirect } from "next/navigation";
+import { AcknowledgeDocumentButton } from "@/components/AcknowledgeDocumentButton";
+import { DocumentDownloadButton } from "@/components/DocumentDownloadButton";
+import { Icon } from "@/components/Icon";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession } from "@/lib/session";
-import { DocumentDownloadButton } from "@/components/DocumentDownloadButton";
-import { AcknowledgeDocumentButton } from "@/components/AcknowledgeDocumentButton";
 
 export default async function DocumentsPage() {
   const session = await getCurrentSession();
   if (!session) redirect("/login");
   if (!session.employee) return null;
-
   const supabase = await createClient();
-
-  // RLS (can_see_document) already scopes this to what this employee is
-  // entitled to see: their own docs, org-wide docs, and anything explicitly
-  // shared with their team.
   const { data: documents } = await supabase.from("documents").select("*").order("created_at", { ascending: false });
-
-  const versionIds = (documents ?? []).map((d) => d.current_version_id).filter(Boolean);
-  const [{ data: versions }, { data: acks }] = await Promise.all([
-    versionIds.length
-      ? supabase.from("document_versions").select("id, storage_bucket, storage_path, file_name").in("id", versionIds)
-      : Promise.resolve({ data: [] as any[] }),
-    versionIds.length
-      ? supabase.from("document_acknowledgements").select("document_version_id").eq("employee_id", session.employee.id)
-      : Promise.resolve({ data: [] as any[] }),
+  const versionIds = (documents ?? []).map((item) => item.current_version_id).filter(Boolean);
+  const [{ data: versions }, { data: acknowledgements }] = await Promise.all([
+    versionIds.length ? supabase.from("document_versions").select("id, storage_bucket, storage_path, file_name").in("id", versionIds) : Promise.resolve({ data: [] as any[] }),
+    versionIds.length ? supabase.from("document_acknowledgements").select("document_version_id").eq("employee_id", session.employee.id) : Promise.resolve({ data: [] as any[] }),
   ]);
-
-  const versionById = new Map((versions ?? []).map((v) => [v.id, v]));
-  const acknowledgedVersionIds = new Set((acks ?? []).map((a) => a.document_version_id));
+  const versionById = new Map((versions ?? []).map((version) => [version.id, version]));
+  const acknowledgedIds = new Set((acknowledgements ?? []).map((item) => item.document_version_id));
+  const acknowledgementCount = (documents ?? []).filter((item) => item.requires_acknowledgement && item.current_version_id && !acknowledgedIds.has(item.current_version_id)).length;
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
-      <h1 className="text-lg font-semibold text-stone-900">Documents</h1>
-
-      <div className="card">
-        <ul className="divide-y divide-stone-100">
-          {(documents ?? []).length === 0 && <li className="py-3 text-sm text-stone-400">No documents yet.</li>}
-          {(documents ?? []).map((d) => {
-            const v = d.current_version_id ? versionById.get(d.current_version_id) : null;
-            const needsAck = d.requires_acknowledgement && d.current_version_id && !acknowledgedVersionIds.has(d.current_version_id);
+    <div className="space-y-6">
+      <div className="page-intro"><span className="eyebrow">Your document hub</span><h1>Important files, easy to find.</h1><p>Open contracts, policies, certificates, and HR letters shared with you. Required acknowledgements stay visible until they are complete.</p></div>
+      <div className="performance-summary">
+        <div className="metric-card"><span className="metric-icon mint"><Icon name="document" /></span><div><small>Available documents</small><strong>{(documents ?? []).length}</strong><em>shared with you</em></div></div>
+        <div className="metric-card"><span className="metric-icon sun"><Icon name="check" /></span><div><small>Needs acknowledgement</small><strong>{acknowledgementCount}</strong><em>{acknowledgementCount ? "action required" : "all complete"}</em></div></div>
+      </div>
+      <section className="card">
+        <div className="panel-heading"><div><span className="panel-icon"><Icon name="document" /></span><div><h3>My documents</h3><p>Only items you are authorized to see appear here.</p></div></div></div>
+        <div className="document-list">
+          {(documents ?? []).length === 0 && <div className="list-empty">No documents have been shared with you yet.</div>}
+          {(documents ?? []).map((document) => {
+            const version = document.current_version_id ? versionById.get(document.current_version_id) : null;
+            const needsAck = document.requires_acknowledgement && document.current_version_id && !acknowledgedIds.has(document.current_version_id);
             return (
-              <li key={d.id} className="flex items-center justify-between gap-3 py-3 text-sm">
-                <div>
-                  <p className="font-medium text-stone-900">{d.title}</p>
-                  <p className="text-xs text-stone-500">{d.category.replace(/_/g, " ")}{d.expires_on && ` · expires ${d.expires_on}`}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  {needsAck && <span className="badge badge-gold">Needs acknowledgement</span>}
-                  {v && <DocumentDownloadButton bucket={v.storage_bucket} path={v.storage_path} />}
-                  {needsAck && d.current_version_id && <AcknowledgeDocumentButton documentVersionId={d.current_version_id} />}
-                </div>
-              </li>
+              <article key={document.id}>
+                <span className="document-type-icon"><Icon name="document" /></span>
+                <div><strong>{document.title}</strong><small>{document.category.replace(/_/g, " ")}{document.expires_on ? ` · Expires ${document.expires_on}` : ""}</small></div>
+                <div className="document-actions">{needsAck && <span className="badge badge-gold">Needs acknowledgement</span>}{version && <DocumentDownloadButton bucket={version.storage_bucket} path={version.storage_path} />}{needsAck && document.current_version_id && <AcknowledgeDocumentButton documentVersionId={document.current_version_id} />}</div>
+              </article>
             );
           })}
-        </ul>
-      </div>
+        </div>
+      </section>
     </div>
   );
 }

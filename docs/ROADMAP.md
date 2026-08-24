@@ -1,335 +1,93 @@
-# Halomanage — Build Roadmap & Status
+# Halomanage — Build Status and Roadmap
 
-Living document. Update this whenever you finish or start a chunk of work —
-it's the thing a fresh session (human or agent) should read first to know
-what's real, what's stubbed, and what to do next. Last updated: 2026-08-18
-(session 4 — deployed to a real Supabase project; Railway build/runtime fixes).
+Living handoff document. Last updated: 2026-08-24.
 
-## Where things stand right now
+## Current product state
 
-**This is now a live, deployed project, not just a validated-locally one.**
-A real Supabase project exists (`vknqwptcmaimhigwskoi`, `us-east-1`) and
-every one of the 18 migrations, all 149 RLS policies, all 72 public + 23
-`private`-schema functions, and all 6 Storage buckets are confirmed applied
-and matching this repo exactly (verified by direct Postgres connection —
-see the session log; the connection appears to have come from Supabase's
-GitHub integration auto-syncing `supabase/migrations/` on push, not a
-manual `db push`). The database was seeded with the demo dataset
-(`supabase/seed.sql` + `supabase/seed_auth_users.sql`) by that same
-process; **the demo org/employees/logins were deliberately deleted** once
-that was noticed, since this project is intended to hold real production
-data (Railway service is named `halomanage-production`) and
-`seed_auth_users.sql`'s password is plaintext in the repo. The database is
-now a clean, empty, fully-migrated slate — organizations/employees/
-role_assignments/auth.users all at 0 rows.
+Halomanage is a responsive Next.js HR workspace backed by Supabase. The August 2026 product-rescue
+pass replaced the former ornamental interface with a clear public site, explicit account paths, a
+responsive application shell, and modern dashboards for employees, managers, and HR administrators.
 
-The Railway deployment (`halomanage-production.up.railway.app`) is live but
-**not yet connected to that Supabase project** — `NEXT_PUBLIC_SUPABASE_URL`
-/ `NEXT_PUBLIC_SUPABASE_ANON_KEY` still need to be set as real Railway
-service variables (see "First thing to do next"). Two Railway-specific bugs
-were found and fixed getting the deployment this far: `/login` was
-statically prerendered at build time and crashed without those env vars
-present at build (fixed — forced dynamic rendering), and middleware crashed
-with a bare 500 on *every* route at runtime for the same underlying reason
-(fixed — middleware now degrades to a clear `/setup-required` page instead
-of throwing). Both are described in detail in their own commits.
+The product intentionally has no payroll engine. It imports and displays pay records calculated by
+an external payroll or accounting system.
 
-**Backend (`supabase/migrations/`, `supabase/functions/`): the full MVP data
-model + core business logic exists**, validated twice now — once against
-[PGlite](https://pglite.dev) (`supabase/tests/pglite/`, 18 migrations, 5 RLS
-test personas, 51 assertions, 4 real bug categories found and fixed pre-
-deployment — see the comment block at the top of
-`supabase/tests/pglite/run.mjs`), and now confirmed structurally identical
-on the real Supabase Postgres instance. What's still unverified against the
-*real* project specifically: real Auth flows (magic links, MFA, SAML —
-nobody has signed in yet, since there's no employee/account left after the
-demo cleanup), Storage signed URLs, Realtime, and the Edge Functions (none
-of the four have been deployed to this project yet — `invite-employee`,
-`payroll-import`, `send-notifications`, `signature-webhook` are still only
-local files).
+### Account model
 
-**Frontend (`web/`): builds and typechecks clean** (`npm run build` passes,
-20 routes) against Next.js 15 / React 18 / TypeScript strict mode, and
-covers every Phase-1 module end-to-end, including the admin configuration
-screens (org structure, leave types, onboarding/appraisal template
-builders). It has **not** been exercised against the real Supabase project
-at all yet — screenshots so far are all against dummy/absent config
-(login page rendering, and the two Railway-fix verifications). Two real
-PostgREST-embedding bugs (querying a view instead of the underlying table
-for automatic relationship embedding — see `docs/ARCHITECTURE.md` rule and
-the inline comments at each fix site) were caught and fixed by code review
-before ever running live — that asymmetry (bugs the pglite suite structure
-can't catch because they're PostgREST/frontend-layer, not RLS/SQL-layer) is
-exactly why a real end-to-end click-through — now finally possible — still
-needs to happen.
+- Organization owners choose **Create workspace** at `/signup`.
+- Email confirmation returns through `/auth/confirm` or `/auth/callback` and completes provisioning at
+  `/signup/complete`.
+- `create_organization_workspace()` atomically creates the organization, owner employee, Admin role,
+  and audit event. It is authenticated-only, idempotent per user, validation-guarded, and uses an
+  explicit empty `search_path`.
+- Employees do not self-enrol in an organization. HR creates their employee record and uses the
+  `invite-employee` Edge Function to issue access.
+- Password recovery returns through the same guarded callback flow and ends at `/update-password`.
 
-## First thing to do next
+### Frontend delivered
 
-1. **Wire up Railway**: get this project's anon key from the Supabase
-   dashboard → Project Settings → API (URL is
-   `https://vknqwptcmaimhigwskoi.supabase.co`), set both
-   `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` as Railway
-   service variables, redeploy. The `/setup-required` page currently shown
-   on every route will disappear once this is done.
-2. **Deploy the Edge Functions** — none are live yet:
-   `npx supabase login` (needs a Supabase access token, interactive),
-   `npx supabase link --project-ref vknqwptcmaimhigwskoi`, then
-   `npx supabase functions deploy invite-employee` (repeat for
-   `payroll-import`, `send-notifications`, `signature-webhook`). See
-   `supabase/functions/README.md` for the secrets each one needs beyond the
-   auto-injected Supabase ones.
-3. **Bootstrap the first real organization and Admin.** The database is
-   intentionally empty now — there is no self-serve signup (see "Known
-   simplifications" below), so the very first `organizations` row and the
-   first Admin's `employees` + `role_assignments` rows have to be inserted
-   directly (SQL editor, or ask an agent with DB access to do it) before
-   anyone can sign in and use the app normally. This is the one bootstrap
-   step that can't go through the UI, by design — everything after it can.
-4. Once there's a real Admin account, do a full click-through as that
-   Admin: Organization (add a department/position/location) → Leave Types
-   → Employees (create a second real employee, assign them via the new
-   employee detail page, invite them — needs `invite-employee` deployed
-   first) → Onboarding (build a template, start it for that new hire) →
-   sign in as the new hire and exercise clock in/out, a leave request →
-   approval (as the Admin or whoever their supervisor is), onboarding task
-   completion, an appraisal cycle end-to-end (launch → self-review →
-   supervisor review → manager review → acknowledge), a document
-   upload/acknowledge, payroll upload → reconcile → approve. This is the
-   first time any of that will have run against real Auth/Storage/Realtime
-   — expect to find and fix something. If demo/test data is useful while
-   doing this, treat `supabase/seed.sql` as a reference to adapt rather
-   than running it verbatim against this project again — it hard-codes the
-   same fixed UUIDs that were just cleaned out, and `seed_auth_users.sql`'s
-   password is public in the repo.
-5. Keep `supabase/tests/pglite/` passing (`cd supabase/tests/pglite && npm
-   test`) as you go — it's fast enough to run on every migration change.
-   Then work through `supabase/tests/database/employee_rls_test.sql` via
-   `npx supabase test db` for the Supabase-CLI-specific layer — see
-   "Testing debt" below.
+- Public landing page with a clear value proposition and separate Sign in/Create workspace actions.
+- Split-screen sign-in, organization signup, confirmation, callback-error, and password-update views.
+- Responsive desktop sidebar and mobile drawer with role-aware navigation.
+- Employee dashboard with attendance status, leave, onboarding, appraisals, and notifications.
+- Employee areas: leave, onboarding, appraisals, documents, and profile.
+- Manager area: leave approvals and current team attendance.
+- Admin areas: employee directory and detail, organization structure, leave types, onboarding and
+  appraisal builders, documents, external pay-record imports, and reporting.
+- A shared visual system for buttons, fields, cards, status badges, tables, dialogs, typography,
+  spacing, colors, focus states, and responsive behavior.
 
-## What's built (backend)
+### Backend delivered
 
-Every module below has tables + RLS + the RPCs a UI needs, per
-`docs/ARCHITECTURE.md`'s schema. File: `supabase/migrations/<file>`.
+- Organization-aware employee records and effective-dated assignments.
+- Scoped RBAC/RLS, confidential-data separation, and application audit events.
+- Attendance, additive corrections, leave ledger and approvals.
+- Versioned onboarding and appraisal engines.
+- Private documents and acknowledgements.
+- Immutable/revisioned pay-record and compensation-change imports with reconciliation.
+- Notifications, reporting views, offboarding, training/certification, and asset schemas.
+- Edge Function implementations for employee invitations, pay-record parsing, notification delivery,
+  and signature webhooks. Provider secrets/configuration are still deployment work.
 
-| Module | File | Notes |
-|---|---|---|
-| Extensions, `private` schema | `..000100` | pgcrypto, citext |
-| Organization structure | `..000200` | orgs, org_units (hierarchical), locations, positions |
-| Employees | `..000300` | `employees` / `employee_private` split, effective-dated `employee_assignments` |
-| RBAC | `..000400` | `app_role`, `app_permission`, `role_assignments`, org-overridable `role_permissions`, `management_scope` (direct supervisor/manager only — **no org-subtree recursion yet**, see below), all `private.*` RLS helper functions |
-| Audit | `..000500` | `audit_events`, write-only via `private.log_audit_event()` |
-| Attendance | `..000600` | schedules, `attendance_sessions`/`events`/`adjustments`, `clock_in()`/`clock_out()` RPCs, one-open-session DB constraint |
-| Leave | `..000700` | configurable `leave_types`/`leave_policies`, ledger-based balances, `submit_leave()`/`decide_leave_request()`/`cancel_leave_request()` — **two-step Supervisor→Manager routing is hard-coded here**, not yet the fully generic cross-module engine (see below) |
-| Onboarding | `..000800` | versioned templates/steps, `onboarding_runs`/`tasks`, `start_onboarding()`/`complete_onboarding_task()` |
-| Offboarding | `..000900` | same pattern as onboarding; **auto-launches** on `employees.status → 'terminated'` |
-| Performance | `..001000` | templates/sections/questions, cycles/instances/reviewers/responses, `launch_appraisal_cycle()`/`submit_appraisal()`/`acknowledge_appraisal()` |
-| Documents | `..001100` | versioned docs, acknowledgements, signature_requests (external provider integration is a stub) |
-| Payroll import | `..001200` | **Pay Run Results** vs **Compensation Change** kept as separate staging tables per the blueprint's explicit warning; immutable/revisioned batches; effective-dated `employee_compensation`; full RPC set |
-| Notifications | `..001300` | in-app table + Realtime; representative triggers wired for leave + onboarding-task-assigned only (see below) |
-| Training/assets | `..001400` | courses, certifications, equipment assignment |
-| Custom fields | `..001500` | employer-defined extra employee fields |
-| Reporting views | `..001600` | all `security_invoker = true` — self-scoping via caller's own RLS |
-| Storage | `..001700` | 6 private buckets + path-scoped `storage.objects` policies |
-| Employee assignment | `..001800` | `change_employee_assignment()` — atomic close-old/open-new transfer + audit, so admin UI never does a raw two-step update |
-| First-org bootstrap | `..001900` | `deployment_needs_bootstrap()` / `bootstrap_first_organization()` — self-service org+Admin setup, but only once, ever, per deployment |
+## Verification completed
 
-Edge Functions (`supabase/functions/`): `invite-employee` (real, deployable),
-`payroll-import` (real XLSX/CSV parsing via SheetJS, deployable),
-`send-notifications` (real skeleton, needs an email provider wired into
-`sendEmail()`), `signature-webhook` (real skeleton, needs a provider chosen
-and its actual signature-verification scheme swapped in for the placeholder
-equality check).
+- `web`: ESLint passes.
+- `web`: TypeScript passes with `tsc --noEmit`.
+- `web`: Next.js 16.3.2 production build passes for all routes.
+- `web`: `npm audit` reports 0 vulnerabilities.
+- `supabase/tests/pglite`: 61/61 database assertions pass, including cross-organization workspace
+  provisioning and duplicate-provisioning rejection.
 
-## What's built (frontend, `web/`)
+## Deployment checklist
 
-Auth (sign-in only, no public sign-up), the shared portal shell with a
-role-driven nav (now with an "Admin ▾" dropdown, `components/NavDropdown.tsx`,
-since the flat list outgrew a single row).
+These steps require the project owner's credentials and are intentionally not performed from a local
+code-only session.
 
-| Area | Routes | What it does |
-|---|---|---|
-| Self-service | `/dashboard`, `/leave`, `/onboarding`, `/appraisals` (+ `/appraisals/[id]`), `/documents`, `/profile` | Clock in/out, leave request + history + balances, complete assigned onboarding tasks (with dependency ordering enforced), fill/submit a checkpoint review or acknowledge a completed one, view/download/acknowledge documents, edit own profile + private info |
-| Supervisor/Manager | `/team` | Pending leave approvals, today's team attendance |
-| Admin — configure the product | `/admin/organization`, `/admin/leave-types`, `/admin/onboarding` (+ `templates/[id]`), `/admin/appraisals` (+ `templates/[id]`) | Departments/positions/locations, leave-type builder (all the fields `submit_leave()` reads), onboarding template + step builder with dependency selection, appraisal template + section + question builder, cycle creation + launch |
-| Admin — manage people | `/admin/employees` (+ `/admin/employees/[id]`) | Directory, create, invite, **and now**: full assignment history + a transfer/promotion form (`ChangeAssignmentForm` → `change_employee_assignment()`), leave-balance grants |
-| Admin — payroll & documents | `/admin/payroll`, `/admin/documents` | Upload/reconcile/approve (aggregate counts only — see below), org-wide or employee-specific document upload |
-| Admin — visibility | `/admin/reports` | Headcount, pending leave, onboarding completion, expiring documents/certs/training, recent payroll batches — built entirely on the reporting views from `20260818001600` |
+1. Apply the new migration `20260824182946_create_organization_workspace.sql` to the target Supabase
+   project.
+2. Set `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and `NEXT_PUBLIC_SITE_URL` in the
+   hosting environment. Never expose `SUPABASE_SERVICE_ROLE_KEY` to the Next.js client.
+3. In Supabase Auth, enable email signup and add the production `/auth/callback` URL to the allow list.
+4. Configure confirmation and password-recovery email templates to use the callback/confirmation
+   routes in `web/app/auth/`.
+5. Deploy `invite-employee`, `payroll-import`, `send-notifications`, and `signature-webhook`, then set
+   their provider secrets.
+6. Run a real click-through: owner signup → organization setup → employee creation/invite → employee
+   sign-in → attendance/leave/onboarding/appraisal/document flow → external pay-record import.
+7. Run Supabase security and performance advisors after the migration is deployed.
 
-The employee-detail page (`/admin/employees/[id]`) closes what was the
-single biggest gap as of the previous session: previously, `NewEmployeeForm`
-only ever created a bare `employees` row with no department, position, or
-supervisor — meaning leave approval routing had nobody to route to.
+## Remaining product work
 
-**Still no UI for:** offboarding task checklists (backend auto-triggers on
-termination and the RPCs exist, but nobody can *see or complete* the
-resulting tasks yet — this is now the most glaring remaining gap, more so
-than anything above it), training/certifications, asset/equipment
-management, custom fields, notification preferences, and per-row payroll
-reconciliation drill-in (`resolve_payroll_row_match()`/
-`resolve_compensation_row_match()` exist but `/admin/payroll` only shows
-aggregate counts, not a way to fix an individual unmatched row without SQL).
+The current application is a strong, coherent MVP, not the end of the complete blueprint. The most
+valuable next tranche is:
 
-## Known simplifications to revisit (don't be surprised by these)
+1. Offboarding checklist screens and access-revocation scheduling.
+2. Training/certification and equipment/asset screens.
+3. Per-row pay-import reconciliation and mapping UI.
+4. Notification preferences and production email/SMS provider integration.
+5. Reusable employer-configurable workflow routing beyond the current leave-specific chain.
+6. Manager org-subtree visibility and per-user permission grants (HR Admin/System Admin/Pay Importer).
+7. Scheduled accrual, expiry, appraisal, probation, and escalation jobs.
+8. Employee-relations cases, announcements, surveys, recognition, integrations, and mobile/PWA work
+   in the later phases defined by `PRODUCT_BLUEPRINT.md`.
 
-- **`management_scope` covers direct reports only.** The blueprint's "a
-  Manager might see the Supervisor's teams underneath them" (org-subtree
-  visibility) is not implemented — `private.refresh_management_scope()` in
-  `20260818000400_authorization.sql` only inserts direct
-  supervisor/manager relationships. Extending it to walk `org_units`
-  recursively is additive (bigger query in that one function), not a schema
-  change.
-- **Leave approval routing is hard-coded** (Supervisor, then Manager if
-  unpaid or over a configurable day threshold) inside `submit_leave()`. The
-  blueprint calls for one fully generic, employer-configurable routing-rules
-  engine reused by leave, attendance corrections, onboarding approvals,
-  appraisal approvals, and HR requests. Leave's implementation is the
-  reference pattern to generalize — extract a `workflow_rules` /
-  `approval_chain_instances` table pair once a second module (attendance
-  corrections is the natural next one, since `attendance_adjustments`
-  already has an analogous but separately-coded approve/reject flow) needs
-  the same shape.
-- **Cron-driven automations are mostly unwritten.** `private.create_notification()`
-  and the notification tables are ready, and leave/onboarding events are
-  wired via row triggers, but the *time-based* automations from
-  PRODUCT_BLUEPRINT.md — appraisal-due reminders, overdue escalation,
-  certification/document expiry alerts (`expiring_items_v` already exists
-  and is exactly what such a job would scan), probation-checkpoint
-  triggers, leave accrual — need actual `supabase/functions/` +
-  `cron.schedule(...)` wiring once a project exists to schedule against.
-- **Compensation-change and payroll-row reconciliation UI is table-only** —
-  `resolve_payroll_row_match()`/`resolve_compensation_row_match()` RPCs
-  exist for HR to manually match an unmatched row to an employee, but
-  `app/(portal)/admin/payroll/` doesn't yet expose the per-row drill-in to
-  call them.
-- **RLS/RPC behavior has real coverage now (`supabase/tests/pglite/`, 45
-  assertions), but it's not exhaustive.** Covered: employee directory scope,
-  private-PII isolation, attendance (double clock-in, team visibility),
-  leave (full approval chain, wrong-approver rejection, balance ledger),
-  payroll (both import types, unmatched-row blocking, cross-employee
-  isolation, permission checks), onboarding (dependency ordering,
-  auto-completion), and a full appraisal cycle (including the RLS-recursion
-  edge case). Not yet covered: attendance correction requests/approvals
-  (`attendance_adjustments`), documents/Storage object policies, custom
-  fields, training/assets, and multi-org isolation (two different
-  `organizations` rows, confirming zero cross-tenant leakage). Extend
-  `supabase/tests/pglite/run.mjs` for any of those before trusting them: it
-  needs no Docker and already found 4 real bugs (see its header comment).
-  `supabase/tests/database/employee_rls_test.sql` is the separate pgTAP
-  starter for the Supabase-CLI layer specifically — extend both suites,
-  they cover different things (see `supabase/tests/pglite/README.md`).
-- **No column-level privilege lockdown yet.** Self-editable columns on
-  `employees` are protected by the `employees_protect_columns` trigger
-  (raises on protected-field changes without `employee.manage`), which is
-  correct but coarser than Postgres column-level `GRANT`s
-  (ARCHITECTURE.md mentions this as an option). Current approach is fine;
-  revisit only if a real need for finer control shows up.
-- **Multi-tenant billing/provisioning still doesn't exist, but the
-  first-organization cold start is no longer a manual-SQL (or manual
-  Supabase-dashboard) affair.** `deployment_needs_bootstrap()` /
-  `bootstrap_first_organization()`
-  (`20260818001900_bootstrap_first_organization.sql`) is wired into two
-  places now: `components/AuthScreen.tsx` (rendered by `/login`, checks
-  `deployment_needs_bootstrap()` — itself grantable to `anon` — *before*
-  anyone is signed in, and swaps in `CreateOrganizationForm` in place of the
-  ordinary sign-in form when it's true) and, as a fallback for an account
-  created some other way (e.g. directly in the Supabase dashboard),
-  `app/(portal)/dashboard/page.tsx` via `BootstrapOrganizationForm`. The
-  first version of this only covered the dashboard path, which still left a
-  real gap: someone with *no* auth.users account at all had no UI path to
-  get one, since there's deliberately no public signup once an organization
-  exists (PRODUCT_BLUEPRINT.md — invitation-only). `CreateOrganizationForm`
-  closes that: it calls `supabase.auth.signUp()` itself (only ever offered
-  while `deployment_needs_bootstrap()` is true) and then
-  `bootstrap_first_organization()` in the same flow, so the very first
-  person on a genuinely empty deployment can go from "no account exists" to
-  "signed in as Admin of their new organization" entirely through the app —
-  found and fixed after a real user hit the old dead end live in production
-  twice: first "ask an HR administrator" with no HR administrator to ask,
-  then, after that was patched, no way to get an account to sign in with in
-  the first place. `app/page.tsx` (the public `/` landing page, previously
-  just `redirect("/dashboard")`, which — via middleware bouncing the
-  resulting unauthenticated `/dashboard` hit to `/login` — meant `/` never
-  rendered anything of its own) now points visitors at `/login` for both
-  "sign in" and "set up your organization," rather than assuming a
-  separate marketing site exists. Bootstrap only works once, ever, per
-  deployment — the moment one organization exists, every subsequent person
-  is back to needing a real invitation, by design. What's still missing: a
-  way to run *multiple separate employers* off one deployment (a second
-  company today would need its own Supabase project/Railway instance
-  entirely) and self-serve billing — neither was ever in scope for this
-  build. Cross-tenant RLS isolation is verified by design (every table is
-  `organization_id`-scoped) but not yet by a dedicated pgTAP/pglite test
-  with two real organizations present simultaneously — worth adding.
-- **RBAC granularity stops at the role, not the person — the blueprint's
-  "HR Admin vs. System Admin" split and dedicated "Payroll Importer" role
-  are not actually achievable yet.** `role_permissions` lets an *org*
-  override what a role's bundle means, but every person holding that role
-  in that org shares the exact same permissions — there's no per-user grant
-  table, and `app_role` is a fixed 4-value enum. Giving one specific Admin
-  `payroll.import` without giving it to every Admin, or giving a non-admin
-  employee *only* `payroll.import`, needs either a `user_permission_grants`
-  table (additive grants layered on top of the role bundle in
-  `private.has_permission()`) or new `app_role` enum values with their own
-  default bundles — sketched but not built. Flagged explicitly to the user
-  as a real gap; not addressed in this pass, which prioritized the
-  admin-can't-configure-anything gap instead.
-- **Appraisal reviewers can't see each other's in-progress responses,
-  including in the Manager stage.** This falls directly out of RLS being
-  correctly strict (`appraisal_reviewers` policies scope by
-  `reviewer_user_id = self`), and is defensible as independent-review
-  integrity — but PRODUCT_BLUEPRINT.md's "Manager review/calibration" stage
-  name implies the Manager might be expected to see the Supervisor's
-  already-submitted review for calibration. Currently only the subject and
-  HR see everything, and only once every stage is done. Revisit if calibration
-  visibility turns out to matter more than reviewer independence.
-- **PostgREST relationship-embedding through a view is a recurring trap —
-  hit and fixed three separate times now** (`leave_balance_v` in the
-  original build; `employee_current_assignment_v` and
-  `onboarding_progress_v` in this session, both caught by code review before
-  shipping, not by a live backend). The rule going forward:
-  **never write `.select("*, related_table(...)")` against a `_v` view** —
-  embedding needs a real foreign-key constraint, which views don't carry
-  even when the underlying table does. Query the base table directly, or
-  denormalize the needed columns into the view itself (the pattern
-  `leave_balance_v` and every view in `20260818001600_reporting_views.sql`
-  already follow).
-- **Training/certifications and asset/equipment management have zero UI**
-  despite full backend support (`20260818001400_training_assets.sql`) —
-  not started this pass; same shape as everything else, lowest priority of
-  what's left since it wasn't called out as the top gap.
-
-## Roadmap (mirrors PRODUCT_BLUEPRINT.md's MVP → v2 → later phases)
-
-- [x] Phase 0 — repo scaffold, docs, Supabase project structure, Next.js app
-- [x] Phase 1 — foundation: org structure, employees, RBAC/RLS, audit
-- [x] Phase 1 — attendance (clock in/out, corrections)
-- [x] Phase 1 — leave (configurable types, ledger, approval)
-- [x] Phase 1 — onboarding engine (templates, versioned runs)
-- [x] Phase 1 — performance checkpoints (configurable templates/cycles)
-- [x] Phase 1 — documents (versioned, acknowledgements)
-- [x] Phase 1 — payroll import (two-type, immutable/revisioned, reconciliation)
-- [x] Phase 1 — notifications (in-app + Realtime; email delivery skeleton)
-- [x] Phase 1 — reporting views; audit trail
-- [x] Phase 1 (bonus, blueprint calls it "High" not "Essential") — offboarding, training/assets
-- [x] Validate the full schema + core RPCs against a real Postgres engine (`supabase/tests/pglite/`, now 51 assertions, 4 real bug categories found and fixed)
-- [x] Frontend: org-structure + leave-type admin builders, employee assignment/transfer UI, self-service profile
-- [x] Frontend: onboarding UI (template builder + employee task view), appraisal UI (template/cycle builder + review flow), documents UI (upload + view + acknowledge), reporting dashboard
-- [x] Deploy the schema to a real Supabase project (`vknqwptcmaimhigwskoi`) — all 18 migrations, 149 policies, 72+23 functions, 6 buckets confirmed applied; demo data intentionally removed since this project is production
-- [ ] **Wire Railway to the real project (env vars), deploy the 4 Edge Functions, bootstrap the first real org + Admin, then do a full real click-through** ← you are here
-- [ ] Frontend: offboarding task UI (now the top gap — backend auto-triggers but nothing surfaces the checklist), training/assets UI, per-row payroll reconciliation drill-in, notification preferences
-- [ ] RBAC: per-user permission grants and/or HR-Admin/System-Admin/Payroll-Importer role split (see "Known simplifications" — real gap, explicitly flagged, not yet built)
-- [ ] Cron jobs: expiry reminders, appraisal reminders/escalation, leave accrual, probation checkpoints
-- [ ] Generalize the leave approval-routing pattern into a reusable workflow engine (v2 per blueprint)
-- [ ] `management_scope` org-subtree recursion for Manager visibility
-- [ ] Expand pgTAP RLS test coverage across all modules
-- [ ] Employee Relations Cases (confidential grievance/discipline records) — v2/High in blueprint, not started
-- [ ] Announcements, Surveys/Engagement, Recognition — Medium priority, not started
-- [ ] Recruitment/ATS — explicitly deferred per blueprint ("does not need to be in the first version")
-
-## Product & architecture reference
-
-Don't re-derive scope decisions — they're already made and documented:
-`docs/PRODUCT_BLUEPRINT.md` (what & why) and `docs/ARCHITECTURE.md` (how, on
-Supabase). The original two source PDFs are kept at the repo root for
-anything the condensed docs don't cover.
+Recruitment/ATS and payroll calculation remain intentionally out of the first release.

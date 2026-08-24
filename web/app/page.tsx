@@ -1,133 +1,152 @@
 import Link from "next/link";
+import { Brand } from "@/components/Brand";
+import { Icon, type IconName } from "@/components/Icon";
 
-// The public marketing page — what a signed-out visitor sees at the root
-// URL. Previously this file just did redirect("/dashboard"), which (via
-// middleware bouncing the resulting unauthenticated /dashboard request
-// straight to /login) meant there was never anything here to see, and no
-// way to find out what Halomanage even is before hitting a login wall.
-// Signed-in visitors are sent straight to /dashboard by middleware.ts
-// before this component ever renders, so everything below only needs to
-// account for a signed-out audience.
-const FEATURES = [
-  {
-    title: "Attendance & time",
-    body: "Clock in and out, break tracking, and a live view of who's working right now — no separate time clock hardware.",
-  },
-  {
-    title: "Leave management",
-    body: "Configurable leave types and accrual policies, employee requests, and a supervisor approval queue with balances kept in sync automatically.",
-  },
-  {
-    title: "Onboarding",
-    body: "Assign a checklist to every new hire — documents, tasks, and sign-off — so nothing falls through in someone's first week.",
-  },
-  {
-    title: "Performance appraisals",
-    body: "Recurring review cycles with manager and self-assessment forms, scored and archived against each employee's history.",
-  },
-  {
-    title: "Document vault",
-    body: "Contracts, ID, certifications — stored per employee with access controlled the same way every other record is: role by role.",
-  },
-  {
-    title: "Payroll records",
-    body: "Halomanage keeps a unified payroll history alongside everything else — imported from whatever payroll provider you already run, never calculated here.",
-  },
+const features: Array<{ icon: IconName; title: string; body: string; tone: string }> = [
+  { icon: "people", title: "One employee record", body: "A complete, effective-dated history from first day through every role, document, review, and change.", tone: "feature-mint" },
+  { icon: "leave", title: "Time & leave", body: "Trusted clock events, configurable leave policies, clean balances, and approval routes that match your organization.", tone: "feature-sun" },
+  { icon: "onboarding", title: "Onboarding that moves", body: "Build reusable checklists with owners, due dates, dependencies, evidence, and real-time completion tracking.", tone: "feature-coral" },
+  { icon: "performance", title: "Useful performance cycles", body: "Run probation, quarterly, annual, or custom checkpoints without forcing every team into one review ritual.", tone: "feature-lilac" },
+  { icon: "document", title: "A secure document home", body: "Versioned contracts, policies, certificates, acknowledgements, and expiring-item alerts with precise visibility.", tone: "feature-mint" },
+  { icon: "payroll", title: "Pay records, connected", body: "Import finalized payroll results for employee access and reconciliation—without turning HR software into a payroll engine.", tone: "feature-sun" },
 ];
+
+const steps = [
+  { number: "01", title: "Create your workspace", body: "Organization owners set up a secure HR workspace and become its first administrator." },
+  { number: "02", title: "Shape it around your team", body: "Add departments, locations, positions, leave policies, and the approval routes you already use." },
+  { number: "03", title: "Invite your people", body: "Employee accounts are invitation-only, linked to the HR record you created for them—never open to strangers." },
+];
+
+function ProductPreview() {
+  return (
+    <div className="landing-product" aria-label="Halomanage dashboard preview">
+      <div className="landing-product-bar">
+        <span /><span /><span />
+        <small>halomanage.app</small>
+      </div>
+      <div className="landing-product-body">
+        <aside>
+          <Brand href="" inverse compact />
+          {["dashboard", "people", "leave", "onboarding", "performance"].map((item, index) => (
+            <div className={index === 0 ? "active" : ""} key={item}>
+              <Icon name={item as IconName} size={15} /><span />
+            </div>
+          ))}
+        </aside>
+        <section>
+          <div className="preview-heading"><div><small>MONDAY, AUGUST 24</small><strong>Good morning, Maya</strong></div><span className="preview-avatar">MW</span></div>
+          <div className="preview-stats">
+            <div><small>Total people</small><strong>84</strong><em>+3 this month</em></div>
+            <div><small>Working today</small><strong>71</strong><em>84% attendance</em></div>
+            <div><small>Needs attention</small><strong>6</strong><em>2 overdue</em></div>
+          </div>
+          <div className="preview-grid">
+            <div className="preview-chart">
+              <div><strong>Team availability</strong><small>Today</small></div>
+              <div className="preview-bars"><i style={{ height: "54%" }} /><i style={{ height: "78%" }} /><i style={{ height: "66%" }} /><i style={{ height: "88%" }} /><i style={{ height: "72%" }} /><i style={{ height: "92%" }} /><i style={{ height: "82%" }} /></div>
+              <div className="preview-axis"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div>
+            </div>
+            <div className="preview-actions">
+              <strong>Next actions</strong>
+              {["Approve 2 leave requests", "Review onboarding", "Sign policy update"].map((item, index) => (
+                <div key={item}><span className={`preview-dot dot-${index}`}><Icon name={index === 0 ? "leave" : index === 1 ? "onboarding" : "document"} size={12} /></span><small>{item}</small></div>
+              ))}
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
 
 export default function LandingPage() {
   return (
-    <div className="min-h-screen">
-      <section
-        className="relative overflow-hidden px-4 pb-20 pt-6"
-        style={{
-          backgroundImage:
-            "radial-gradient(ellipse 1000px 700px at 50% -10%, rgba(140,170,230,0.25), transparent 60%)," +
-            "linear-gradient(180deg, #16265F 0%, #0E1A42 55%, #080F28 100%)",
-        }}
-      >
-        <div
-          className="absolute inset-x-0 top-0 h-[3px]"
-          style={{
-            backgroundImage:
-              "linear-gradient(90deg, #A2761F, #F5DE95 25%, #C4922A 50%, #F5DE95 75%, #A2761F)",
-            boxShadow: "0 1px 4px rgba(0,0,0,0.5)",
-          }}
-        />
-
-        <div className="mx-auto flex max-w-6xl items-center justify-between py-5">
-          <div className="flex items-center gap-2.5">
-            <span className="crest">H</span>
-            <span
-              className="font-display text-lg font-bold text-cream-50"
-              style={{ textShadow: "0 1px 2px rgba(0,0,0,0.35)" }}
-            >
-              Halomanage
-            </span>
+    <div className="landing-page">
+      <header className="landing-nav">
+        <div className="landing-container landing-nav-inner">
+          <Brand />
+          <nav aria-label="Public navigation">
+            <a href="#platform">Platform</a>
+            <a href="#how-it-works">How it works</a>
+            <a href="#security">Security</a>
+          </nav>
+          <div className="landing-nav-actions">
+            <Link href="/login" className="landing-signin">Sign in</Link>
+            <Link href="/signup" className="btn-primary">Create workspace <Icon name="arrow-right" size={16} /></Link>
           </div>
-          <Link href="/login" className="btn-primary">
-            Sign in
-          </Link>
         </div>
+      </header>
 
-        <div className="mx-auto mt-14 max-w-3xl text-center">
-          <h1
-            className="font-display text-4xl font-bold leading-tight text-cream-50 sm:text-5xl"
-            style={{ textShadow: "0 2px 8px rgba(0,0,0,0.4)" }}
-          >
-            One system for your whole employee lifecycle
-          </h1>
-          <p className="mx-auto mt-5 max-w-xl text-base text-royal-200/85 sm:text-lg">
-            Attendance, leave, onboarding, performance, documents, and payroll records —
-            connected, role-secured, and built on Postgres row-level security instead of
-            application-layer guesswork.
-          </p>
-          <div className="mt-8 flex items-center justify-center gap-3">
-            <Link href="/login" className="btn-primary px-6 py-2.5 text-base">
-              Sign in
-            </Link>
-          </div>
-          <p className="mt-5 text-xs text-royal-200/60">
-            New deployment? Sign in and you&apos;ll be offered the chance to set up your
-            organization as its first Admin — no separate signup page required.
-          </p>
-        </div>
-      </section>
-
-      <section className="mx-auto max-w-6xl px-4 py-16">
-        <div className="mb-10 text-center">
-          <h2 className="font-display text-2xl font-bold text-stone-900">Everything HR needs, in one place</h2>
-          <p className="mt-2 text-sm text-stone-500">
-            Halomanage doesn&apos;t calculate payroll — it keeps the record of everything around
-            it, so your team stops re-entering the same data in five different tools.
-          </p>
-        </div>
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {FEATURES.map((f) => (
-            <div key={f.title} className="card">
-              <h3 className="font-display text-base font-bold text-stone-900">{f.title}</h3>
-              <p className="mt-2 text-sm text-stone-600">{f.body}</p>
+      <main>
+        <section className="landing-hero">
+          <div className="landing-orbit orbit-one" /><div className="landing-orbit orbit-two" />
+          <div className="landing-container landing-hero-grid">
+            <div className="landing-hero-copy">
+              <div className="landing-kicker"><Icon name="spark" size={15} /> Built for the whole employee journey</div>
+              <h1>People operations, <em>beautifully organized.</em></h1>
+              <p>Halomanage brings employee records, time, leave, onboarding, performance, documents, and pay records into one secure workspace your team can actually enjoy using.</p>
+              <div className="landing-hero-actions">
+                <Link href="/signup" className="btn-primary landing-cta">Create your workspace <Icon name="arrow-right" size={17} /></Link>
+                <Link href="/login" className="btn-secondary landing-cta">Sign in to your account</Link>
+              </div>
+              <div className="landing-hero-note">
+                <span><Icon name="check" size={14} /> No payroll engine</span>
+                <span><Icon name="check" size={14} /> Invitation-only employees</span>
+                <span><Icon name="check" size={14} /> Supabase-secured</span>
+              </div>
             </div>
-          ))}
-        </div>
-      </section>
+            <div className="landing-visual"><ProductPreview /><div className="landing-float-card"><span><Icon name="check" size={15} /></span><div><strong>Onboarding complete</strong><small>Jordan Miller · 2 min ago</small></div></div></div>
+          </div>
+        </section>
 
-      <section className="border-t border-gold-200/60 bg-cream-200/50 px-4 py-14">
-        <div className="mx-auto max-w-3xl text-center">
-          <h2 className="font-display text-2xl font-bold text-stone-900">Security-first by design</h2>
-          <p className="mt-3 text-sm text-stone-600">
-            Every record in Halomanage is protected by Postgres row-level security, not just
-            application code — an employee sees their own data, a supervisor sees their team,
-            and an Admin sees the organization, enforced at the database itself. Accounts are
-            created by invitation from an Admin; there&apos;s no open public signup, which keeps
-            uninvited people out of your organization&apos;s data by construction.
-          </p>
-        </div>
-      </section>
+        <section className="landing-proof">
+          <div className="landing-container">
+            <p>One calm workspace for every kind of people work</p>
+            <div><span>Employee records</span><span>Attendance</span><span>Leave</span><span>Onboarding</span><span>Performance</span><span>Documents</span><span>Pay records</span></div>
+          </div>
+        </section>
 
-      <footer className="px-4 py-8 text-center text-xs text-stone-400">
-        <p>Halomanage</p>
-      </footer>
+        <section className="landing-section" id="platform">
+          <div className="landing-container">
+            <div className="landing-section-heading">
+              <div><span className="eyebrow">The connected HR workspace</span><h2>Everything your people need.<br /><em>Nothing they don&apos;t.</em></h2></div>
+              <p>Each module understands the same employee, reporting structure, permissions, and workflow—so work moves forward without duplicate entry or disconnected spreadsheets.</p>
+            </div>
+            <div className="landing-feature-grid">
+              {features.map((feature) => (
+                <article className={feature.tone} key={feature.title}>
+                  <span className="landing-feature-icon"><Icon name={feature.icon} /></span>
+                  <h3>{feature.title}</h3>
+                  <p>{feature.body}</p>
+                  <span className="landing-feature-link">Explore the workflow <Icon name="arrow-right" size={15} /></span>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="landing-flow" id="how-it-works">
+          <div className="landing-container landing-flow-grid">
+            <div className="landing-flow-copy"><span className="eyebrow">A clear way in</span><h2>Start as an organization.<br /><em>Join as a person.</em></h2><p>Account creation is deliberate and easy to understand. Organization owners create the workspace. Employees join only through a secure invitation that connects them to their existing HR record.</p><Link href="/signup" className="btn-primary landing-cta">Set up Halomanage <Icon name="arrow-right" size={17} /></Link></div>
+            <div className="landing-steps">
+              {steps.map((step) => <div key={step.number}><span>{step.number}</span><div><h3>{step.title}</h3><p>{step.body}</p></div></div>)}
+            </div>
+          </div>
+        </section>
+
+        <section className="landing-security" id="security">
+          <div className="landing-container landing-security-grid">
+            <div className="security-visual"><div className="security-ring ring-a" /><div className="security-ring ring-b" /><span><Icon name="shield" size={50} /></span><div className="security-pill pill-one"><i /> Employee data isolated</div><div className="security-pill pill-two"><i /> Access checked at the database</div></div>
+            <div className="landing-security-copy"><span className="eyebrow">Security is the foundation</span><h2>The right access,<br /><em>down to each row.</em></h2><p>Halomanage uses PostgreSQL Row Level Security as the real authorization boundary. Employees see themselves, supervisors see their scope, and sensitive pay or private information stays separately permissioned.</p><ul><li><Icon name="check" size={16} /> Organization-aware tenant isolation</li><li><Icon name="check" size={16} /> Role + relationship + scope permissions</li><li><Icon name="check" size={16} /> Private document storage and auditable actions</li></ul></div>
+          </div>
+        </section>
+
+        <section className="landing-final">
+          <div className="landing-container landing-final-card"><div><span className="eyebrow">Ready when you are</span><h2>Give your people work<br />a better home.</h2><p>Create the workspace, shape your processes, then invite your team.</p></div><div><Link href="/signup" className="btn-primary landing-cta">Create your workspace <Icon name="arrow-right" size={17} /></Link><Link href="/login">Already have an account? Sign in</Link></div></div>
+        </section>
+      </main>
+
+      <footer className="landing-footer"><div className="landing-container"><Brand /><p>Employee lifecycle management without a payroll engine.</p><span>© {new Date().getFullYear()} Halomanage</span></div></footer>
     </div>
   );
 }

@@ -18,7 +18,7 @@
 // that becomes a real constraint, move parsing to an external worker fed by
 // Supabase Queues rather than trying to force it through this function.
 
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.112.4";
 import * as XLSX from "npm:xlsx@0.18.5";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 

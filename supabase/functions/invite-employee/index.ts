@@ -11,7 +11,7 @@
 //
 // Request body: { "employee_id": "<uuid>", "redirect_to"?: "<url>" }
 
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.112.4";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 
 Deno.serve(async (req) => {

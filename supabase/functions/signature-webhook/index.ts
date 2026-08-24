@@ -12,7 +12,7 @@
 // Expected inbound shape here is illustrative — replace with the actual
 // provider's payload once one is chosen.
 
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.112.4";
 import { jsonResponse } from "../_shared/cors.ts";
 
 Deno.serve(async (req) => {

@@ -39,10 +39,15 @@ Halomanage/
 ## Getting started (once you have a Supabase project)
 
 1. Create a Supabase project at supabase.com (or run locally with the Supabase CLI + Docker).
-2. Copy `web/.env.example` to `web/.env.local` and fill in `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` (and `SUPABASE_SERVICE_ROLE_KEY` for server-only use).
+2. Copy `web/.env.example` to `web/.env.local` and fill in `NEXT_PUBLIC_SUPABASE_URL`,
+   `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and `NEXT_PUBLIC_SITE_URL`. Do not put the service-role key in
+   the web app.
 3. Apply the migrations in `supabase/migrations/` in order (via `supabase db push`, the Supabase SQL editor, or the CLI once installed — `npx supabase`).
 4. Run `supabase/seed.sql` against a **dev** project only — it creates sample organizations, employees and role assignments for local testing.
-5. `cd web && npm install && npm run dev`.
+5. In Supabase Auth, enable email signup and add `${NEXT_PUBLIC_SITE_URL}/auth/callback` to the
+   allowed redirect URLs. Public signup provisions organization owners only; employees join through
+   Admin-issued invitations.
+6. `cd web && npm install && npm run dev`, then open `/signup` to create the first workspace.
 
 ## Non-negotiable design rules
 
