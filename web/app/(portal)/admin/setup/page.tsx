@@ -31,12 +31,13 @@ export default async function SetupGuidePage() {
     supabase.from("onboarding_templates").select("id").eq("organization_id", organizationId).eq("is_active", true),
     supabase.from("appraisal_templates").select("id").eq("organization_id", organizationId).eq("is_active", true),
     supabase.from("documents").select("id").eq("organization_id", organizationId).eq("is_active", true),
+    supabase.from("employee_import_batches").select("id, status").eq("organization_id", organizationId).eq("status", "committed"),
   ]);
 
   const queryError = results.find((result) => result.error)?.error;
   if (queryError) console.error("setup guide: failed to load setup counts", { code: queryError.code });
 
-  const [employees, orgUnits, positions, locations, leaveTypes, onboardingTemplates, appraisalTemplates, documents] = results.map((result) => result.data ?? []);
+  const [employees, orgUnits, positions, locations, leaveTypes, onboardingTemplates, appraisalTemplates, documents, employeeImports] = results.map((result) => result.data ?? []);
   const invitedEmployees = employees.filter((employee: any) => employee.user_id).length;
   const hasStructure = orgUnits.length > 0 && positions.length > 0 && locations.length > 0;
   const initialized = Boolean(session.organization.settings.starter_workspace_initialized_at);
@@ -47,6 +48,7 @@ export default async function SetupGuidePage() {
   const items: SetupItem[] = [
     { title: "Employee portal", description: "Preview and share your organization-specific sign-in page.", href: `#employee-portal`, complete: Boolean(session.organization.slug), icon: "shield", action: "View portal" },
     { title: "Business structure", description: "Add departments, positions, and work locations.", href: "/admin/organization", complete: hasStructure, icon: "organization", action: "Configure structure" },
+    { title: "Bring over your team", description: "Import a spreadsheet or HR-system export with a validated dry-run.", href: "/admin/migrations", complete: employeeImports.length > 0 || employees.length > 1, icon: "reports", action: "Open Migration Center" },
     { title: "People and access", description: "Create employee records and send secure invitations.", href: "/admin/employees", complete: employees.length > 1 && invitedEmployees > 1, icon: "people", action: "Add employees" },
     { title: "Leave policies", description: "Define vacation, sick, unpaid, and company-specific leave.", href: "/admin/leave-types", complete: leaveTypes.length > 0, icon: "leave", action: "Review policies" },
     { title: "Onboarding workflow", description: "Prepare a repeatable checklist for every new hire.", href: "/admin/onboarding", complete: onboardingTemplates.length > 0, icon: "onboarding", action: "Open onboarding" },

@@ -59,6 +59,9 @@ verify_jwt = true
 [functions.payroll-import]
 verify_jwt = true
 
+[functions.employee-import]
+verify_jwt = true
+
 [functions.send-notifications]
 verify_jwt = false # invoked by Cron with the service_role key, not a user JWT
 
