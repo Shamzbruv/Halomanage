@@ -448,6 +448,124 @@ async function main() {
       comp.rows.length === 1 && Number(comp.rows[0].amount) === 55000 && comp.rows[0].end_date === null);
   });
 
+  // ===================== EMPLOYEE MIGRATION CENTER ======================
+  // Ref: supabase/migrations/20260826154926_employee_migration_center.sql.
+  // The employee-import Edge Function (XLSX/CSV parsing) isn't runnable
+  // here, so rows are staged directly with a service_role-style insert —
+  // exactly what that function does after it parses a workbook — and the
+  // suite exercises everything downstream of that: permission checks,
+  // validation, the needs-review -> ready-for-import -> committed
+  // lifecycle, and rollback's two independent activity guards.
+  let migBatchId;
+  await as(DAVID_USER, async () => {
+    let threw = false;
+    try {
+      await db.query(`select * from public.create_employee_import_batch('${ORG}', 'spreadsheet', 'team.csv', '${ORG}/fake/team.csv', 'hash1', 'update', '{}')`);
+    } catch { threw = true; }
+    ok("David (no employee.manage) cannot create an import batch", threw);
+  });
+  await as(ERIN_USER, async () => {
+    const res = await db.query(`select * from public.create_employee_import_batch('${ORG}', 'spreadsheet', 'team.csv', '${ORG}/fake/team.csv', 'hash1', 'update', '{}')`);
+    migBatchId = res.rows[0].id;
+    ok("Erin can create an import batch", res.rows[0].status === "uploaded");
+  });
+  // Simulates the employee-import Edge Function's service_role insert: one
+  // clean create, one clean update (Bob's phone), one row missing a
+  // required field.
+  await db.exec(`
+    insert into public.employee_import_rows (batch_id, row_number, raw_row, normalized_row) values
+      ('${migBatchId}', 1, '{}'::jsonb, '{"employee_number":"EMP-0006","first_name":"Frank","last_name":"Stone","work_email":"frank@acme.test","status":"active"}'::jsonb),
+      ('${migBatchId}', 2, '{}'::jsonb, '{"employee_number":"EMP-0002","first_name":"Bob","last_name":"Green","work_phone":"+1876555222"}'::jsonb),
+      ('${migBatchId}', 3, '{}'::jsonb, '{"employee_number":"EMP-0008","first_name":"NoLast"}'::jsonb);
+  `);
+  await as(ERIN_USER, async () => {
+    const validated = await db.query(`select * from public.revalidate_employee_import_batch('${migBatchId}')`);
+    const row = validated.rows[0];
+    ok("revalidate counts 3 rows with 1 error", row.total_rows === 3 && row.error_rows === 1 && row.valid_rows === 2);
+    ok("revalidate identifies 1 create and 1 update", row.create_rows === 1 && row.update_rows === 1);
+    ok("batch needs review while a row has an error", row.status === "needs_review");
+    let threw = false;
+    try { await db.query(`select * from public.commit_employee_import_batch('${migBatchId}')`); } catch { threw = true; }
+    ok("cannot commit while the batch needs review", threw);
+  });
+  await db.exec(`
+    update public.employee_import_rows set normalized_row = normalized_row || '{"last_name":"Lastname"}'::jsonb
+    where batch_id = '${migBatchId}' and row_number = 3;
+  `);
+  await as(ERIN_USER, async () => {
+    const revalidated = await db.query(`select * from public.revalidate_employee_import_batch('${migBatchId}')`);
+    ok("fixing the bad row moves the batch to ready_for_import", revalidated.rows[0].status === "ready_for_import" && revalidated.rows[0].error_rows === 0);
+  });
+  await as(DAVID_USER, async () => {
+    let threw = false;
+    try { await db.query(`select * from public.commit_employee_import_batch('${migBatchId}')`); } catch { threw = true; }
+    ok("David (no employee.manage) cannot commit an import batch", threw);
+  });
+  let frankEmpId;
+  await as(ERIN_USER, async () => {
+    const committed = await db.query(`select * from public.commit_employee_import_batch('${migBatchId}')`);
+    ok("Erin can commit a clean import batch", committed.rows[0].status === "committed");
+    const frank = await db.query(`select id from public.employees where organization_id = '${ORG}' and employee_number = 'EMP-0006'`);
+    ok("the create row produced a new employee", frank.rows.length === 1 && frank.rows[0].id);
+    frankEmpId = frank.rows[0].id;
+    const bob = await db.query(`select work_phone from public.employees where id = '${BOB_EMP}'`);
+    ok("the update row changed Bob's phone number", bob.rows[0].work_phone === "+1876555222");
+  });
+
+  // Rollback guard #1: refuse a created employee once they have any
+  // workspace activity of their own, so rollback can never quietly discard
+  // real work done under an imported identity.
+  await db.exec(`insert into public.attendance_sessions (organization_id, employee_id, work_date, clock_in_at) values ('${ORG}', '${frankEmpId}', current_date, now());`);
+  await as(ERIN_USER, async () => {
+    let threw = false;
+    try { await db.query(`select * from public.rollback_employee_import_batch('${migBatchId}')`); } catch { threw = true; }
+    ok("rollback is blocked once an imported employee has activity", threw);
+  });
+
+  // Rollback guard #2: refuse an updated employee if their row changed
+  // again after the import committed (concurrent/unrelated edit), so
+  // rollback never clobbers a later legitimate change.
+  let carolBatchId;
+  await as(ERIN_USER, async () => {
+    const res = await db.query(`select * from public.create_employee_import_batch('${ORG}', 'spreadsheet', 'carol.csv', '${ORG}/fake/carol.csv', 'hash2', 'update', '{}')`);
+    carolBatchId = res.rows[0].id;
+  });
+  await db.exec(`
+    insert into public.employee_import_rows (batch_id, row_number, raw_row, normalized_row) values
+      ('${carolBatchId}', 1, '{}'::jsonb, '{"employee_number":"EMP-0003","first_name":"Carol","last_name":"White","work_phone":"+1876555333"}'::jsonb);
+  `);
+  await as(ERIN_USER, async () => {
+    await db.query(`select * from public.revalidate_employee_import_batch('${carolBatchId}')`);
+    await db.query(`select * from public.commit_employee_import_batch('${carolBatchId}')`);
+  });
+  await db.exec(`update public.employees set work_phone = 'changed-after-import' where id = '${CAROL_EMP}';`);
+  await as(ERIN_USER, async () => {
+    let threw = false;
+    try { await db.query(`select * from public.rollback_employee_import_batch('${carolBatchId}')`); } catch { threw = true; }
+    ok("rollback is blocked once an updated employee changed again afterward", threw);
+    const carol = await db.query(`select work_phone from public.employees where id = '${CAROL_EMP}'`);
+    ok("the blocked rollback left Carol's later change untouched", carol.rows[0].work_phone === "changed-after-import");
+  });
+
+  // A clean batch with no subsequent activity rolls back completely.
+  let graceBatchId;
+  await as(ERIN_USER, async () => {
+    const res = await db.query(`select * from public.create_employee_import_batch('${ORG}', 'spreadsheet', 'grace.csv', '${ORG}/fake/grace.csv', 'hash3', 'update', '{}')`);
+    graceBatchId = res.rows[0].id;
+  });
+  await db.exec(`
+    insert into public.employee_import_rows (batch_id, row_number, raw_row, normalized_row) values
+      ('${graceBatchId}', 1, '{}'::jsonb, '{"employee_number":"EMP-0010","first_name":"Grace","last_name":"Hill"}'::jsonb);
+  `);
+  await as(ERIN_USER, async () => {
+    await db.query(`select * from public.revalidate_employee_import_batch('${graceBatchId}')`);
+    await db.query(`select * from public.commit_employee_import_batch('${graceBatchId}')`);
+    const rolledBack = await db.query(`select * from public.rollback_employee_import_batch('${graceBatchId}')`);
+    ok("a clean batch with no subsequent activity rolls back", rolledBack.rows[0].status === "rolled_back");
+    const grace = await db.query(`select count(*) from public.employees where organization_id = '${ORG}' and employee_number = 'EMP-0010'`);
+    ok("rollback removed the employee it had created", Number(grace.rows[0].count) === 0);
+  });
+
   // ================================ ONBOARDING ===================================
   let templateVersionId, stepAId, stepBId;
   await as(ERIN_USER, async () => {
