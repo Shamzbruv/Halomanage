@@ -7,7 +7,25 @@ type CookieToSet = { name: string; value: string; options: CookieOptions };
 export async function updateSession(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const isSetupPage = pathname.startsWith("/setup-required");
-  const isPublicAsset = pathname.startsWith("/_next");
+  // proxy.ts's matcher excludes _next/static, _next/image, favicon.ico, and
+  // literal image-extension file paths — but Next's file-based
+  // icon/apple-icon/opengraph-image/twitter-image/manifest routes
+  // (app/icon.tsx etc.) are served at clean, extension-less paths, so the
+  // matcher's regex can't tell them apart from a real page and this ran
+  // for them too. Without this, every one of them 307-redirected an
+  // unauthenticated request to /login — meaning a link shared by a signed-
+  // out visitor's browser, or any Slack/WhatsApp/LinkedIn preview fetch
+  // (which is never authenticated), would get a login-page redirect
+  // instead of the actual icon or social-preview image. Found by actually
+  // curling these routes after adding them, not by inspection.
+  const isPublicAsset =
+    pathname.startsWith("/_next") ||
+    pathname === "/icon" ||
+    pathname === "/apple-icon" ||
+    pathname === "/opengraph-image" ||
+    pathname === "/twitter-image" ||
+    pathname === "/manifest.webmanifest" ||
+    pathname === "/favicon.ico";
   const isHomeRoute = pathname === "/";
   const isPublicPortalRoute = pathname.startsWith("/portal/");
   const isPublicAuthRoute = pathname === "/login" || pathname === "/signup" || pathname.startsWith("/auth/");

@@ -146,7 +146,7 @@ export default function LandingPage() {
         </section>
       </main>
 
-      <footer className="landing-footer"><div className="landing-container"><Brand /><p>Employee lifecycle management without a payroll engine.</p><span>© {new Date().getFullYear()} Halomanage</span></div></footer>
+      <footer className="landing-footer"><div className="landing-container"><Brand tagline /><p>Employee lifecycle management without a payroll engine.</p><span>© {new Date().getFullYear()} Halomanage</span></div></footer>
     </div>
   );
 }

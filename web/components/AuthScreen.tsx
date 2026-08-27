@@ -11,7 +11,7 @@ export function AuthScreen({ mode = "sign-in" }: { mode?: "sign-in" | "sign-up" 
     <div className="auth-shell">
       <section className="auth-story">
         <div className="auth-story-content">
-          <Brand inverse />
+          <Brand inverse tagline />
           <div className="auth-story-copy">
             <span className="eyebrow">{isSignup ? "Your new people workspace" : "Welcome back"}</span>
             <h1>{isSignup ? "Set the standard for how your team is cared for." : "The clearest view of your people and their work."}</h1>

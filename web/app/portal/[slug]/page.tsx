@@ -31,7 +31,7 @@ export default async function EmployeePortalPage({ params }: { params: Promise<{
   return (
     <main className="employee-portal-shell">
       <section className="employee-portal-brand-panel">
-        <Brand inverse />
+        <Brand inverse tagline />
         <div className="employee-portal-company">
           <span className="organization-avatar large">{portal.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase()}</span>
           <span className="eyebrow">Employee workspace</span>
