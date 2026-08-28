@@ -9,10 +9,25 @@
 // in browser/mobile code — and links the new auth.users row back to the
 // employees record.
 //
-// Request body: { "employee_id": "<uuid>", "redirect_to"?: "<url>" }
+// Request body: { "employee_id": "<uuid>", "redirect_to"?: "<url>", "resend"?: boolean }
+//
+// `resend` exists because inviteUserByEmail() can only ever be called once
+// per email — Supabase Auth rejects a second call for an address that
+// already has a user, confirmed or not. Without this, an invite email
+// that goes out with a broken link (the real incident this was built to
+// fix: Site URL was still the dev default of localhost:3000 on the live
+// project, so every invite link was dead until that got corrected) had no
+// recovery path at all short of deleting and recreating the employee
+// record. Resend instead generates a fresh action link for the *existing*
+// auth user via generateLink({ type: "recovery" }) — which works
+// regardless of prior confirmation state, unlike re-inviting — and emails
+// it directly through Resend using the same branded template as every
+// other outbound Halomanage email, rather than depending on GoTrue's own
+// (invite-only) send path a second time.
 
 import { createClient } from "npm:@supabase/supabase-js@2.112.4";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
+import { renderEmailShell } from "../_shared/email-shell.mjs";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -29,7 +44,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { employee_id, redirect_to } = await req.json();
+    const { employee_id, redirect_to, resend } = await req.json();
     if (!employee_id) {
       return jsonResponse({ error: "employee_id is required" }, 400);
     }
@@ -54,9 +69,6 @@ Deno.serve(async (req) => {
     if (employeeError || !employee) {
       return jsonResponse({ error: "Not authorized to invite this employee" }, 403);
     }
-    if (employee.user_id) {
-      return jsonResponse({ error: "Employee already has an account" }, 409);
-    }
     if (!employee.work_email) {
       return jsonResponse({ error: "Employee has no work_email on file" }, 400);
     }
@@ -64,6 +76,64 @@ Deno.serve(async (req) => {
     // Privileged client: service_role bypasses RLS and can call Auth admin
     // APIs. Never expose this key to a browser/mobile client.
     const adminClient = createClient(supabaseUrl, serviceRoleKey);
+
+    if (resend) {
+      if (!employee.user_id) {
+        return jsonResponse({ error: "This employee hasn't been invited yet — use Invite instead." }, 400);
+      }
+
+      const { data: userLookup, error: userLookupError } = await adminClient.auth.admin.getUserById(employee.user_id);
+      if (userLookupError || !userLookup?.user) {
+        return jsonResponse({ error: "Could not find this employee's account to resend an invitation to." }, 500);
+      }
+      if (userLookup.user.last_sign_in_at) {
+        return jsonResponse({ error: "This employee has already signed in at least once — there's nothing to resend." }, 409);
+      }
+
+      const { data: linkData, error: linkError } = await adminClient.auth.admin.generateLink({
+        type: "recovery",
+        email: employee.work_email,
+        options: { redirectTo: redirect_to },
+      });
+      if (linkError || !linkData) {
+        return jsonResponse({ error: linkError?.message ?? "Could not generate a new invitation link" }, 500);
+      }
+
+      const apiKey = Deno.env.get("RESEND_API_KEY");
+      if (!apiKey) {
+        return jsonResponse({ error: "Email sending isn't configured for this deployment (RESEND_API_KEY missing)." }, 500);
+      }
+      const from = Deno.env.get("EMAIL_FROM_ADDRESS") || "Halomanage <notifications@myhalomanage.com>";
+      const actionLink = linkData.properties.action_link;
+      const html = renderEmailShell({
+        heading: "You've been invited",
+        bodyHtml: "<p>You've been invited to create a Halomanage account to manage your employee record, time, leave, and more. Follow the button below to accept and set your password.</p>",
+        cta: { text: "Accept invitation", url: actionLink },
+        footer: "This invitation was sent by your organization's HR administrator. If you weren't expecting it, you can safely ignore this email.",
+      });
+
+      const sendRes = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          from,
+          to: [employee.work_email],
+          subject: "You've been invited to Halomanage",
+          text: `You've been invited to create a Halomanage account. Accept your invitation: ${actionLink}`,
+          html,
+        }),
+      });
+      if (!sendRes.ok) {
+        const detail = await sendRes.text().catch(() => "");
+        return jsonResponse({ error: `Could not send the invitation email (${sendRes.status}). ${detail}`.trim() }, 502);
+      }
+
+      return jsonResponse({ ok: true, resent: true });
+    }
+
+    if (employee.user_id) {
+      return jsonResponse({ error: "Employee already has an account" }, 409);
+    }
 
     const { data: organization } = await adminClient
       .from("organizations")
