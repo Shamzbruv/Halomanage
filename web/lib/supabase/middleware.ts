@@ -28,7 +28,9 @@ export async function updateSession(request: NextRequest) {
     pathname === "/favicon.ico";
   const isHomeRoute = pathname === "/";
   const isPublicPortalRoute = pathname.startsWith("/portal/");
-  const isPublicAuthRoute = pathname === "/login" || pathname === "/signup" || pathname.startsWith("/auth/");
+  const isPlatformRoute = pathname.startsWith("/platform");
+  const isPublicAuthRoute =
+    pathname === "/login" || pathname === "/signup" || pathname.startsWith("/auth/") || pathname === "/platform/login";
 
   // The public product page is intentionally backend-independent. It stays
   // available while a deployment is being configured or Supabase is down.
@@ -107,7 +109,11 @@ export async function updateSession(request: NextRequest) {
 
     if (!user && !isPublicAuthRoute && !isPublicAsset) {
       const url = request.nextUrl.clone();
-      url.pathname = "/login";
+      // /platform/* is a separate console with its own sign-in and its own
+      // platform_staff trust boundary (see lib/platform-session.ts) —
+      // sending an unauthenticated visitor there to the tenant /login would
+      // sign them into the wrong system entirely.
+      url.pathname = isPlatformRoute ? "/platform/login" : "/login";
       url.search = "";
       return NextResponse.redirect(url);
     }
