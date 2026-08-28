@@ -7,30 +7,36 @@
 // Intended to run on a short Cron schedule (e.g. every 1–2 minutes) via
 // Supabase Cron invoking this function, not to be called by the client
 // directly. It looks for notifications that have an enabled non-in_app
-// channel preference and no delivery attempt yet, and — once a provider is
-// wired up below — sends and records the attempt.
+// channel preference and no delivery attempt yet, sends each one through
+// Resend, and records the delivery attempt either way.
 //
-// This is deliberately left as a real, runnable skeleton rather than a
-// fully wired provider integration: plug in Resend/SendGrid/Twilio/FCM
-// under sendEmail/sendSms/sendPush and set the corresponding secret via
-// `supabase secrets set`. See docs/ROADMAP.md.
+// Needs two secrets set on the deployed project (never committed —
+// `supabase secrets set RESEND_API_KEY=... EMAIL_FROM_ADDRESS=...`; see
+// supabase/functions/README.md):
+//   RESEND_API_KEY   — from resend.com/api-keys
+//   EMAIL_FROM_ADDRESS — must be on a domain verified in Resend (Domains
+//     tab); Halomanage's own auth-flow invite emails are a separate
+//     concern, configured as Supabase Auth's custom SMTP provider in the
+//     dashboard rather than in this function — see the README.
 
 import { createClient } from "npm:@supabase/supabase-js@2.112.4";
 import { jsonResponse } from "../_shared/cors.ts";
 
 async function sendEmail(to: string, subject: string, body: string) {
-  const apiKey = Deno.env.get("EMAIL_PROVIDER_API_KEY");
+  const apiKey = Deno.env.get("RESEND_API_KEY");
   if (!apiKey) {
-    console.warn("EMAIL_PROVIDER_API_KEY not set — skipping email send (dev mode)");
+    console.warn("RESEND_API_KEY not set — skipping email send (dev mode)");
     return { ok: true, skipped: true };
   }
-  // Example shape for a provider like Resend; adjust to whichever provider
-  // is actually configured.
+  const from = Deno.env.get("EMAIL_FROM_ADDRESS") || "Halomanage <notifications@myhalomanage.com>";
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from: Deno.env.get("EMAIL_FROM_ADDRESS"), to, subject, text: body }),
+    body: JSON.stringify({ from, to: [to], subject, text: body }),
   });
+  if (!res.ok) {
+    console.error("Resend send failed", res.status, await res.text().catch(() => ""));
+  }
   return { ok: res.ok, status: res.status };
 }
 

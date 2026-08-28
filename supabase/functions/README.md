@@ -8,22 +8,59 @@ is deliberately short.
 
 | Function | Trigger | Needs these secrets (beyond the auto-injected `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY`) |
 |---|---|---|
-| `invite-employee` | Called by the web app (Admin action) | none |
+| `invite-employee` | Called by the web app (Admin action) | none — sends via Supabase Auth's own email system, see "Invite/confirmation emails" below |
 | `payroll-import` | Called by the web app after a file upload | none |
-| `send-notifications` | Supabase Cron, e.g. every 1–2 minutes | `EMAIL_PROVIDER_API_KEY`, `EMAIL_FROM_ADDRESS` |
+| `employee-import` | Called by the web app after a Migration Center upload | none |
+| `send-notifications` | Supabase Cron, e.g. every 1–2 minutes | `RESEND_API_KEY`, `EMAIL_FROM_ADDRESS` |
 | `signature-webhook` | External e-signature provider's webhook | `SIGNATURE_PROVIDER_WEBHOOK_SECRET` |
 
 ## Deploying
 
 ```bash
+npx supabase login                      # or: export SUPABASE_ACCESS_TOKEN=...
+npx supabase link --project-ref <ref>
 npx supabase functions deploy invite-employee
 npx supabase functions deploy payroll-import
+npx supabase functions deploy employee-import
 npx supabase functions deploy send-notifications
 npx supabase functions deploy signature-webhook
 
 # secrets (never commit these):
-npx supabase secrets set EMAIL_PROVIDER_API_KEY=... EMAIL_FROM_ADDRESS=... SIGNATURE_PROVIDER_WEBHOOK_SECRET=...
+npx supabase secrets set RESEND_API_KEY=... EMAIL_FROM_ADDRESS="Halomanage <notifications@yourverifieddomain>" SIGNATURE_PROVIDER_WEBHOOK_SECRET=...
 ```
+
+A `git push` alone does **not** deploy Edge Functions — Supabase's GitHub
+integration (if connected) syncs `supabase/migrations/`, not
+`supabase/functions/`. Function code changes only take effect on the live
+project after an explicit `supabase functions deploy`.
+
+## Invite / confirmation / password-reset emails (Resend via Supabase Auth SMTP)
+
+`invite-employee` deliberately never calls an email provider itself — it
+calls `adminClient.auth.admin.inviteUserByEmail()`, and Supabase Auth sends
+that email itself using whatever mail transport the project is configured
+with. Two options:
+
+- **Default (no setup)**: Supabase's own shared sender. Fine for testing,
+  but rate-limited to a handful of emails/hour and not meant for
+  production — this is a common cause of invites silently never arriving.
+- **Custom SMTP via Resend (recommended)**: Dashboard → Authentication →
+  Emails → SMTP Settings → enable custom SMTP:
+  - Host: `smtp.resend.com`, Port: `465` (or `587`), Username: `resend`,
+    Password: the Resend API key.
+  - Sender email: an address on a domain verified under Resend's Domains
+    tab (e.g. `no-reply@yourverifieddomain`) — an unverified domain will
+    silently fail or land in spam.
+
+  This is a project-level setting (Dashboard or the Management API), not
+  something `supabase/config.toml` or a `supabase secrets set` call can
+  configure for the hosted project — the CLI's `[auth.email]`/SMTP config
+  in `config.toml` only applies to `supabase start`'s local stack.
+
+`send-notifications` is unrelated to this — it emails Halomanage's own
+`notifications` rows (leave approved, document expiring, etc.), not
+anything auth-related, and does call Resend's API directly using the
+`RESEND_API_KEY` secret above.
 
 Then schedule `send-notifications` with Supabase Cron (SQL editor, once the
 project is linked):
