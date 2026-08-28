@@ -104,7 +104,19 @@ Deno.serve(async (req) => {
         return jsonResponse({ error: "Email sending isn't configured for this deployment (RESEND_API_KEY missing)." }, 500);
       }
       const from = Deno.env.get("EMAIL_FROM_ADDRESS") || "Halomanage <notifications@myhalomanage.com>";
-      const actionLink = linkData.properties.action_link;
+      // linkData.properties.action_link points at Supabase's *hosted*
+      // verify endpoint, which hands sessions back as a URL fragment on
+      // success — invisible to a server route handler, which is exactly
+      // the bug this whole fix addresses (see the long comment in
+      // supabase/email-templates/templates.mjs). Build a link straight to
+      // this app's own /auth/confirm route instead, using the raw
+      // hashed_token generateLink() also returns, so it verifies
+      // server-side via verifyOtp() and never depends on a fragment.
+      const confirmUrl = new URL("/auth/confirm", new URL(redirect_to).origin);
+      confirmUrl.searchParams.set("token_hash", linkData.properties.hashed_token);
+      confirmUrl.searchParams.set("type", "recovery");
+      confirmUrl.searchParams.set("next", redirect_to);
+      const actionLink = confirmUrl.toString();
       const html = renderEmailShell({
         heading: "You've been invited",
         bodyHtml: "<p>You've been invited to create a Halomanage account to manage your employee record, time, leave, and more. Follow the button below to accept and set your password.</p>",

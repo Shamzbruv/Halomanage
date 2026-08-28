@@ -23,7 +23,7 @@ export function InviteButton({ employeeId, alreadyInvited, portalSlug }: { emplo
     const { error: invokeError } = await supabase.functions.invoke("invite-employee", {
       body: {
         employee_id: employeeId,
-        redirect_to: `${window.location.origin}/auth/callback?next=${encodeURIComponent(`/update-password?portal=${portalSlug}`)}`,
+        redirect_to: `${window.location.origin}/update-password?portal=${portalSlug}`,
         resend,
       },
     });
@@ -50,23 +50,25 @@ export function InviteButton({ employeeId, alreadyInvited, portalSlug }: { emplo
     // account rather than trying to create a new one, which Supabase
     // Auth won't allow for an email that already has a user.
     return (
-      <div className="flex items-center gap-2">
-        <span className="badge badge-neutral">Invited</span>
-        <button className="btn-secondary px-2.5 py-1 text-xs" disabled={loading} onClick={() => invoke(true)}>
-          {loading ? "Resending…" : "Resend"}
-        </button>
-        {resent && !error && <span className="text-xs text-emerald-600">Sent</span>}
-        {error && <span className="text-xs text-ruby-600">{error}</span>}
+      <div className="flex max-w-[220px] flex-col gap-1">
+        <div className="flex items-center gap-2">
+          <span className="badge badge-neutral">Invited</span>
+          <button className="btn-secondary shrink-0 px-2.5 py-1 text-xs" disabled={loading} onClick={() => invoke(true)}>
+            {loading ? "Resending…" : "Resend"}
+          </button>
+        </div>
+        {resent && !error && <span className="text-xs text-emerald-600">Sent — check their inbox.</span>}
+        {error && <span className="text-xs leading-snug text-ruby-600">{error}</span>}
       </div>
     );
   }
 
   return (
-    <div className="flex items-center gap-2">
-      <button className="btn-secondary px-3 py-1 text-xs" disabled={loading} onClick={() => invoke(false)}>
+    <div className="flex max-w-[220px] flex-col gap-1">
+      <button className="btn-secondary w-fit px-3 py-1 text-xs" disabled={loading} onClick={() => invoke(false)}>
         {loading ? "Inviting…" : "Invite"}
       </button>
-      {error && <span className="text-xs text-ruby-600">{error}</span>}
+      {error && <span className="text-xs leading-snug text-ruby-600">{error}</span>}
     </div>
   );
 }

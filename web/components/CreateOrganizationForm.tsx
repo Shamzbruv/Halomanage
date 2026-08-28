@@ -45,7 +45,7 @@ export function CreateOrganizationForm() {
       email,
       password,
       options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback?next=/signup/complete`,
+        emailRedirectTo: `${window.location.origin}/signup/complete`,
         data: {
           signup_intent: "organization_owner",
           organization_name: organizationName,

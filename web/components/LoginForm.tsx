@@ -24,7 +24,7 @@ export function LoginForm({ portal }: { portal?: { name: string; slug: string } 
     if (recoveryMode) {
       const recoveryDestination = portal ? `/update-password?portal=${encodeURIComponent(portal.slug)}` : "/update-password";
       const { error: recoveryError } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(recoveryDestination)}`,
+        redirectTo: `${window.location.origin}${recoveryDestination}`,
       });
       if (recoveryError) setError(recoveryError.message);
       else setMessage("Check your email for a secure password reset link.");

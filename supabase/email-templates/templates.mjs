@@ -23,13 +23,41 @@ import { renderEmailShell as shell } from "../functions/_shared/email-shell.mjs"
 const IGNORE_NOTE = "If you didn't expect this email, no action is needed — you can safely ignore it.";
 const SECURITY_NOTE = "If this wasn't you, contact your HR administrator immediately.";
 
+// `{{ .ConfirmationURL }}` — what every one of these templates originally
+// used, copied from Supabase's own defaults — points at the *hosted*
+// `<project-ref>.supabase.co/auth/v1/verify` endpoint. That endpoint
+// verifies the token and then hands the session back as a URL *fragment*
+// (`#access_token=...`), which only ever reaches client-side JavaScript —
+// a server route handler (web/app/auth/callback/route.ts, which every
+// email-triggering call in this app was pointed at) can never see it, so
+// every single one of these links landed on whatever `next` was requested
+// with no session at all. This is a real incident this fixed, not a
+// hypothetical: an invite link that "worked" (delivered, branded
+// correctly) but silently redirected to a dead localhost URL in
+// production, discovered from an actual phone screenshot.
+//
+// The fix Supabase's own docs recommend for exactly this SSR situation:
+// build the confirmation link directly against this app's own
+// /auth/confirm route (web/app/auth/confirm/route.ts) using
+// `{{ .TokenHash }}` and `{{ .Type }}` instead of `{{ .ConfirmationURL }}`
+// — that route calls verifyOtp() itself, server-side, so it never depends
+// on a fragment surviving a hop through Supabase's hosted endpoint at all.
+// `{{ .SiteURL }}` is the project's configured Site URL (currently
+// https://www.myhalomanage.com — see docs/ROADMAP.md); `{{ .RedirectTo }}`
+// is whatever emailRedirectTo/redirectTo the *calling* code passed
+// (LoginForm, InviteButton, CreateOrganizationForm all pass a full URL on
+// this same origin), carried through as the final `next` destination.
+function confirmLink(type) {
+  return `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=${type}&next={{ .RedirectTo }}`;
+}
+
 export const emailTemplates = {
   confirmation: {
     subject: "Confirm your email for Halomanage",
     content: shell({
       heading: "Confirm your email address",
       bodyHtml: "<p>Follow the button below to confirm this email address and finish setting up your Halomanage account.</p>",
-      cta: { text: "Confirm email address", url: "{{ .ConfirmationURL }}" },
+      cta: { text: "Confirm email address", url: confirmLink("signup") },
       footer: IGNORE_NOTE,
     }),
   },
@@ -39,7 +67,7 @@ export const emailTemplates = {
     content: shell({
       heading: "Confirm your new email address",
       bodyHtml: "<p>Follow the button below to confirm <strong>{{ .NewEmail }}</strong> as the new email address for your Halomanage account.</p>",
-      cta: { text: "Confirm new email address", url: "{{ .ConfirmationURL }}" },
+      cta: { text: "Confirm new email address", url: confirmLink("email_change") },
       footer: IGNORE_NOTE,
     }),
   },
@@ -49,7 +77,7 @@ export const emailTemplates = {
     content: shell({
       heading: "You've been invited",
       bodyHtml: "<p>You've been invited to create a Halomanage account to manage your employee record, time, leave, and more. Follow the button below to accept and set your password.</p>",
-      cta: { text: "Accept invitation", url: "{{ .ConfirmationURL }}" },
+      cta: { text: "Accept invitation", url: confirmLink("invite") },
       footer: "This invitation was sent by your organization's HR administrator. If you weren't expecting it, you can safely ignore this email.",
     }),
   },
@@ -59,7 +87,7 @@ export const emailTemplates = {
     content: shell({
       heading: "Your sign-in link",
       bodyHtml: "<p>Follow the button below to sign in to Halomanage. This link expires shortly and can only be used once.</p>",
-      cta: { text: "Sign in", url: "{{ .ConfirmationURL }}" },
+      cta: { text: "Sign in", url: confirmLink("magiclink") },
       footer: IGNORE_NOTE,
     }),
   },
@@ -79,7 +107,7 @@ export const emailTemplates = {
     content: shell({
       heading: "Reset your password",
       bodyHtml: "<p>We received a request to reset the password for your Halomanage account. Follow the button below to choose a new one.</p>",
-      cta: { text: "Reset password", url: "{{ .ConfirmationURL }}" },
+      cta: { text: "Reset password", url: confirmLink("recovery") },
       footer: `${IGNORE_NOTE} Your password will not change unless you complete the steps above.`,
     }),
   },
