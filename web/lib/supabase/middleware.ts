@@ -43,7 +43,14 @@ export async function updateSession(request: NextRequest) {
   // Keeping them independent means a transient Auth outage can still show a
   // useful sign-in or signup screen (the form itself will report submission
   // errors), and it keeps the public account story fast.
-  if (pathname === "/login" || pathname === "/signup" || pathname === "/auth/error" || isPublicPortalRoute) {
+  //
+  // /auth/confirm and /auth/callback perform their own token verification
+  // (verifyOtp / exchangeCodeForSession) and must never be blocked by a
+  // stale session cookie. Without this bypass the middleware's getUser()
+  // call could fail on a leftover JWT (e.g. "User from sub claim in JWT
+  // does not exist") and redirect to setup-required before the route
+  // handler ever gets a chance to establish the real session.
+  if (isPublicAuthRoute || isPublicPortalRoute) {
     return NextResponse.next({ request });
   }
 
@@ -67,6 +74,29 @@ export async function updateSession(request: NextRequest) {
     const { data: { user }, error } = await supabase.auth.getUser();
 
     if (error && error.name !== "AuthSessionMissingError") {
+      // "User from sub claim in JWT does not exist" (and similar stale-JWT
+      // errors) means there is a leftover cookie whose user was deleted or
+      // belongs to a different project. This is NOT a deployment
+      // configuration problem — clear the poisoned cookies and treat it as
+      // an unauthenticated request so the user can sign in fresh.
+      const isStaleJwt = error.message.includes("User from sub claim in JWT does not exist");
+      if (isStaleJwt) {
+        console.warn("middleware: stale JWT detected, clearing session cookies", error.message);
+        const cleared = NextResponse.next({ request });
+        for (const cookie of request.cookies.getAll()) {
+          if (cookie.name.startsWith("sb-")) {
+            cleared.cookies.delete(cookie.name);
+          }
+        }
+        if (!isPublicAsset) {
+          const url = request.nextUrl.clone();
+          url.pathname = "/login";
+          url.search = "";
+          return NextResponse.redirect(url);
+        }
+        return cleared;
+      }
+
       console.error("middleware: Supabase auth check failed", error.message);
       if (isSetupPage) return NextResponse.next({ request });
       const url = new URL("/setup-required", request.url);
