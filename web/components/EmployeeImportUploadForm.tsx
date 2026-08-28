@@ -5,6 +5,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/Icon";
 import { createClient } from "@/lib/supabase/client";
+import { resolveFunctionErrorMessage } from "@/lib/supabase/functions";
 
 async function sha256Hex(buffer: ArrayBuffer) {
   const digest = await crypto.subtle.digest("SHA-256", buffer);
@@ -79,7 +80,7 @@ export function EmployeeImportUploadForm({ organizationId }: { organizationId: s
       const { error: processError } = await supabase.functions.invoke("employee-import", {
         body: { batch_id: batchId },
       });
-      if (processError) throw new Error(`The file was uploaded, but validation needs attention: ${processError.message}`);
+      if (processError) throw new Error(`The file was uploaded, but validation needs attention: ${await resolveFunctionErrorMessage(processError)}`);
 
       router.push(`/admin/migrations/${batchId}`);
       router.refresh();

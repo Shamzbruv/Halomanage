@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/Icon";
 import { createClient } from "@/lib/supabase/client";
+import { resolveFunctionErrorMessage } from "@/lib/supabase/functions";
 
 export function EmployeeImportActions({ batchId, status }: { batchId: string; status: string }) {
   const router = useRouter();
@@ -34,7 +35,7 @@ export function EmployeeImportActions({ batchId, status }: { batchId: string; st
     setLoading("retry");
     setError(null);
     const { error: retryError } = await createClient().functions.invoke("employee-import", { body: { batch_id: batchId } });
-    if (retryError) setError(retryError.message);
+    if (retryError) setError(await resolveFunctionErrorMessage(retryError));
     else router.refresh();
     setLoading(null);
   }

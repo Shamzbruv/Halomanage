@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { resolveFunctionErrorMessage } from "@/lib/supabase/functions";
 
 // Ref: PRODUCT_BLUEPRINT.md "The upload process should not instantly change
 // records" — Upload → Validate → Map → Preview → Approve → Post → Audit.
@@ -77,7 +78,7 @@ export function PayrollUploadForm({ organizationId }: { organizationId: string }
     });
 
     if (fnError) {
-      setError(`Uploaded, but processing failed: ${fnError.message}`);
+      setError(`Uploaded, but processing failed: ${await resolveFunctionErrorMessage(fnError)}`);
       setLoading(false);
       return;
     }

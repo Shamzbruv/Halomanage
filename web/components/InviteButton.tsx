@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { resolveFunctionErrorMessage } from "@/lib/supabase/functions";
 
 // Calls the invite-employee Edge Function (supabase/functions/invite-employee)
 // rather than any direct Auth admin call from the browser — that admin
@@ -28,7 +29,7 @@ export function InviteButton({ employeeId, alreadyInvited, portalSlug }: { emplo
       },
     });
     if (error) {
-      setError(error.message);
+      setError(await resolveFunctionErrorMessage(error, "Could not send the invitation."));
       setLoading(false);
       return;
     }

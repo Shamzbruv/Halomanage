@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/Icon";
 import { createClient } from "@/lib/supabase/client";
+import { resolveFunctionErrorMessage } from "@/lib/supabase/functions";
 
 const fields = [
   ["", "Ignore this column"],
@@ -60,7 +61,7 @@ export function EmployeeImportMappingForm({
 
     const { error: processError } = await supabase.functions.invoke("employee-import", { body: { batch_id: batchId } });
     if (processError) {
-      setError(processError.message);
+      setError(await resolveFunctionErrorMessage(processError));
       setLoading(false);
       return;
     }
