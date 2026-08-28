@@ -21,6 +21,16 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2.112.4";
 import { jsonResponse } from "../_shared/cors.ts";
+import { renderEmailShell } from "../_shared/email-shell.mjs";
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 
 async function sendEmail(to: string, subject: string, body: string) {
   const apiKey = Deno.env.get("RESEND_API_KEY");
@@ -29,10 +39,20 @@ async function sendEmail(to: string, subject: string, body: string) {
     return { ok: true, skipped: true };
   }
   const from = Deno.env.get("EMAIL_FROM_ADDRESS") || "Halomanage <notifications@myhalomanage.com>";
+  // body is free-text pulled from the notifications table (leave decisions,
+  // document expiry, etc.) — escaped before it goes anywhere near HTML, and
+  // sent as its own <p> rather than folded into a single string with the
+  // heading so a notification with no body still renders cleanly.
+  const html = renderEmailShell({
+    heading: subject,
+    bodyHtml: body ? `<p>${escapeHtml(body)}</p>` : "<p>Open Halomanage to see the details.</p>",
+    cta: { text: "Open Halomanage", url: Deno.env.get("NEXT_PUBLIC_SITE_URL") || "https://halomanage-production.up.railway.app/dashboard" },
+    footer: "You're receiving this because email notifications are enabled for this notification type. Manage your preferences from your Halomanage profile.",
+  });
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from, to: [to], subject, text: body }),
+    body: JSON.stringify({ from, to: [to], subject, text: body, html }),
   });
   if (!res.ok) {
     console.error("Resend send failed", res.status, await res.text().catch(() => ""));
