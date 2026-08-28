@@ -68,7 +68,14 @@ export async function getCurrentSession(): Promise<CurrentSession | null> {
       permissionsError = true;
       console.error("session: failed to resolve effective permissions", { code: permissionResult.error.code });
     } else {
-      permissions = (permissionResult.data ?? []).map((row: { get_effective_permissions: AppPermission }) => row.get_effective_permissions);
+      // PostgREST returns a `returns setof <scalar enum>` RPC as a bare
+      // JSON array of the enum's string values (verified directly against
+      // the live REST endpoint) — not one {get_effective_permissions: ...}
+      // object per row the way a `returns table (...)`/composite-type RPC
+      // would. Every sessionCan() check silently failed until this was
+      // fixed: mapping a plain string through `.get_effective_permissions`
+      // yields undefined, not the value, with no error anywhere to catch it.
+      permissions = (permissionResult.data ?? []) as AppPermission[];
     }
   }
   let organization: CurrentSession["organization"] = null;
