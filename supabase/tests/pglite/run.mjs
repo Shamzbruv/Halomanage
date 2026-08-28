@@ -337,6 +337,93 @@ async function main() {
   });
   await db.exec(`delete from public.employees where id = '${PREHIRE_EMP}';`);
 
+  // ============================ PLATFORM CONSOLE ===============================
+  // Deliberately outside tenant RBAC — platform_staff carries no
+  // organization_id, and no role_assignments row grants any of this by
+  // construction. Reusing Carol/David here (already just an org manager and
+  // a plain employee) is the point: platform access is completely
+  // independent of whatever role they hold inside any tenant.
+  await as(DAVID_USER, async () => {
+    let threw = false;
+    try { await db.query(`select * from public.platform_list_organizations()`); } catch { threw = true; }
+    ok("a plain employee cannot list organizations through the platform console", threw);
+  });
+
+  await db.exec(`insert into public.platform_staff (user_id, role) values ('${CAROL_USER}', 'support');`);
+  await as(CAROL_USER, async () => {
+    const orgs = await db.query(`select * from public.platform_list_organizations()`);
+    ok("platform staff can list organizations across the platform", orgs.rows.some((row) => row.id === ORG));
+
+    const employees = await db.query(`select * from public.platform_list_organization_employees('${ORG}')`);
+    ok("platform staff can list an organization's employee roster", employees.rows.length > 0);
+
+    let threw = false;
+    try { await db.query(`select * from public.platform_add_staff('nobody@acme.test', 'support')`); } catch { threw = true; }
+    ok("a support-role platform staffer cannot add other platform staff (owner/admin only)", threw);
+  });
+  await db.exec(`delete from public.platform_staff where user_id = '${CAROL_USER}';`);
+  await as(CAROL_USER, async () => {
+    let threw = false;
+    try { await db.query(`select * from public.platform_list_organizations()`); } catch { threw = true; }
+    ok("removing the platform_staff row removes platform access immediately", threw);
+  });
+
+  // Feature entitlement: absent override means off; platform staff can flip
+  // it per organization without touching anyone else's.
+  const beforeOverride = await db.query(`select public.organization_has_feature('${ORG}', 'sso') as enabled`);
+  ok("a feature with no override is off by default", beforeOverride.rows[0].enabled === false);
+
+  await db.exec(`insert into public.platform_staff (user_id, role) values ('${CAROL_USER}', 'admin');`);
+  await as(CAROL_USER, async () => {
+    await db.query(`select public.platform_set_feature_override('${ORG}', 'sso', true, 'enabled for testing')`);
+  });
+  const afterOverride = await db.query(`select public.organization_has_feature('${ORG}', 'sso') as enabled`);
+  ok("an admin-role platform staffer can turn a feature on for one organization", afterOverride.rows[0].enabled === true);
+
+  await as(CAROL_USER, async () => {
+    await db.query(`select public.platform_clear_feature_override('${ORG}', 'sso')`);
+  });
+  const afterClear = await db.query(`select public.organization_has_feature('${ORG}', 'sso') as enabled`);
+  ok("clearing the override turns the feature back off", afterClear.rows[0].enabled === false);
+
+  // Last-owner protection mirrors the tenant last-admin guard in set_member_role().
+  await db.exec(`
+    update public.platform_staff set role = 'owner' where user_id = '${CAROL_USER}';
+    insert into public.platform_staff (user_id, role) values ('${DAVID_USER}', 'owner');
+  `);
+  await as(DAVID_USER, async () => {
+    await db.query(`select public.platform_remove_staff('${CAROL_USER}')`);
+  });
+  const carolGone = await db.query(`select count(*) from public.platform_staff where user_id = '${CAROL_USER}'`);
+  ok("an owner can remove another owner while one remains", Number(carolGone.rows[0].count) === 0);
+
+  await db.exec(`insert into public.platform_staff (user_id, role) values ('${CAROL_USER}', 'admin');`);
+  await as(CAROL_USER, async () => {
+    let threw = false;
+    try { await db.query(`select public.platform_remove_staff('${DAVID_USER}')`); } catch { threw = true; }
+    ok("the last platform owner cannot be removed even by another admin", threw);
+  });
+
+  // SSO connection approval — the workflow that used to require a platform
+  // operator running raw SQL against production (see file header of
+  // 20260828160000_platform_console.sql).
+  const ssoRequestId = (await db.query(`
+    insert into public.organization_identity_providers (organization_id, domain, metadata_url, requested_by)
+    values ('${ORG}', 'acme.test', 'https://idp.acme.test/metadata', '${ERIN_USER}')
+    returning id
+  `)).rows[0].id;
+  await as(CAROL_USER, async () => {
+    const pending = await db.query(`select * from public.platform_list_sso_requests()`);
+    ok("platform staff can see the pending SSO connection request", pending.rows.some((row) => row.id === ssoRequestId && row.status === "requested"));
+
+    const activated = await db.query(`
+      select * from public.platform_update_identity_provider('${ssoRequestId}', 'active', 'okta|acme-test', false, null)
+    `);
+    ok("platform staff can activate an SSO connection", activated.rows[0].status === "active" && activated.rows[0].sso_provider_id === "okta|acme-test");
+  });
+
+  await db.exec(`delete from public.platform_staff where user_id in ('${CAROL_USER}', '${DAVID_USER}');`);
+
   // =============================== ATTENDANCE =================================
   await as(ALICE_USER, async () => {
     const in1 = await db.query(`select * from public.clock_in()`);

@@ -1188,3 +1188,110 @@
 @media (min-width: 1024px) {
   .migration-layout { grid-template-columns: minmax(0,1.6fr) minmax(280px,.75fr); }
 }
+
+/* ============================================================================
+   PLATFORM CONSOLE — deliberately its own dark "ops room" palette so it
+   never gets mistaken for the customer-facing gold/royal-blue product, even
+   at a glance. Every rule here is scoped under .platform-shell so it can't
+   leak into or clash with the tenant theme above.
+   ============================================================================ */
+.platform-shell {
+  --p-bg: #0b1120;
+  --p-surface: #131b2c;
+  --p-surface-raised: #182338;
+  --p-border: #24304a;
+  --p-text: #e8edf7;
+  --p-text-muted: #8592ad;
+  --p-accent: #38bdf8;
+  --p-accent-strong: #0ea5e9;
+  --p-danger: #f87171;
+  --p-success: #34d399;
+  --p-warning: #fbbf24;
+  display: flex;
+  min-height: 100vh;
+  background: var(--p-bg);
+  color: var(--p-text);
+  font-family: var(--font-body), ui-sans-serif, system-ui, sans-serif;
+}
+.platform-shell a { color: inherit; }
+
+.platform-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  width: 240px;
+  flex: 0 0 auto;
+  padding: 1.5rem 1.1rem;
+  border-right: 1px solid var(--p-border);
+  background: var(--p-surface);
+}
+.platform-brand { display: flex; align-items: center; gap: .55rem; font-family: var(--font-display), Georgia, serif; font-size: 1.05rem; font-weight: 600; letter-spacing: -.01em; }
+.platform-brand-mark { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 9px; background: var(--p-accent); color: #04202e; font-weight: 800; font-size: .8rem; }
+.platform-brand small { display: block; margin-top: .1rem; color: var(--p-text-muted); font-size: .62rem; font-weight: 500; text-transform: uppercase; letter-spacing: .08em; }
+
+.platform-nav { display: flex; flex-direction: column; gap: .15rem; }
+.platform-nav a { display: flex; align-items: center; gap: .55rem; padding: .5rem .65rem; border-radius: 9px; color: var(--p-text-muted); font-size: .82rem; font-weight: 600; text-decoration: none; transition: background .12s, color .12s; }
+.platform-nav a:hover { background: var(--p-surface-raised); color: var(--p-text); }
+.platform-nav a.active { background: rgba(56,189,248,0.12); color: var(--p-accent); }
+
+.platform-staff-badge { margin-top: auto; display: flex; flex-direction: column; gap: .5rem; padding-top: 1rem; border-top: 1px solid var(--p-border); font-size: .76rem; }
+.platform-staff-badge strong { display: block; font-size: .84rem; }
+.platform-staff-badge .role-tag { display: inline-flex; width: fit-content; padding: .15rem .5rem; border-radius: 999px; background: var(--p-surface-raised); color: var(--p-accent); font-size: .62rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+
+.platform-main { flex: 1 1 auto; min-width: 0; padding: 1.75rem 2rem 3rem; }
+.platform-topbar { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem; }
+.platform-topbar h1 { font-family: var(--font-display), Georgia, serif; font-size: 1.6rem; font-weight: 500; letter-spacing: -.02em; }
+.platform-topbar span { display: block; color: var(--p-text-muted); font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; }
+
+.platform-card {
+  border: 1px solid var(--p-border);
+  border-radius: 14px;
+  padding: 1.25rem 1.4rem;
+  background: var(--p-surface);
+}
+.platform-metric-grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); margin-bottom: 1.5rem; }
+.platform-metric-card { border: 1px solid var(--p-border); border-radius: 14px; padding: 1.1rem 1.25rem; background: var(--p-surface); }
+.platform-metric-card small { display: block; color: var(--p-text-muted); font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; }
+.platform-metric-card strong { display: block; margin-top: .35rem; font-family: var(--font-display), Georgia, serif; font-size: 1.9rem; font-weight: 500; }
+
+.platform-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+.platform-table th { padding: .5rem .6rem; border-bottom: 1px solid var(--p-border); color: var(--p-text-muted); font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; text-align: left; }
+.platform-table td { padding: .65rem .6rem; border-bottom: 1px solid var(--p-border); vertical-align: middle; }
+.platform-table tr:last-child td { border-bottom: none; }
+.platform-table tr:hover td { background: rgba(255,255,255,0.02); }
+
+.platform-badge { display: inline-flex; align-items: center; gap: .3rem; padding: .18rem .55rem; border-radius: 999px; font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+.platform-badge.neutral { background: rgba(133,146,173,0.16); color: var(--p-text-muted); }
+.platform-badge.accent { background: rgba(56,189,248,0.14); color: var(--p-accent); }
+.platform-badge.success { background: rgba(52,211,153,0.14); color: var(--p-success); }
+.platform-badge.warning { background: rgba(251,191,36,0.14); color: var(--p-warning); }
+.platform-badge.danger { background: rgba(248,113,113,0.14); color: var(--p-danger); }
+
+.platform-btn { display: inline-flex; align-items: center; gap: .4rem; padding: .45rem .9rem; border: 1px solid transparent; border-radius: 9px; font-size: .78rem; font-weight: 700; cursor: pointer; transition: opacity .12s; }
+.platform-btn:disabled { opacity: .55; cursor: not-allowed; }
+.platform-btn-primary { background: var(--p-accent); color: #04202e; }
+.platform-btn-primary:hover:not(:disabled) { background: var(--p-accent-strong); }
+.platform-btn-secondary { background: var(--p-surface-raised); border-color: var(--p-border); color: var(--p-text); }
+.platform-btn-secondary:hover:not(:disabled) { border-color: var(--p-accent); }
+.platform-btn-danger { background: rgba(248,113,113,0.14); color: var(--p-danger); }
+.platform-btn-danger:hover:not(:disabled) { background: rgba(248,113,113,0.24); }
+
+.platform-input, .platform-select {
+  width: 100%;
+  padding: .5rem .7rem;
+  border: 1px solid var(--p-border);
+  border-radius: 9px;
+  background: var(--p-bg);
+  color: var(--p-text);
+  font-size: .82rem;
+}
+.platform-input:focus, .platform-select:focus { outline: 2px solid var(--p-accent); outline-offset: 1px; }
+.platform-label { display: block; margin-bottom: .3rem; color: var(--p-text-muted); font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+
+.platform-alert-error { padding: .55rem .75rem; border: 1px solid rgba(248,113,113,0.35); border-radius: 9px; background: rgba(248,113,113,0.1); color: var(--p-danger); font-size: .78rem; }
+.platform-alert-success { padding: .55rem .75rem; border: 1px solid rgba(52,211,153,0.35); border-radius: 9px; background: rgba(52,211,153,0.1); color: var(--p-success); font-size: .78rem; }
+
+.platform-empty { padding: 2rem 1rem; text-align: center; color: var(--p-text-muted); font-size: .84rem; }
+
+.platform-login-shell { display: flex; min-height: 100vh; align-items: center; justify-content: center; background: var(--p-bg, #0b1120); }
+.platform-login-card { width: 100%; max-width: 360px; padding: 2rem; border: 1px solid #24304a; border-radius: 16px; background: #131b2c; color: #e8edf7; }

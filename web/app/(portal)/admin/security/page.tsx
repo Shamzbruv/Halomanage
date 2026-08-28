@@ -29,11 +29,14 @@ export default async function SecurityAdminPage() {
   if (!session.roles.includes("admin") || !session.organizationId) redirect("/dashboard");
 
   const supabase = await createClient();
-  const { data } = await supabase
-    .from("organization_identity_providers")
-    .select("id, domain, metadata_url, status, enforce_sso, requested_at, activated_at, last_error")
-    .eq("organization_id", session.organizationId)
-    .order("requested_at", { ascending: false });
+  const [{ data }, { data: ssoEnabled }] = await Promise.all([
+    supabase
+      .from("organization_identity_providers")
+      .select("id, domain, metadata_url, status, enforce_sso, requested_at, activated_at, last_error")
+      .eq("organization_id", session.organizationId)
+      .order("requested_at", { ascending: false }),
+    supabase.rpc("organization_has_feature", { p_org_id: session.organizationId, p_feature_key: "sso" }),
+  ]);
   const providers = (data ?? []) as IdentityProvider[];
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "https://YOUR_PROJECT.supabase.co";
 
@@ -74,7 +77,15 @@ export default async function SecurityAdminPage() {
               ))}
             </ul>
           )}
-          <SsoRequestForm organizationId={session.organizationId} />
+          {ssoEnabled ? (
+            <SsoRequestForm organizationId={session.organizationId} />
+          ) : (
+            <div className="empty-state compact">
+              <span className="empty-state-icon"><Icon name="shield" size={22} /></span>
+              <h3>SSO isn&apos;t enabled for your organization yet</h3>
+              <p>Contact your Halomanage account team to turn on single sign-on.</p>
+            </div>
+          )}
         </section>
 
         <aside className="card space-y-4" aria-labelledby="sso-provider-values-title">
