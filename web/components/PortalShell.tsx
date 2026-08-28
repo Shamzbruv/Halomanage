@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Brand } from "@/components/Brand";
 import { Icon, type IconName } from "@/components/Icon";
 import { SignOutButton } from "@/components/SignOutButton";
@@ -43,6 +43,7 @@ const adminItems: NavItem[] = [
   { href: "/admin/documents", label: "Document library", icon: "document" },
   { href: "/admin/payroll", label: "Pay records", icon: "payroll" },
   { href: "/admin/reports", label: "Reports", icon: "reports" },
+  { href: "/admin/security", label: "Identity & access", icon: "shield" },
 ];
 
 const pageTitles: Array<{ pattern: RegExp; title: string; eyebrow: string }> = [
@@ -66,6 +67,7 @@ const pageTitles: Array<{ pattern: RegExp; title: string; eyebrow: string }> = [
   { pattern: /^\/admin\/documents/, title: "Document library", eyebrow: "Administration" },
   { pattern: /^\/admin\/payroll/, title: "Pay records", eyebrow: "Administration" },
   { pattern: /^\/admin\/reports/, title: "Reports", eyebrow: "Administration" },
+  { pattern: /^\/admin\/security/, title: "Identity & access", eyebrow: "Administration" },
 ];
 
 function initials(name: string) {
@@ -114,11 +116,52 @@ export function PortalShell({ children, canSeeAdmin, canSeeTeam, email, name, or
 }) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
+  const mobileDrawerRef = useRef<HTMLElement>(null);
   const groups = [...personalItems];
   if (canSeeTeam) groups.push({ label: "Team", items: [{ href: "/team", label: "Team hub", icon: "team" }] });
   if (canSeeAdmin) groups.push({ label: "Manage", items: adminItems });
 
   const page = pageTitles.find((candidate) => candidate.pattern.test(pathname)) ?? { title: "Halomanage", eyebrow: "Workspace" };
+
+  useEffect(() => {
+    if (!mobileOpen) return;
+
+    const drawer = mobileDrawerRef.current;
+    const previousOverflow = document.body.style.overflow;
+    const focusable = drawer?.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    );
+    const firstFocusable = focusable?.[0];
+    const lastFocusable = focusable?.[focusable.length - 1];
+
+    document.body.style.overflow = "hidden";
+    firstFocusable?.focus();
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setMobileOpen(false);
+        return;
+      }
+
+      if (event.key !== "Tab" || !firstFocusable || !lastFocusable) return;
+      if (event.shiftKey && document.activeElement === firstFocusable) {
+        event.preventDefault();
+        lastFocusable.focus();
+      } else if (!event.shiftKey && document.activeElement === lastFocusable) {
+        event.preventDefault();
+        firstFocusable.focus();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+      mobileMenuButtonRef.current?.focus();
+    };
+  }, [mobileOpen]);
 
   return (
     <div className="portal-shell">
@@ -136,23 +179,42 @@ export function PortalShell({ children, canSeeAdmin, canSeeTeam, email, name, or
         </div>
       </aside>
 
-      {mobileOpen && <button className="portal-backdrop" aria-label="Close navigation" onClick={() => setMobileOpen(false)} />}
-      <aside className={`portal-mobile-drawer ${mobileOpen ? "open" : ""}`} aria-hidden={!mobileOpen}>
-        <div className="portal-mobile-drawer-head">
-          <Brand href="/dashboard" inverse />
-          <button className="icon-button inverse" aria-label="Close navigation" onClick={() => setMobileOpen(false)}><Icon name="x" /></button>
-        </div>
-        <div className="portal-organization">
-          <span className="organization-avatar">{initials(organizationName) || "HM"}</span>
-          <span><small>Organization</small><strong>{organizationName}</strong></span>
-        </div>
-        <Navigation groups={groups} pathname={pathname} onNavigate={() => setMobileOpen(false)} />
-      </aside>
+      {mobileOpen && (
+        <>
+          <button type="button" className="portal-backdrop" aria-label="Close navigation" onClick={() => setMobileOpen(false)} />
+          <aside
+            aria-label="Mobile navigation"
+            aria-modal="true"
+            className="portal-mobile-drawer open"
+            id="mobile-navigation"
+            ref={mobileDrawerRef}
+            role="dialog"
+          >
+            <div className="portal-mobile-drawer-head">
+              <Brand href="/dashboard" inverse />
+              <button type="button" className="icon-button inverse" aria-label="Close navigation" onClick={() => setMobileOpen(false)}><Icon name="x" /></button>
+            </div>
+            <div className="portal-organization">
+              <span className="organization-avatar">{initials(organizationName) || "HM"}</span>
+              <span><small>Organization</small><strong>{organizationName}</strong></span>
+            </div>
+            <Navigation groups={groups} pathname={pathname} onNavigate={() => setMobileOpen(false)} />
+          </aside>
+        </>
+      )}
 
       <div className="portal-content">
         <header className="portal-topbar">
           <div className="portal-mobile-brand">
-            <button className="icon-button" aria-label="Open navigation" onClick={() => setMobileOpen(true)}><Icon name="menu" /></button>
+            <button
+              aria-controls="mobile-navigation"
+              aria-expanded={mobileOpen}
+              aria-label="Open navigation"
+              className="icon-button"
+              onClick={() => setMobileOpen(true)}
+              ref={mobileMenuButtonRef}
+              type="button"
+            ><Icon name="menu" /></button>
             <Brand href="/dashboard" compact />
           </div>
           <div className="portal-page-title"><span>{page.eyebrow}</span><h1>{page.title}</h1></div>
@@ -163,7 +225,7 @@ export function PortalShell({ children, canSeeAdmin, canSeeTeam, email, name, or
             </Link>
           </div>
         </header>
-        <main className="portal-main">{children}</main>
+        <main className="portal-main" id="main-content" tabIndex={-1}>{children}</main>
       </div>
     </div>
   );

@@ -63,12 +63,31 @@
   }
 
   :focus-visible {
-    outline: 3px solid rgba(239, 118, 93, 0.42);
+    outline: 3px solid #ffffff;
     outline-offset: 2px;
+    box-shadow: 0 0 0 5px var(--brand-navy);
   }
 }
 
 @layer components {
+  .skip-link {
+    position: fixed;
+    top: 0.75rem;
+    left: 0.75rem;
+    z-index: 1000;
+    transform: translateY(calc(-100% - 1rem));
+    border-radius: 9px;
+    padding: 0.7rem 0.9rem;
+    color: #ffffff;
+    background: var(--brand-navy);
+    font-size: 0.82rem;
+    font-weight: 750;
+    box-shadow: var(--shadow-md);
+    transition: transform 120ms ease;
+  }
+
+  .skip-link:focus { transform: translateY(0); }
+
   .brand {
     display: inline-flex;
     align-items: center;
@@ -222,7 +241,6 @@
   .input::placeholder { color: #a2aaa6; }
 
   .input:focus {
-    outline: none;
     border-color: #6ea596;
     box-shadow: 0 0 0 3px rgba(73, 142, 123, 0.13);
   }
@@ -263,6 +281,24 @@
   .badge-gold { color: #876018; background: #fff2cf; }
   .badge-ruby { color: #a1373b; background: #fce9e8; }
   .badge-neutral { color: #5d6964; background: #eef1ef; }
+
+  /* Profile page avatar — a scaled-up sibling of .user-avatar's circular
+     initials style, plus an <img> mode for once a real photo is uploaded. */
+  .profile-photo {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 72px;
+    height: 72px;
+    flex: 0 0 auto;
+    overflow: hidden;
+    border-radius: 999px;
+    color: #0e4639;
+    background: #f1c76d;
+    font-size: 1.3rem;
+    font-weight: 750;
+  }
+  .profile-photo img { width: 100%; height: 100%; object-fit: cover; }
 
   .text-error { color: var(--danger); }
 
@@ -680,6 +716,13 @@
   .auth-invite-note svg { flex: 0 0 auto; color: var(--forest); }
   .auth-divider { display: flex; align-items: center; gap: .75rem; color: var(--ink-faint); font-size: .7rem; }
   .auth-divider::before, .auth-divider::after { content: ""; height: 1px; flex: 1; background: var(--line); }
+
+  /* LoginForm's "or continue with company SSO" — same visual language as
+     .auth-divider, just scoped to the <span> sibling that markup already
+     has rather than the button itself. */
+  .auth-sso-option { display: grid; gap: .85rem; margin-top: .25rem; }
+  .auth-sso-option > span { display: flex; align-items: center; gap: .75rem; color: var(--ink-faint); font-size: .68rem; text-transform: uppercase; letter-spacing: .05em; }
+  .auth-sso-option > span::before, .auth-sso-option > span::after { content: ""; height: 1px; flex: 1; background: var(--line); }
 
   .checkbox-row { display: flex; align-items: flex-start; gap: .65rem; color: var(--ink-soft); font-size: .76rem; line-height: 1.45; }
   .checkbox-row input { width: 16px; height: 16px; flex: 0 0 auto; margin-top: 2px; accent-color: var(--forest); }

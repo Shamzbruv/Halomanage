@@ -14,6 +14,12 @@ type PortalDetails = {
   portal_message: string;
 };
 
+type IdentityOptions = {
+  sso_available: boolean;
+  sso_enforced: boolean;
+  sso_domain: string | null;
+};
+
 export default async function EmployeePortalPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   if (!/^[a-z0-9][a-z0-9-]{1,49}$/.test(slug)) notFound();
@@ -27,9 +33,11 @@ export default async function EmployeePortalPage({ params }: { params: Promise<{
 
   const portal = (Array.isArray(data) ? data[0] : data) as PortalDetails | undefined;
   if (!portal) notFound();
+  const { data: identityData } = await supabase.rpc("get_portal_identity_options", { p_slug: slug });
+  const identity = (Array.isArray(identityData) ? identityData[0] : identityData) as IdentityOptions | undefined;
 
   return (
-    <main className="employee-portal-shell">
+    <main className="employee-portal-shell" id="main-content" tabIndex={-1}>
       <section className="employee-portal-brand-panel">
         <Brand inverse tagline />
         <div className="employee-portal-company">
@@ -48,7 +56,13 @@ export default async function EmployeePortalPage({ params }: { params: Promise<{
         <div className="employee-portal-login-top"><Brand /><Link href="/">Halomanage home</Link></div>
         <div className="auth-card employee-portal-login-card">
           <div className="auth-card-header"><span className="eyebrow">{portal.name}</span><h2>Employee sign in</h2><p>Use the work email address connected to your employee account.</p></div>
-          <LoginForm portal={{ name: portal.name, slug: portal.slug }} />
+          <LoginForm portal={{
+            name: portal.name,
+            slug: portal.slug,
+            ssoAvailable: identity?.sso_available ?? false,
+            ssoEnforced: identity?.sso_enforced ?? false,
+            ssoDomain: identity?.sso_domain ?? null,
+          }} />
           <p className="auth-form-footer">Need an account? Ask your HR administrator to invite you from the People directory.</p>
         </div>
       </section>

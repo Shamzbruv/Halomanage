@@ -678,6 +678,142 @@ async function main() {
     ok("Carol (Alice's new supervisor) sees Alice after the transfer", Number(rows.rows[0].count) === 1);
   });
 
+  // ===================== LIFECYCLE / RBAC HARDENING =====================
+  // Ref: 20260828110000_lifecycle_rbac_hardening.sql.
+
+  // Security regression: `!=` against a NULL assigned_to_user_id evaluates
+  // to NULL, and PL/pgSQL's `if` treats NULL as false (skips the raise) —
+  // so the *previous* version of complete_onboarding_task/
+  // complete_offboarding_task let ANY authenticated caller complete an
+  // unassigned ("hr"-owned) task regardless of permission. IS DISTINCT
+  // FROM is the null-safe fix; these two blocks specifically recreate an
+  // unassigned task and confirm an unprivileged, unassigned caller is now
+  // rejected — the case the earlier "Erin (employee.manage) can complete
+  // an unassigned task" assertion never actually covered, since Erin
+  // holding the permission would pass under the old buggy code too.
+  // Fixture setup, not the thing under test — run unimpersonated (bypasses
+  // RLS, same as every other raw fixture insert in this file) rather than
+  // through the start_onboarding()/start_offboarding() RPCs, since those
+  // don't offer a way to force an unassigned "hr" step onto a real run.
+  let unassignedOnboardingRunId, unassignedOnboardingTaskId;
+  {
+    const run = await db.query(`insert into public.onboarding_runs (organization_id, employee_id, template_version_id, created_by) values ('${ORG}', '${ALICE_EMP}', '${templateVersionId}', '${ERIN_USER}') returning id`);
+    unassignedOnboardingRunId = run.rows[0].id;
+    const task = await db.query(`
+      insert into public.onboarding_tasks (run_id, template_step_id, organization_id, employee_id, title, step_type, assignee_type, assigned_to_user_id, sequence, required)
+      values ('${unassignedOnboardingRunId}', '${stepAId}', '${ORG}', '${ALICE_EMP}', 'HR-owned onboarding task', 'form', 'hr', null, 1, true)
+      returning id
+    `);
+    unassignedOnboardingTaskId = task.rows[0].id;
+  }
+  await as(DAVID_USER, async () => {
+    let threw = false;
+    try { await db.query(`select * from public.complete_onboarding_task('${unassignedOnboardingTaskId}', null)`); } catch { threw = true; }
+    ok("David (unassigned, no employee.manage) cannot complete an unassigned onboarding task", threw);
+  });
+  await as(ERIN_USER, async () => {
+    const done = await db.query(`select * from public.complete_onboarding_task('${unassignedOnboardingTaskId}', null)`);
+    ok("Erin (employee.manage) can still complete an unassigned onboarding task", done.rows[0].status === "completed");
+  });
+
+  let offboardingTemplateId, unassignedOffboardingRunId, unassignedOffboardingTaskId;
+  {
+    const tmpl = await db.query(`insert into public.offboarding_templates (organization_id, name, is_default, is_active) values ('${ORG}', 'Regression test template', false, true) returning id`);
+    offboardingTemplateId = tmpl.rows[0].id;
+    const run = await db.query(`insert into public.offboarding_runs (organization_id, employee_id, template_id, created_by) values ('${ORG}', '${ALICE_EMP}', '${offboardingTemplateId}', '${ERIN_USER}') returning id`);
+    unassignedOffboardingRunId = run.rows[0].id;
+    const task = await db.query(`
+      insert into public.offboarding_tasks (run_id, organization_id, employee_id, title, assignee_type, assigned_to_user_id, sequence, required)
+      values ('${unassignedOffboardingRunId}', '${ORG}', '${ALICE_EMP}', 'HR-owned exit task', 'hr', null, 1, true)
+      returning id
+    `);
+    unassignedOffboardingTaskId = task.rows[0].id;
+  }
+  await as(DAVID_USER, async () => {
+    let threw = false;
+    try { await db.query(`select * from public.complete_offboarding_task('${unassignedOffboardingTaskId}')`); } catch { threw = true; }
+    ok("David (unassigned, no employee.manage) cannot complete an unassigned offboarding task", threw);
+  });
+  await as(ERIN_USER, async () => {
+    const done = await db.query(`select * from public.complete_offboarding_task('${unassignedOffboardingTaskId}')`);
+    ok("Erin (employee.manage) can still complete an unassigned offboarding task", done.rows[0].status === "completed");
+  });
+
+  // role_assignments is select-only now — every mutation must go through
+  // set_member_role().
+  await as(DAVID_USER, async () => {
+    let threw = false;
+    try { await db.query(`insert into public.role_assignments (organization_id, user_id, role) values ('${ORG}', '${DAVID_USER}', 'admin')`); } catch { threw = true; }
+    ok("David cannot INSERT into role_assignments directly (write access revoked)", threw);
+  });
+  await as(DAVID_USER, async () => {
+    let threw = false;
+    try { await db.query(`select * from public.set_member_role('${ALICE_EMP}', 'supervisor', null)`); } catch { threw = true; }
+    ok("David (no roles.manage) cannot change Alice's role", threw);
+  });
+  await as(ERIN_USER, async () => {
+    const changed = await db.query(`select * from public.set_member_role('${ALICE_EMP}', 'supervisor', null)`);
+    ok("Erin can promote Alice to supervisor", changed.rows[0].role === "supervisor");
+    const activeRoles = await db.query(`select role from public.role_assignments where organization_id = '${ORG}' and user_id = '${ALICE_USER}' and (valid_until is null or valid_until > now())`);
+    ok("Alice holds exactly one active role after the change", activeRoles.rows.length === 1 && activeRoles.rows[0].role === "supervisor");
+  });
+  await as(ERIN_USER, async () => {
+    let threw = false;
+    try { await db.query(`select * from public.set_member_role('${ERIN_EMP}', 'manager', null)`); } catch { threw = true; }
+    ok("Erin (the only active admin) cannot demote herself", threw);
+  });
+  await as(ERIN_USER, async () => {
+    // Prove the last-admin guard is actually about "last", not "any
+    // change to an admin": with a second admin present, demoting Erin
+    // succeeds.
+    await db.query(`select * from public.set_member_role('${CAROL_EMP}', 'admin', null)`);
+    const changed = await db.query(`select * from public.set_member_role('${ERIN_EMP}', 'manager', null)`);
+    ok("Erin can demote herself once another admin exists", changed.rows[0].role === "manager");
+  });
+  await as(CAROL_USER, async () => {
+    // Erin just lost roles.manage by demoting herself — Carol (the
+    // remaining admin) is who restores the org's admin back to Erin.
+    // Assert on the RPC's own return value rather than a follow-up SELECT:
+    // once Carol demotes herself below, she loses roles.manage and the
+    // "read own role assignments" RLS policy would hide Erin's row from her.
+    const restored = await db.query(`select * from public.set_member_role('${ERIN_EMP}', 'admin', null)`);
+    ok("Erin's admin role is restored", restored.rows[0]?.role === "admin");
+    await db.query(`select * from public.set_member_role('${CAROL_EMP}', 'manager', null)`);
+  });
+
+  // ============================ TERMINATION ============================
+  // Note: David's employees.status was already flipped to 'terminated' by
+  // an earlier, pre-existing test (raw UPDATE, not through terminate_employee())
+  // — so Bob is used here as the actually-untouched target for the RPC itself.
+  await as(DAVID_USER, async () => {
+    let threw = false;
+    try { await db.query(`select * from public.terminate_employee('${ALICE_EMP}', current_date, 'test')`); } catch { threw = true; }
+    ok("David (no employee.manage) cannot terminate Alice", threw);
+  });
+  await as(ERIN_USER, async () => {
+    let threw = false;
+    try { await db.query(`select * from public.terminate_employee('${ERIN_EMP}', current_date, null)`); } catch { threw = true; }
+    ok("Erin cannot terminate her own employee record", threw);
+  });
+  await as(ERIN_USER, async () => {
+    const terminated = await db.query(`select * from public.terminate_employee('${BOB_EMP}', current_date, 'Regression test')`);
+    ok("Erin can terminate Bob", terminated.rows[0].status === "terminated");
+    const assignment = await db.query(`select count(*) from public.employee_assignments where employee_id = '${BOB_EMP}' and end_date is null`);
+    ok("Bob's open assignment was closed by termination", Number(assignment.rows[0].count) === 0);
+    const activeRole = await db.query(`select count(*) from public.role_assignments where organization_id = '${ORG}' and user_id = '${BOB_USER}' and (valid_until is null or valid_until > now())`);
+    ok("Bob has no active role after termination", Number(activeRole.rows[0].count) === 0);
+  });
+  await as(ERIN_USER, async () => {
+    let threw = false;
+    try { await db.query(`select * from public.terminate_employee('${BOB_EMP}', current_date, null)`); } catch { threw = true; }
+    ok("Bob cannot be terminated a second time", threw);
+  });
+  await as(BOB_USER, async () => {
+    let threw = false;
+    try { await db.query(`select public.repair_current_workspace(null, null) as result`); } catch { threw = true; }
+    ok("A terminated employee cannot use workspace-repair to restore access", threw);
+  });
+
   console.log(`\n${passCount} passed, ${failCount} failed.`);
   if (failCount > 0) process.exitCode = 1;
 }

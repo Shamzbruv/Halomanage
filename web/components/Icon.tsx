@@ -22,6 +22,7 @@ export type IconName =
   | "shield"
   | "spark"
   | "team"
+  | "upload"
   | "x";
 
 const paths: Record<IconName, React.ReactNode> = {
@@ -48,6 +49,7 @@ const paths: Record<IconName, React.ReactNode> = {
   shield: <><path d="M12 2 20 5v6c0 5-3.3 9-8 11-4.7-2-8-6-8-11V5z"/><path d="m8.5 12 2.2 2.2 4.8-5"/></>,
   spark: <path d="m12 2 1.4 5.1L18 9l-4.6 1.9L12 16l-1.4-5.1L6 9l4.6-1.9zM19 16l.7 2.3L22 19l-2.3.7L19 22l-.7-2.3L16 19l2.3-.7z"/>,
   team: <><circle cx="8" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M2 20c.5-4.2 2.5-7 6-7s5.5 2.8 6 7M14 14c3.8-.5 6.5 1.8 7 6"/></>,
+  upload: <><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></>,
   x: <><path d="m6 6 12 12M18 6 6 18"/></>,
 };
 

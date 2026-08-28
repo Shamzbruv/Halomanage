@@ -19,7 +19,7 @@ const steps = [
 
 function ProductPreview() {
   return (
-    <div className="landing-product" aria-label="Halomanage dashboard preview">
+    <div className="landing-product" aria-hidden="true">
       <div className="landing-product-bar">
         <span /><span /><span />
         <small>halomanage.app</small>
@@ -77,7 +77,7 @@ export default function LandingPage() {
         </div>
       </header>
 
-      <main>
+      <main id="main-content" tabIndex={-1}>
         <section className="landing-hero">
           <div className="landing-orbit orbit-one" /><div className="landing-orbit orbit-two" />
           <div className="landing-container landing-hero-grid">

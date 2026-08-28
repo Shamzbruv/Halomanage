@@ -5,6 +5,8 @@ import { getCurrentSession } from "@/lib/session";
 import { ChangeAssignmentForm } from "@/components/ChangeAssignmentForm";
 import { GrantLeaveBalanceForm } from "@/components/GrantLeaveBalanceForm";
 import { InviteButton } from "@/components/InviteButton";
+import { RoleAssignmentForm } from "@/components/RoleAssignmentForm";
+import { TerminateEmployeeButton } from "@/components/TerminateEmployeeButton";
 import { statusBadgeClass } from "@/lib/ui";
 
 export default async function EmployeeDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -46,6 +48,25 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
 
   if (!employee) notFound();
 
+  // role_assignments is select-only under RLS now (see
+  // 20260828110000_lifecycle_rbac_hardening.sql) — every mutation goes
+  // through set_member_role(). Only meaningful once the employee has a
+  // linked account; a prehire with no user_id can't hold a role yet.
+  const { data: roleRows } = employee.user_id
+    ? await supabase
+        .from("role_assignments")
+        .select("role, valid_from, valid_until")
+        .eq("organization_id", orgId)
+        .eq("user_id", employee.user_id)
+        .order("valid_from", { ascending: false })
+    : { data: null };
+  const now = new Date();
+  const currentRole =
+    (roleRows ?? []).find(
+      (row) => new Date(row.valid_from) <= now && (!row.valid_until || new Date(row.valid_until) > now),
+    )?.role ?? null;
+  const isSelf = employee.user_id === session.userId;
+
   const supervisorName = currentAssignment?.supervisor_employee_id
     ? employees?.find((e) => e.id === currentAssignment.supervisor_employee_id)
     : null;
@@ -68,6 +89,13 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
         <div className="flex items-center gap-2">
           <span className={`badge ${statusBadgeClass(employee.status)}`}>{employee.status}</span>
           <InviteButton employeeId={employee.id} alreadyInvited={!!employee.user_id} portalSlug={session.organization.slug} />
+          {employee.status !== "terminated" && (
+            <TerminateEmployeeButton
+              employeeId={employee.id}
+              employeeName={`${employee.first_name} ${employee.last_name}`}
+              isSelf={isSelf}
+            />
+          )}
         </div>
       </div>
 
@@ -114,6 +142,16 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
           />
         </div>
       </div>
+
+      {employee.user_id && (
+        <div className="card">
+          <h2 className="mb-1 text-sm font-semibold text-stone-900">Role &amp; access</h2>
+          <p className="mb-4 text-xs text-stone-500">
+            Controls what {employee.first_name} can see and manage across the organization. Takes effect immediately.
+          </p>
+          <RoleAssignmentForm employeeId={employee.id} currentRole={currentRole as "employee" | "supervisor" | "manager" | "admin" | null} isSelf={isSelf} />
+        </div>
+      )}
 
       <div className="card">
         <h2 className="mb-3 text-sm font-semibold text-stone-900">Leave balances</h2>

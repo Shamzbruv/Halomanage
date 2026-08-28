@@ -8,7 +8,7 @@ export function AuthScreen({ mode = "sign-in" }: { mode?: "sign-in" | "sign-up" 
   const isSignup = mode === "sign-up";
 
   return (
-    <div className="auth-shell">
+    <main className="auth-shell" id="main-content" tabIndex={-1}>
       <section className="auth-story">
         <div className="auth-story-content">
           <Brand inverse tagline />
@@ -54,6 +54,6 @@ export function AuthScreen({ mode = "sign-in" }: { mode?: "sign-in" | "sign-up" 
           </p>
         </div>
       </section>
-    </div>
+    </main>
   );
 }

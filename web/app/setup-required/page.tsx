@@ -11,7 +11,7 @@ export default async function SetupRequiredPage({ searchParams }: { searchParams
   return (
     <div className="setup-page">
       <header><Brand /><Link href="/">View public site</Link></header>
-      <main>
+      <main id="main-content" tabIndex={-1}>
         <span className="setup-hero-icon"><Icon name="settings" size={30} /></span>
         <span className="eyebrow">Deployment setup</span>
         <h1>{connectionError ? "We couldn’t reach your data workspace." : "Connect Halomanage to Supabase."}</h1>

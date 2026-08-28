@@ -172,8 +172,9 @@ export default async function DashboardPage() {
   let adminActions: AdminAction[] = [];
   if (isAdmin && session.organizationId) {
     const organizationId = session.organizationId;
-    const today = dateKey(new Date());
-    const expiryCutoff = dateKey(new Date(Date.now() + 60 * DAY_MS));
+    const reportDate = new Date();
+    const today = dateKey(reportDate);
+    const expiryCutoff = dateKey(new Date(reportDate.getTime() + 60 * DAY_MS));
 
     const [
       { data: attendanceToday },

@@ -7,6 +7,9 @@ dist/
 *.tsbuildinfo
 next-env.d.ts
 npm-debug.log*
+playwright-report/
+test-results/
+blob-report/
 
 # Env
 .env

@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession } from "@/lib/session";
 import { ProfileForm } from "@/components/ProfileForm";
 import { PrivateInfoForm } from "@/components/PrivateInfoForm";
+import { AvatarUpload } from "@/components/AvatarUpload";
 
 export default async function ProfilePage() {
   const session = await getCurrentSession();
@@ -16,6 +17,11 @@ export default async function ProfilePage() {
     .eq("employee_id", session.employee.id)
     .maybeSingle();
 
+  const avatarResult = session.employee.avatar_url
+    ? await supabase.storage.from("employee-avatars").createSignedUrl(session.employee.avatar_url, 3600)
+    : null;
+  const employeeName = `${session.employee.preferred_name || session.employee.first_name} ${session.employee.last_name}`;
+
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <div className="page-intro"><span className="eyebrow">Your employee record</span><h1>Keep your details current.</h1><p>Update the information you control. Employment details stay managed by your HR team and every sensitive field remains separately protected.</p></div>
@@ -25,6 +31,15 @@ export default async function ProfilePage() {
         <p className="mb-4 text-xs text-stone-500">
           {session.employee.first_name} {session.employee.last_name} · {session.employee.employee_number} · {session.employee.work_email}
         </p>
+        <div className="mb-5 border-b border-stone-100 pb-5">
+          <AvatarUpload
+            employeeId={session.employee.id}
+            organizationId={session.employee.organization_id}
+            currentPath={session.employee.avatar_url}
+            currentUrl={avatarResult?.data?.signedUrl ?? null}
+            employeeName={employeeName}
+          />
+        </div>
         <ProfileForm
           employeeId={session.employee.id}
           initial={{

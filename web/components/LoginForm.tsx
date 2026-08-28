@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Icon } from "@/components/Icon";
 import { createClient } from "@/lib/supabase/client";
 
-export function LoginForm({ portal }: { portal?: { name: string; slug: string } }) {
+export function LoginForm({ portal }: { portal?: { name: string; slug: string; ssoAvailable?: boolean; ssoEnforced?: boolean; ssoDomain?: string | null } }) {
   const router = useRouter();
   const supabase = createClient();
   const [email, setEmail] = useState("");
@@ -14,6 +14,30 @@ export function LoginForm({ portal }: { portal?: { name: string; slug: string } 
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [recoveryMode, setRecoveryMode] = useState(false);
+
+  async function handleSso() {
+    setLoading(true);
+    setError(null);
+    setMessage(null);
+    const emailDomain = email.includes("@") ? email.split("@").pop()?.trim().toLowerCase() : null;
+    const domain = portal?.ssoDomain || emailDomain;
+    if (!domain) {
+      setError("Enter your work email so we can find your company sign-in.");
+      setLoading(false);
+      return;
+    }
+
+    const callbackPath = "/auth/sso-complete";
+    const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(callbackPath)}`;
+    const { error: ssoError } = await supabase.auth.signInWithSSO({
+      domain,
+      options: { redirectTo },
+    });
+    if (ssoError) {
+      setError("Company sign-in is not available for that email domain. Contact your HR or IT administrator.");
+      setLoading(false);
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -32,6 +56,11 @@ export function LoginForm({ portal }: { portal?: { name: string; slug: string } 
       return;
     }
 
+    if (portal?.ssoEnforced) {
+      await handleSso();
+      return;
+    }
+
     const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
     if (signInError) {
       setError("We couldn’t sign you in. Check your email and password, then try again.");
@@ -42,7 +71,7 @@ export function LoginForm({ portal }: { portal?: { name: string; slug: string } 
     const user = signInData.user;
     const { data: employee, error: employeeError } = await supabase
       .from("employees")
-      .select("organization_id")
+      .select("organization_id, status")
       .eq("user_id", user.id)
       .maybeSingle();
 
@@ -60,6 +89,13 @@ export function LoginForm({ portal }: { portal?: { name: string; slug: string } 
       }
       await supabase.auth.signOut();
       setError("This login is not connected to an employee record yet. Ask your HR administrator to resend or repair your invitation.");
+      setLoading(false);
+      return;
+    }
+
+    if (employee.status === "terminated") {
+      await supabase.auth.signOut();
+      setError("Access to this employee account has ended. Contact your former HR administrator if you need records or assistance.");
       setLoading(false);
       return;
     }
@@ -93,7 +129,7 @@ export function LoginForm({ portal }: { portal?: { name: string; slug: string } 
         <label className="label" htmlFor="email">Work email</label>
         <input id="email" type="email" required autoComplete="email" className="input" placeholder="you@company.com" value={email} onChange={(e) => setEmail(e.target.value)} />
       </div>
-      {!recoveryMode && (
+      {!recoveryMode && !portal?.ssoEnforced && (
         <div>
           <label className="label" htmlFor="password">
             Password
@@ -105,8 +141,16 @@ export function LoginForm({ portal }: { portal?: { name: string; slug: string } 
       {error && <p role="alert" className="alert-error">{error}</p>}
       {message && <p role="status" className="alert-success">{message}</p>}
       <button type="submit" disabled={loading || Boolean(message)} className="btn-primary w-full">
-        {loading ? "Please wait…" : recoveryMode ? "Send reset link" : <>Sign in <Icon name="arrow-right" size={16} /></>}
+        {loading ? "Please wait…" : recoveryMode ? "Send reset link" : portal?.ssoEnforced ? <>Continue with company SSO <Icon name="arrow-right" size={16} /></> : <>Sign in <Icon name="arrow-right" size={16} /></>}
       </button>
+      {!recoveryMode && !portal?.ssoEnforced && (portal?.ssoAvailable || !portal) && (
+        <div className="auth-sso-option">
+          <span aria-hidden="true">or</span>
+          <button type="button" className="btn-secondary w-full" disabled={loading} onClick={() => void handleSso()}>
+            <Icon name="shield" size={16} /> Continue with company SSO
+          </button>
+        </div>
+      )}
       {!recoveryMode && <p className="auth-invite-note"><Icon name="shield" size={15} /> {portal ? `Only accounts invited by ${portal.name} can sign in here.` : "Employee accounts are created through a secure invitation from your HR team."}</p>}
     </form>
   );
