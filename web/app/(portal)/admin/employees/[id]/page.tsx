@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { redirect, notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentSession } from "@/lib/session";
+import { getCurrentSession, sessionCan } from "@/lib/session";
 import { ActivateEmployeeButton } from "@/components/ActivateEmployeeButton";
 import { ChangeAssignmentForm } from "@/components/ChangeAssignmentForm";
+import { ChangeCompensationForm } from "@/components/ChangeCompensationForm";
 import { GrantLeaveBalanceForm } from "@/components/GrantLeaveBalanceForm";
 import { InviteButton } from "@/components/InviteButton";
 import { RoleAssignmentForm } from "@/components/RoleAssignmentForm";
@@ -16,6 +17,12 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
   if (!session) redirect("/login");
   if (!session.roles.includes("admin")) redirect("/dashboard");
   if (!session.organizationId || !session.organization) redirect("/dashboard");
+  // Compensation access is a separate grant from ordinary employee
+  // management (see 20260829110000_compensation_pay_administration.sql) —
+  // an admin whose org has revoked compensation.read_org still manages
+  // this employee's assignment/role/leave normally, just without this section.
+  const canReadCompensation = sessionCan(session, "compensation.read_org");
+  const canManageCompensation = sessionCan(session, "compensation.manage") || sessionCan(session, "compensation.approve");
 
   const supabase = await createClient();
   const orgId = session.organizationId;
@@ -30,6 +37,10 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
     { data: employees },
     { data: leaveTypes },
     { data: balances },
+    { data: compensationHistory },
+    { data: payGroups },
+    { data: payGrades },
+    { data: changeReasons },
   ] = await Promise.all([
     supabase.from("employees").select("*").eq("id", id).single(),
     // Query the real employee_assignments table directly rather than
@@ -45,6 +56,10 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
     supabase.from("employees").select("id, first_name, last_name").eq("organization_id", orgId).order("last_name"),
     supabase.from("leave_types").select("id, name").eq("organization_id", orgId).eq("is_active", true).order("name"),
     supabase.from("leave_balance_v").select("balance, leave_type_name").eq("employee_id", id),
+    supabase.from("employee_compensation").select("*").eq("employee_id", id).order("start_date", { ascending: false }),
+    supabase.from("pay_groups").select("id, name").eq("organization_id", orgId).eq("is_active", true).order("name"),
+    supabase.from("pay_grades").select("id, name").eq("organization_id", orgId).eq("is_active", true).order("name"),
+    supabase.from("compensation_change_reasons").select("id, name").eq("organization_id", orgId).eq("is_active", true).order("name"),
   ]);
 
   if (!employee) notFound();
@@ -74,6 +89,26 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
   const managerName = currentAssignment?.manager_employee_id
     ? employees?.find((e) => e.id === currentAssignment.manager_employee_id)
     : null;
+
+  const currentCompensation = (compensationHistory ?? []).find((c) => c.end_date === null) ?? null;
+  const payGroupName = payGroups?.find((g) => g.id === currentCompensation?.pay_group_id)?.name ?? null;
+  const payGradeName = payGrades?.find((g) => g.id === currentCompensation?.pay_grade_id)?.name ?? null;
+
+  let nextPayDate: string | null = null;
+  if (canReadCompensation && currentCompensation?.pay_group_id) {
+    const { data: group } = await supabase.from("pay_groups").select("pay_calendar_id").eq("id", currentCompensation.pay_group_id).maybeSingle();
+    if (group?.pay_calendar_id) {
+      const { data: nextPeriod } = await supabase
+        .from("pay_periods")
+        .select("pay_date")
+        .eq("pay_calendar_id", group.pay_calendar_id)
+        .gte("pay_date", new Date().toISOString().slice(0, 10))
+        .order("pay_date", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      nextPayDate = nextPeriod?.pay_date ?? null;
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -154,6 +189,63 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
             Controls what {employee.first_name} can see and manage across the organization. Takes effect immediately.
           </p>
           <RoleAssignmentForm employeeId={employee.id} currentRole={currentRole as "employee" | "supervisor" | "manager" | "admin" | null} isSelf={isSelf} />
+        </div>
+      )}
+
+      {canReadCompensation && (
+        <div className="card">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-stone-900">Compensation</h2>
+              <p className="text-xs text-stone-500">Gross rate only — Halomanage never calculates tax, deductions, or net pay.</p>
+            </div>
+            {canManageCompensation && (
+              <ChangeCompensationForm
+                employeeId={employee.id}
+                payGroups={payGroups ?? []}
+                payGrades={payGrades ?? []}
+                reasons={changeReasons ?? []}
+              />
+            )}
+          </div>
+
+          {currentCompensation ? (
+            <>
+              {currentCompensation.needs_review && (
+                <p className="alert-error mb-3 text-xs">
+                  This record was carried over from an earlier schema version and its pay type/rate unit were inferred —
+                  please confirm or correct it with Change compensation.
+                </p>
+              )}
+              <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
+                <div><dt className="text-xs uppercase text-stone-400">Pay type</dt><dd>{currentCompensation.pay_type === "other" ? currentCompensation.pay_type_other_label : currentCompensation.pay_type ?? "—"}</dd></div>
+                <div><dt className="text-xs uppercase text-stone-400">Rate</dt><dd>{currentCompensation.currency} {Number(currentCompensation.amount).toLocaleString()}{currentCompensation.rate_unit ? ` / ${currentCompensation.rate_unit}` : ""}</dd></div>
+                <div><dt className="text-xs uppercase text-stone-400">Pay frequency</dt><dd>{currentCompensation.pay_frequency ?? "—"}</dd></div>
+                <div><dt className="text-xs uppercase text-stone-400">Pay group</dt><dd>{payGroupName ?? "—"}</dd></div>
+                <div><dt className="text-xs uppercase text-stone-400">Next pay date</dt><dd>{nextPayDate ?? "—"}</dd></div>
+                <div><dt className="text-xs uppercase text-stone-400">Pay grade</dt><dd>{payGradeName ?? "—"}</dd></div>
+                <div><dt className="text-xs uppercase text-stone-400">Standard weekly hours</dt><dd>{currentCompensation.standard_weekly_hours ?? "—"}</dd></div>
+                <div><dt className="text-xs uppercase text-stone-400">FTE</dt><dd>{currentCompensation.fte ?? "—"}</dd></div>
+                <div><dt className="text-xs uppercase text-stone-400">Overtime eligible</dt><dd>{currentCompensation.overtime_eligible === null ? "—" : currentCompensation.overtime_eligible ? "Yes" : "No"}</dd></div>
+                <div><dt className="text-xs uppercase text-stone-400">Effective since</dt><dd>{currentCompensation.start_date}</dd></div>
+              </dl>
+            </>
+          ) : (
+            <p className="text-sm text-stone-400">No compensation on record yet.</p>
+          )}
+
+          {compensationHistory && compensationHistory.length > 1 && (
+            <>
+              <h3 className="mb-2 mt-5 text-xs font-semibold uppercase text-stone-400">History</h3>
+              <ul className="space-y-1 text-xs text-stone-500">
+                {compensationHistory.filter((c) => c.end_date !== null).map((c) => (
+                  <li key={c.id}>
+                    {c.start_date} → {c.end_date}: {c.currency} {Number(c.amount).toLocaleString()} ({c.pay_type ?? "unspecified"})
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
         </div>
       )}
 

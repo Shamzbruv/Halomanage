@@ -1,11 +1,12 @@
 import { createClient } from "@/lib/supabase/server";
-import type { AppRole, Employee } from "@/lib/supabase/types";
+import type { AppPermission, AppRole, Employee } from "@/lib/supabase/types";
 
 export type CurrentSession = {
   userId: string;
   email: string | null;
   employee: Employee | null;
   roles: AppRole[];
+  permissions: AppPermission[];
   organizationId: string | null;
   organization: {
     id: string;
@@ -15,6 +16,18 @@ export type CurrentSession = {
   } | null;
   dataError: boolean;
 };
+
+// Roles answer "what can this person broadly do"; permissions answer the
+// actual question every route guard and RLS policy checks. Every admin
+// page used to gate on session.roles.includes("admin") even where the
+// underlying RPC enforced a narrower permission (payroll.import, now
+// compensation.*) — an org that customizes role_permissions to grant that
+// permission to a non-admin role, or revoke it from admin, would get a
+// route guard that disagrees with the database. session.can(...) is the
+// fix: it asks the same question the database would.
+export function sessionCan(session: Pick<CurrentSession, "permissions">, permission: AppPermission): boolean {
+  return session.permissions.includes(permission);
+}
 
 // Everything the portal shell needs to decide what to show — one place so
 // every page/layout asks the same question the same way. Every query here
@@ -46,6 +59,18 @@ export async function getCurrentSession(): Promise<CurrentSession | null> {
 
   const roles = [...new Set((roleRows ?? []).map((r) => r.role as AppRole))];
   const organizationId = employee?.organization_id ?? roleRows?.[0]?.organization_id ?? null;
+
+  let permissions: AppPermission[] = [];
+  let permissionsError = false;
+  if (organizationId) {
+    const permissionResult = await supabase.rpc("get_effective_permissions", { p_org_id: organizationId });
+    if (permissionResult.error) {
+      permissionsError = true;
+      console.error("session: failed to resolve effective permissions", { code: permissionResult.error.code });
+    } else {
+      permissions = (permissionResult.data ?? []).map((row: { get_effective_permissions: AppPermission }) => row.get_effective_permissions);
+    }
+  }
   let organization: CurrentSession["organization"] = null;
   let organizationError = false;
 
@@ -73,9 +98,10 @@ export async function getCurrentSession(): Promise<CurrentSession | null> {
     email: user.email ?? null,
     employee: (employee as Employee) ?? null,
     roles,
+    permissions,
     organizationId,
     organization,
-    dataError: Boolean(employeeResult.error || roleResult.error || organizationError),
+    dataError: Boolean(employeeResult.error || roleResult.error || organizationError || permissionsError),
   };
 }
 

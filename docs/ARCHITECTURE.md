@@ -82,6 +82,9 @@ onboarding_templates(+versions/steps) / onboarding_runs / onboarding_tasks
 appraisal_templates / appraisal_cycles / appraisal_instances / appraisal_responses
 documents / document_versions / document_acknowledgements
 payroll_import_batches / payroll_import_rows / payroll_column_maps   (immutable, revisioned)
+employee_compensation (effective-dated) / employee_compensation_components (effective-dated)
+pay_groups / pay_calendars / pay_periods / pay_grades / compensation_components /
+  compensation_change_reasons   (see "Compensation & Pay Administration" below)
 notifications / notification_preferences
 audit_events
 ```
@@ -117,6 +120,102 @@ back to the relevant section of the architecture PDF).
    conflate them.
 10. Supabase's own DB backups **do not cover Storage objects** — document/file backup needs an
     independent replication story, tracked separately from Postgres PITR.
+11. Compensation is structure and scheduling, never calculation. Halomanage stores pay type, rate,
+    frequency, pay groups/calendars/periods, grades, and components, and can export them to an
+    external payroll system — it never computes gross-to-net, tax, or statutory deductions. Any
+    change here that starts computing money belongs in a payroll provider integration, not this schema.
+
+## Compensation & Pay Administration
+
+Added 2026-08-29, extending the original `employee_compensation` table rather than replacing it —
+see `supabase/migrations/20260829100000_compensation_permissions_enum.sql` and
+`20260829110000_compensation_pay_administration.sql` for the authoritative DDL.
+
+**What changed and why.** The original `employee_compensation.pay_frequency` column conflated
+compensation *basis* (`hourly`, `annual`) with actual payment *cadence* (`weekly`, `biweekly`,
+`semimonthly`, `monthly`) in one check-constrained column. The migration splits these into:
+
+- `pay_type` — the compensation basis (`salaried`, `hourly`, `daily`, `weekly_rated`,
+  `monthly_rated`, `piece_rate`, `commission`, `contract_fixed_fee`, `other` + `pay_type_other_label`
+  for anything not on the list).
+- `rate_unit` — what the rate amount is *per* (`hour`, `day`, `week`, `month`, `year`, `piece`,
+  `contract`). Deliberately not cross-validated against `pay_type` by a DB constraint — the
+  combinations that make sense in practice are broader than a rigid pairing table would capture; the
+  Change Compensation form suggests sensible defaults instead.
+- `pay_frequency` — now cadence-only (`weekly`, `biweekly`, `semimonthly`, `monthly`, `quarterly`,
+  `annual`, `custom`).
+
+Every pre-existing row was backfilled with a best-effort `pay_type`/`rate_unit` inferred from its old
+`pay_frequency` value (this is inherently lossy — the old schema never recorded enough to reconstruct
+perfectly) and flagged `needs_review = true`, surfaced as a prompt on the Compensation tab rather than
+silently guessed and left unmarked. One `COMPENSATION_SCHEMA_BACKFILLED` audit event was logged per
+affected organization.
+
+**New structural tables**, all organization-scoped with RLS enabled, all following the existing
+effective-dating pattern where relevant:
+
+- `pay_groups` — currency, cadence, external payroll/provider reference, and which `pay_calendar_id`
+  currently governs it.
+- `pay_calendars` + `pay_periods` — the actual period rows (start/end, timesheet cutoff, manager
+  approval deadline, payroll export deadline, pay date, status). `generate_pay_periods()` is pure date
+  arithmetic (weekly/biweekly/semimonthly/monthly/quarterly/annual cadences) — scheduling, never a
+  payroll calculation. HR can hand-edit any generated period afterward (e.g. to shift a pay date
+  around a holiday).
+- `pay_grades` — name/code/level/location/currency, minimum/midpoint/maximum, effective-dated;
+  `positions.pay_grade_id` links a position to one (positions themselves stay a flat lookup table —
+  effective-dated position-to-grade history is a documented future enhancement, not built here).
+- `compensation_components` — configurable pay elements (allowances, premiums, bonuses, commission),
+  each recurring-or-one-time, fixed-amount-or-percentage, employee-payable-or-employer-cost, with an
+  external payroll code. Never computes tax or net pay from any of this.
+- `employee_compensation_components` — effective-dated component assignments per employee. A
+  *recurring* component can only have one open assignment per employee at a time (enforced by
+  trigger, since a partial unique index can't reference another table's `recurrence` column to decide
+  whether the rule even applies); a *one-time* component (a single bonus) has no such "current" concept.
+- `compensation_change_reasons` — an organization-configurable lookup, not a fixed enum, managed from
+  Compensation Settings.
+
+**The manual Change Compensation workflow** (`change_employee_compensation()`) closes the employee's
+current open `employee_compensation` row (`end_date = new_effective_date - 1`) and inserts the new one
+in the same transaction, exactly like `employee_assignments`/`set_member_role()` already do — history
+is never overwritten. A **separate two-step submit-then-approve queue** ("submit/approve where an
+approval workflow is enabled") was scoped out of this pass: either `compensation.manage` or
+`compensation.approve` can call the RPC directly today, and the change takes effect immediately. This
+is a deliberate, documented scope cut, not an oversight — building a first-class pending-approval
+state machine is reasonable follow-up work layered onto the same table.
+
+**Permissions.** `employee.manage` is no longer sufficient to read or write compensation — see the new
+`app_permission` values: `compensation.read_self/_team/_org`, `compensation.manage`,
+`compensation.approve`, `compensation.manage_structure`, `pay_calendar.read/.manage`, `payroll.export`.
+`compensation.manage_structure` (configuring pay groups/grades/components) is deliberately a
+*different* grant from `compensation.manage`/`.approve` (changing one employee's actual pay) — holding
+one implies nothing about the other. Supervisors and Managers get **no** compensation permission by
+default, matching the existing rule that Supervisor/Manager never implies HR/payroll visibility;
+`compensation.read_self` is the one exception, re-declared for every role (employee/supervisor/
+manager/admin) individually, because being a Supervisor never removes your own right to see your own
+pay — roles in this schema don't inherit from one another, so each one repeats its own baseline
+self-service permissions (the same pattern `payroll.read_self` already used).
+
+**`get_effective_permissions(org_id)`** is new: it returns the caller's full resolved permission set
+for an organization, exposed through `session.permissions` (`web/lib/session.ts`) and checked via
+`sessionCan(session, "...")`. This is the fix for a wider, pre-existing pattern: every admin page in
+the app gated on `session.roles.includes("admin")` rather than the actual permission its RPCs enforce
+— `/admin/payroll` (checking the Admin role while its RPCs enforced `payroll.import`) was the
+concrete example that surfaced it, now fixed; the new Compensation pages are the first to be built
+permission-first from the start. Other existing admin pages still gate on role and are unchanged —
+a broader migration of every route guard to `sessionCan()` is follow-up work, not done here.
+
+**Payroll import linkage.** `payroll_import_batches` gained nullable `pay_group_id`/`pay_period_id`
+columns, additive only — existing approved batches are untouched, and nothing about batch immutability
+changed (a correction is still a new batch with `supersedes_batch_id` set, never an in-place edit).
+
+**Explicitly deferred, not silently skipped** (see the phased audit this responds to for the full
+plan): wiring `build_payroll_export()`'s regular/overtime/paid-leave/unpaid-leave hour classification
+to real attendance and leave data (`attendance_sessions` has no `worked_hours`/overtime classification
+today — that needs its own design, not a guessed join); a dedicated Pay Ranges UI beyond what
+Compensation Settings already exposes for Pay Grades; a Payroll Provider Mappings admin page (the
+underlying `payroll_column_maps` table already exists and is functional, just without its own
+dedicated screen); compensation reporting (hourly-vs-salaried mix, compa-ratio, range penetration,
+FTE cost, etc.).
 
 ## Suggested Edge Function / RPC surface (keep this list short — most CRUD is plain Data API + RLS)
 

@@ -923,6 +923,140 @@ async function main() {
     ok("A terminated employee cannot use workspace-repair to restore access", threw);
   });
 
+  // ================ COMPENSATION & PAY ADMINISTRATION ================
+  // A second organization proves pay_groups/pay_calendars/pay_grades/
+  // compensation_components/employee_compensation are tenant-isolated —
+  // none of the existing fixtures exercise a second org for these tables.
+  const ORG2 = "00000000-0000-0000-0000-000000000002";
+  const ORG2_ADMIN_USER = "10000000-0000-0000-0000-00000000a002";
+  const ORG2_ADMIN_EMP = "00000000-0000-0000-0000-00000000a002";
+  await db.exec(`
+    insert into auth.users (id, email) values ('${ORG2_ADMIN_USER}', 'org2admin@acme.test');
+    insert into public.organizations (id, name, slug) values ('${ORG2}', 'Acme Two', 'acme-two');
+    insert into public.employees (id, organization_id, employee_number, first_name, last_name, work_email, status, user_id)
+    values ('${ORG2_ADMIN_EMP}', '${ORG2}', 'ORG2-0001', 'Two', 'Admin', 'org2admin@acme.test', 'active', '${ORG2_ADMIN_USER}');
+    insert into public.role_assignments (organization_id, user_id, role) values ('${ORG2}', '${ORG2_ADMIN_USER}', 'admin');
+  `);
+
+  // --- Pay groups / calendars: structure permission required, tenant-isolated ---
+  let payGroupId, payCalendarId;
+  await as(DAVID_USER, async () => {
+    let threw = false;
+    try { await db.query(`insert into public.pay_groups (organization_id, name, code, pay_frequency) values ('${ORG}', 'Salaried Monthly', 'SAL-M', 'monthly')`); } catch { threw = true; }
+    ok("David (no compensation.manage_structure) cannot create a pay group", threw);
+  });
+  await as(ERIN_USER, async () => {
+    const pg = await db.query(`insert into public.pay_groups (organization_id, name, code, pay_frequency) values ('${ORG}', 'Salaried Monthly', 'SAL-M', 'monthly') returning id`);
+    payGroupId = pg.rows[0].id;
+    const cal = await db.query(`insert into public.pay_calendars (organization_id, pay_group_id, name, pay_frequency) values ('${ORG}', '${payGroupId}', 'Monthly Calendar', 'monthly') returning id`);
+    payCalendarId = cal.rows[0].id;
+    await db.query(`update public.pay_groups set pay_calendar_id = '${payCalendarId}' where id = '${payGroupId}'`);
+    ok("Erin (compensation.manage_structure) can create a pay group and pay calendar", !!payGroupId && !!payCalendarId);
+  });
+  await as(ORG2_ADMIN_USER, async () => {
+    const visible = await db.query(`select count(*) from public.pay_groups where id = '${payGroupId}'`);
+    ok("ORG2's admin cannot see ORG's pay group (tenant isolation)", Number(visible.rows[0].count) === 0);
+  });
+
+  // --- Pay period generation is pure scheduling (date arithmetic, no money) ---
+  await as(ERIN_USER, async () => {
+    const periods = await db.query(`
+      select period_start::text as period_start, period_end::text as period_end
+      from public.generate_pay_periods('${payCalendarId}', '2027-01-01', 3)
+      order by period_start
+    `);
+    ok("generate_pay_periods produced 3 monthly periods", periods.rows.length === 3);
+    ok("the first monthly period runs Jan 1 -> Jan 31", periods.rows[0].period_start === "2027-01-01" && periods.rows[0].period_end === "2027-01-31");
+    ok("the second monthly period runs Feb 1 -> Feb 28", periods.rows[1].period_start === "2027-02-01" && periods.rows[1].period_end === "2027-02-28");
+  });
+  await as(DAVID_USER, async () => {
+    let threw = false;
+    try { await db.query(`select * from public.generate_pay_periods('${payCalendarId}', '2028-01-01', 1)`); } catch { threw = true; }
+    ok("David (no pay_calendar.manage) cannot generate pay periods", threw);
+  });
+
+  // --- Pay grades ---
+  await as(ERIN_USER, async () => {
+    const grade = await db.query(`insert into public.pay_grades (organization_id, name, code, currency, minimum_amount, midpoint_amount, maximum_amount) values ('${ORG}', 'Grade 5', 'G5', 'USD', 50000, 65000, 80000) returning id`);
+    ok("Erin can create a pay grade with a valid min/mid/max range", grade.rows.length === 1);
+    let threw = false;
+    try { await db.query(`insert into public.pay_grades (organization_id, name, minimum_amount, maximum_amount) values ('${ORG}', 'Bad Grade', 100000, 50000)`); } catch { threw = true; }
+    ok("a pay grade cannot have maximum below minimum", threw);
+  });
+
+  // --- Compensation components: recurring assignments can't overlap ---
+  let componentId;
+  await as(ERIN_USER, async () => {
+    const comp = await db.query(`insert into public.compensation_components (organization_id, name, code, component_type, recurrence, value_type, default_amount) values ('${ORG}', 'Car Allowance', 'CAR', 'allowance', 'recurring', 'fixed_amount', 300) returning id`);
+    componentId = comp.rows[0].id;
+    ok("Erin can create a recurring compensation component", !!componentId);
+
+    await db.query(`insert into public.employee_compensation_components (organization_id, employee_id, component_id, amount, start_date) values ('${ORG}', '${ALICE_EMP}', '${componentId}', 300, current_date)`);
+    let threw = false;
+    try {
+      await db.query(`insert into public.employee_compensation_components (organization_id, employee_id, component_id, amount, start_date) values ('${ORG}', '${ALICE_EMP}', '${componentId}', 350, current_date)`);
+    } catch { threw = true; }
+    ok("a second open assignment of the same recurring component is rejected", threw);
+  });
+
+  // --- Manual, effective-dated Change Compensation workflow ---
+  await as(DAVID_USER, async () => {
+    let threw = false;
+    try { await db.query(`select * from public.change_employee_compensation('${ALICE_EMP}', 60000, 'salaried', current_date, 'USD', 'year')`); } catch { threw = true; }
+    ok("David (no compensation.manage) cannot change Alice's compensation", threw);
+  });
+  await as(CAROL_USER, async () => {
+    // Carol is a Manager with employee.read_team, but Managers get no
+    // compensation.* permission by default — proving access is never implied.
+    let threw = false;
+    try { await db.query(`select * from public.change_employee_compensation('${ALICE_EMP}', 60000, 'salaried', current_date, 'USD', 'year')`); } catch { threw = true; }
+    ok("Carol (Manager, employee.read_team only) cannot change compensation without an explicit grant", threw);
+  });
+  await as(ERIN_USER, async () => {
+    const first = await db.query(`select * from public.change_employee_compensation('${ALICE_EMP}', 60000, 'salaried', current_date, 'USD', 'year', 'monthly')`);
+    ok("Erin can set Alice's initial compensation", Number(first.rows[0].amount) === 60000);
+  });
+  await as(ALICE_USER, async () => {
+    const mine = await db.query(`select amount, pay_type, end_date from public.employee_compensation where employee_id = '${ALICE_EMP}' and end_date is null`);
+    ok("Alice can read her own current compensation", mine.rows.length === 1 && Number(mine.rows[0].amount) === 60000);
+  });
+  await as(CAROL_USER, async () => {
+    const hidden = await db.query(`select count(*) from public.employee_compensation where employee_id = '${ALICE_EMP}'`);
+    ok("Carol (Manager, no compensation.read_team) cannot see Alice's compensation history", Number(hidden.rows[0].count) === 0);
+  });
+  await as(ORG2_ADMIN_USER, async () => {
+    const hidden = await db.query(`select count(*) from public.employee_compensation where employee_id = '${ALICE_EMP}'`);
+    ok("ORG2's admin cannot see Alice's compensation (cross-tenant isolation)", Number(hidden.rows[0].count) === 0);
+  });
+  await as(ERIN_USER, async () => {
+    const future = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const second = await db.query(`select * from public.change_employee_compensation('${ALICE_EMP}', 65000, 'salaried', '${future}', 'USD', 'year', 'monthly')`);
+    ok("Erin can raise Alice's compensation effective 30 days out", Number(second.rows[0].amount) === 65000);
+    const history = await db.query(`select amount, end_date from public.employee_compensation where employee_id = '${ALICE_EMP}' order by start_date`);
+    ok("the prior compensation record is closed, not overwritten", history.rows.length === 2 && history.rows[0].end_date !== null && Number(history.rows[0].amount) === 60000);
+    ok("exactly one open compensation record remains", history.rows.filter((r) => r.end_date === null).length === 1);
+  });
+
+  // --- Privilege separation: structure access does not imply per-employee
+  // change access. An org override REPLACES a role's whole bundle (not
+  // adds to it — see private.has_permission()), so David's normal 'employee'
+  // bundle is copied forward explicitly alongside the one permission being
+  // tested, isolating exactly the variable this test cares about.
+  await db.exec(`
+    insert into public.role_permissions (organization_id, role, permission)
+    select '${ORG}'::uuid, 'employee', permission from public.role_permissions where organization_id is null and role = 'employee'
+    union all select '${ORG}'::uuid, 'employee'::public.app_role, 'compensation.manage_structure'::public.app_permission
+    on conflict do nothing;
+  `);
+  await as(DAVID_USER, async () => {
+    const grade = await db.query(`insert into public.pay_grades (organization_id, name) values ('${ORG}', 'David''s Grade') returning id`);
+    ok("compensation.manage_structure alone lets David configure pay grades", grade.rows.length === 1);
+    let threw = false;
+    try { await db.query(`select * from public.change_employee_compensation('${ALICE_EMP}', 1, 'salaried', current_date, 'USD', 'year')`); } catch { threw = true; }
+    ok("compensation.manage_structure alone does NOT let David change an individual's pay", threw);
+  });
+  await db.exec(`delete from public.role_permissions where organization_id = '${ORG}' and role = 'employee';`);
+
   console.log(`\n${passCount} passed, ${failCount} failed.`);
   if (failCount > 0) process.exitCode = 1;
 }

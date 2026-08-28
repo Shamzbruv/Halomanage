@@ -42,6 +42,8 @@ const adminItems: NavItem[] = [
   { href: "/admin/appraisals", label: "Performance setup", icon: "performance" },
   { href: "/admin/documents", label: "Document library", icon: "document" },
   { href: "/admin/payroll", label: "Pay records", icon: "payroll" },
+  { href: "/admin/compensation-settings", label: "Compensation structure", icon: "payroll" },
+  { href: "/admin/pay-calendars", label: "Pay calendars", icon: "calendar" },
   { href: "/admin/reports", label: "Reports", icon: "reports" },
   { href: "/admin/security", label: "Identity & access", icon: "shield" },
 ];
@@ -66,6 +68,8 @@ const pageTitles: Array<{ pattern: RegExp; title: string; eyebrow: string }> = [
   { pattern: /^\/admin\/appraisals/, title: "Performance setup", eyebrow: "Administration" },
   { pattern: /^\/admin\/documents/, title: "Document library", eyebrow: "Administration" },
   { pattern: /^\/admin\/payroll/, title: "Pay records", eyebrow: "Administration" },
+  { pattern: /^\/admin\/compensation-settings/, title: "Compensation structure", eyebrow: "Administration" },
+  { pattern: /^\/admin\/pay-calendars/, title: "Pay calendars", eyebrow: "Administration" },
   { pattern: /^\/admin\/reports/, title: "Reports", eyebrow: "Administration" },
   { pattern: /^\/admin\/security/, title: "Identity & access", eyebrow: "Administration" },
 ];

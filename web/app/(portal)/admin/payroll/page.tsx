@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentSession } from "@/lib/session";
+import { getCurrentSession, sessionCan } from "@/lib/session";
 import { PayrollUploadForm } from "@/components/PayrollUploadForm";
 import { ApproveBatchButton } from "@/components/ApproveBatchButton";
 import { statusBadgeClass } from "@/lib/ui";
@@ -9,11 +9,19 @@ import { statusBadgeClass } from "@/lib/ui";
 // records" — this page never shows a "calculate payroll" action. It only
 // ever uploads what an external payroll system already calculated, and
 // reconciles/approves it.
+//
+// Gated on payroll.import — the actual permission every RPC on this page
+// enforces — not the Admin role. This page used to gate on
+// session.roles.includes("admin"), which disagreed with the database the
+// moment an organization customized role_permissions: a non-admin role
+// granted payroll.import would still be turned away here, and an admin
+// whose org revoked payroll.import would reach the page only to have
+// every RPC call fail.
 export default async function PayrollAdminPage() {
   const session = await getCurrentSession();
   if (!session) redirect("/login");
-  if (!session.roles.includes("admin")) redirect("/dashboard");
   if (!session.organizationId) redirect("/dashboard");
+  if (!sessionCan(session, "payroll.import")) redirect("/dashboard");
 
   const supabase = await createClient();
   const { data: batches } = await supabase

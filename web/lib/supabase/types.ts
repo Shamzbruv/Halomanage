@@ -5,6 +5,50 @@
 
 export type AppRole = "employee" | "supervisor" | "manager" | "admin";
 
+export type AppPermission =
+  | "organization.manage"
+  | "employee.read_self"
+  | "employee.read_team"
+  | "employee.read_org"
+  | "employee.update_self"
+  | "employee.manage"
+  | "attendance.clock_self"
+  | "attendance.read_team"
+  | "attendance.read_org"
+  | "attendance.adjust_team"
+  | "attendance.manage_policies"
+  | "leave.request_self"
+  | "leave.approve_direct_reports"
+  | "leave.approve_unit"
+  | "leave.manage_policies"
+  | "onboarding.complete_self"
+  | "onboarding.manage_team"
+  | "onboarding.manage_templates"
+  | "appraisal.complete_self"
+  | "appraisal.review_direct_reports"
+  | "appraisal.manage_cycles"
+  | "documents.read_self"
+  | "documents.manage_team"
+  | "documents.manage_org"
+  | "payroll.read_self"
+  | "payroll.import"
+  | "payroll.read_org"
+  | "payroll.export"
+  | "assets.manage"
+  | "training.manage"
+  | "reports.team"
+  | "reports.org"
+  | "roles.manage"
+  | "audit.read"
+  | "compensation.read_self"
+  | "compensation.read_team"
+  | "compensation.read_org"
+  | "compensation.manage"
+  | "compensation.approve"
+  | "compensation.manage_structure"
+  | "pay_calendar.read"
+  | "pay_calendar.manage";
+
 export type Employee = {
   id: string;
   organization_id: string;
