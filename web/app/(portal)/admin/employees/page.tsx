@@ -14,10 +14,19 @@ export default async function EmployeesAdminPage() {
   if (!session.organizationId || !session.organization) redirect("/dashboard");
   const portalSlug = session.organization.slug;
   const supabase = await createClient();
-  const { data: employees } = await supabase.from("employees").select("id, employee_number, first_name, last_name, work_email, status, user_id").eq("organization_id", session.organizationId).order("last_name");
+  const { data: employees } = await supabase.from("employees").select("id, employee_number, first_name, last_name, work_email, status, user_id, avatar_url").eq("organization_id", session.organizationId).order("last_name");
   const active = (employees ?? []).filter((employee) => employee.status === "active").length;
   const prehire = (employees ?? []).filter((employee) => employee.status === "prehire").length;
   const invited = (employees ?? []).filter((employee) => employee.user_id).length;
+
+  const avatarPaths = (employees ?? []).map((employee) => employee.avatar_url).filter((path): path is string => !!path);
+  const avatarUrlByPath = new Map<string, string>();
+  if (avatarPaths.length > 0) {
+    const { data: signed } = await supabase.storage.from("employee-avatars").createSignedUrls(avatarPaths, 3600);
+    for (const entry of signed ?? []) {
+      if (entry.signedUrl) avatarUrlByPath.set(entry.path ?? "", entry.signedUrl);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -31,9 +40,12 @@ export default async function EmployeesAdminPage() {
         <div className="panel-heading"><div><span className="panel-icon"><Icon name="people" /></span><div><h3>People directory</h3><p>Select an employee to manage assignments, balances, and access.</p></div></div></div>
         <table className="w-full text-sm"><thead><tr className="border-b border-stone-100 text-left"><th className="pb-3">Employee</th><th className="pb-3">Employee #</th><th className="pb-3">Status</th><th className="pb-3">Account</th></tr></thead><tbody className="divide-y divide-stone-100">
           {(employees ?? []).length === 0 && <tr><td colSpan={4} className="py-10 text-center text-stone-400">No employee records yet.</td></tr>}
-          {(employees ?? []).map((employee) => (
-            <tr key={employee.id}><td className="py-3"><Link href={`/admin/employees/${employee.id}`} className="employee-cell"><span className="user-avatar small">{employee.first_name[0]}{employee.last_name[0]}</span><span><strong>{employee.first_name} {employee.last_name}</strong><small>{employee.work_email ?? "No email on file"}</small></span></Link></td><td className="py-3 font-mono text-xs text-stone-500">{employee.employee_number}</td><td className="py-3"><span className={`badge ${statusBadgeClass(employee.status)}`}>{employee.status}</span></td><td className="py-3"><InviteButton employeeId={employee.id} alreadyInvited={!!employee.user_id} portalSlug={portalSlug} /></td></tr>
-          ))}
+          {(employees ?? []).map((employee) => {
+            const avatarUrl = employee.avatar_url ? avatarUrlByPath.get(employee.avatar_url) ?? null : null;
+            return (
+              <tr key={employee.id}><td className="py-3"><Link href={`/admin/employees/${employee.id}`} className="employee-cell"><span className="user-avatar small">{avatarUrl ? <img src={avatarUrl} alt="" /> : `${employee.first_name[0]}${employee.last_name[0]}`}</span><span><strong>{employee.first_name} {employee.last_name}</strong><small>{employee.work_email ?? "No email on file"}</small></span></Link></td><td className="py-3 font-mono text-xs text-stone-500">{employee.employee_number}</td><td className="py-3"><span className={`badge ${statusBadgeClass(employee.status)}`}>{employee.status}</span></td><td className="py-3"><InviteButton employeeId={employee.id} alreadyInvited={!!employee.user_id} portalSlug={portalSlug} /></td></tr>
+            );
+          })}
         </tbody></table>
       </section>
     </div>

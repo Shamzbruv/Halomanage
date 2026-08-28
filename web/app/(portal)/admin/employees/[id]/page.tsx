@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect, notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession } from "@/lib/session";
+import { ActivateEmployeeButton } from "@/components/ActivateEmployeeButton";
 import { ChangeAssignmentForm } from "@/components/ChangeAssignmentForm";
 import { GrantLeaveBalanceForm } from "@/components/GrantLeaveBalanceForm";
 import { InviteButton } from "@/components/InviteButton";
@@ -88,6 +89,9 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
         </div>
         <div className="flex items-center gap-2">
           <span className={`badge ${statusBadgeClass(employee.status)}`}>{employee.status}</span>
+          {(employee.status === "prehire" || employee.status === "leave" || employee.status === "suspended") && (
+            <ActivateEmployeeButton employeeId={employee.id} />
+          )}
           <InviteButton employeeId={employee.id} alreadyInvited={!!employee.user_id} portalSlug={session.organization.slug} />
           {employee.status !== "terminated" && (
             <TerminateEmployeeButton

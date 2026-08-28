@@ -74,6 +74,14 @@ function initials(name: string) {
   return name.split(" ").filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
 }
 
+function UserAvatar({ name, avatarUrl, small }: { name: string; avatarUrl: string | null; small?: boolean }) {
+  return (
+    <span className={`user-avatar${small ? " small" : ""}`}>
+      {avatarUrl ? <img src={avatarUrl} alt="" /> : initials(name) || "U"}
+    </span>
+  );
+}
+
 function isActive(pathname: string, href: string) {
   if (href === "/dashboard") return pathname === href;
   return pathname === href || pathname.startsWith(`${href}/`);
@@ -105,8 +113,9 @@ function Navigation({ groups, pathname, onNavigate }: { groups: NavGroup[]; path
   );
 }
 
-export function PortalShell({ children, canSeeAdmin, canSeeTeam, email, name, organizationName, role }: {
+export function PortalShell({ children, avatarUrl, canSeeAdmin, canSeeTeam, email, name, organizationName, role }: {
   children: React.ReactNode;
+  avatarUrl: string | null;
   canSeeAdmin: boolean;
   canSeeTeam: boolean;
   email: string | null;
@@ -173,7 +182,7 @@ export function PortalShell({ children, canSeeAdmin, canSeeTeam, email, name, or
         </div>
         <Navigation groups={groups} pathname={pathname} />
         <div className="portal-account">
-          <span className="user-avatar">{initials(name) || "U"}</span>
+          <UserAvatar name={name} avatarUrl={avatarUrl} />
           <span className="portal-account-copy"><strong>{name}</strong><small>{role ? role.replace(/_/g, " ") : email}</small></span>
           <SignOutButton compact />
         </div>
@@ -220,7 +229,7 @@ export function PortalShell({ children, canSeeAdmin, canSeeTeam, email, name, or
           <div className="portal-page-title"><span>{page.eyebrow}</span><h1>{page.title}</h1></div>
           <div className="portal-topbar-actions">
             <Link href="/profile" className="topbar-profile" aria-label="Open my profile">
-              <span className="user-avatar small">{initials(name) || "U"}</span>
+              <UserAvatar name={name} avatarUrl={avatarUrl} small />
               <span className="topbar-profile-copy"><strong>{name}</strong><small>{email}</small></span>
             </Link>
           </div>

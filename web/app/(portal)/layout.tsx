@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { PortalShell } from "@/components/PortalShell";
 import { getCurrentSession, highestRole } from "@/lib/session";
+import { createClient } from "@/lib/supabase/server";
 import { Brand } from "@/components/Brand";
 import { Icon } from "@/components/Icon";
 
@@ -32,8 +33,18 @@ export default async function PortalLayout({ children }: { children: React.React
     ? `${session.employee.preferred_name || session.employee.first_name} ${session.employee.last_name}`
     : session.email?.split("@")[0] || "Team member";
 
+  let avatarUrl: string | null = null;
+  if (session.employee?.avatar_url) {
+    const supabase = await createClient();
+    const { data } = await supabase.storage
+      .from("employee-avatars")
+      .createSignedUrl(session.employee.avatar_url, 3600);
+    avatarUrl = data?.signedUrl ?? null;
+  }
+
   return (
     <PortalShell
+      avatarUrl={avatarUrl}
       canSeeAdmin={canSeeAdmin}
       canSeeTeam={canSeeTeam}
       email={session.email}

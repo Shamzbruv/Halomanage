@@ -313,7 +313,29 @@ async function main() {
     from public.employees e where e.id = '${INVITED_EMP}'
   `);
   ok("invitation linking atomically connects the employee and exactly one baseline role", linkedInvite.rows[0].user_id === INVITED_USER && Number(linkedInvite.rows[0].role_count) === 1);
+  const activatedOnLink = await db.query(`select status, hire_date from public.employees where id = '${INVITED_EMP}'`);
+  ok("accepting an invite auto-activates a prehire employee", activatedOnLink.rows[0].status === "active" && activatedOnLink.rows[0].hire_date !== null);
   await db.exec(`delete from public.employees where id = '${INVITED_EMP}'; delete from auth.users where id = '${INVITED_USER}';`);
+
+  // ========================= EMPLOYEE ACTIVATION (RPC) =========================
+  const PREHIRE_EMP = "00000000-0000-0000-0000-0000000000f9";
+  await db.exec(`
+    insert into public.employees (id, organization_id, employee_number, first_name, last_name, work_email, status)
+    values ('${PREHIRE_EMP}', '${ORG}', 'TEST-PREHIRE', 'Future', 'Hire', 'future.hire@acme.test', 'prehire');
+  `);
+  await as(DAVID_USER, async () => {
+    let threw = false;
+    try { await db.query(`select * from public.activate_employee('${PREHIRE_EMP}')`); } catch { threw = true; }
+    ok("David (no employee.manage) cannot activate an employee", threw);
+  });
+  await as(ERIN_USER, async () => {
+    const activated = await db.query(`select * from public.activate_employee('${PREHIRE_EMP}')`);
+    ok("Erin can activate a prehire employee", activated.rows[0].status === "active" && activated.rows[0].hire_date !== null);
+    let threw = false;
+    try { await db.query(`select * from public.activate_employee('${PREHIRE_EMP}')`); } catch { threw = true; }
+    ok("cannot activate an already-active employee", threw);
+  });
+  await db.exec(`delete from public.employees where id = '${PREHIRE_EMP}';`);
 
   // =============================== ATTENDANCE =================================
   await as(ALICE_USER, async () => {

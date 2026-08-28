@@ -392,8 +392,9 @@
     font-weight: 750;
   }
 
-  .user-avatar { border-radius: 999px; color: #fff; background: #377a69; }
+  .user-avatar { border-radius: 999px; color: #fff; background: #377a69; overflow: hidden; }
   .user-avatar.small { width: 34px; height: 34px; font-size: 0.67rem; }
+  .user-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
 
   .portal-nav {
     flex: 1;
