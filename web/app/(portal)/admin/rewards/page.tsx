@@ -36,7 +36,7 @@ export default async function RewardsAdminPage() {
   const [{ data: providers }, { data: vendors }, { data: products }, { data: pendingRedemptions }, { data: employees }] = await Promise.all([
     supabase.from("reward_providers").select("id, name, fulfillment_type").eq("is_active", true).order("name"),
     supabase.from("reward_vendors").select("id, name, description, is_active, reward_providers(name, fulfillment_type)").eq("organization_id", orgId).order("name"),
-    supabase.from("reward_products").select("id, name, points_cost, inventory_quantity, is_active, reward_vendors(name)").eq("organization_id", orgId).order("name"),
+    supabase.from("reward_products").select("id, name, image_url, points_cost, inventory_quantity, is_active, reward_vendors(name)").eq("organization_id", orgId).order("name"),
     canFulfill
       ? supabase.from("reward_redemptions").select("id, points_spent, fulfillment_type, created_at, employees(first_name, last_name), reward_products(name)").eq("organization_id", orgId).eq("status", "pending_fulfillment").order("created_at")
       : Promise.resolve({ data: [] }),
@@ -103,7 +103,17 @@ export default async function RewardsAdminPage() {
               <tbody className="divide-y divide-stone-100">
                 {(products ?? []).length === 0 && <tr><td colSpan={4} className="py-4 text-stone-400">No rewards yet.</td></tr>}
                 {(products ?? []).map((p: any) => (
-                  <tr key={p.id}><td className="py-2 font-medium text-stone-900">{p.name}</td><td className="py-2 text-xs text-stone-500">{p.reward_vendors?.name}</td><td className="py-2">{p.points_cost.toLocaleString()}</td><td className="py-2">{p.inventory_quantity === null ? "Unlimited" : p.inventory_quantity}</td></tr>
+                  <tr key={p.id}>
+                    <td className="py-2">
+                      <div className="flex items-center gap-2">
+                        {p.image_url ? <img src={p.image_url} alt="" style={{ width: 28, height: 28, borderRadius: 6, objectFit: "cover", flexShrink: 0 }} /> : null}
+                        <span className="font-medium text-stone-900">{p.name}</span>
+                      </div>
+                    </td>
+                    <td className="py-2 text-xs text-stone-500">{p.reward_vendors?.name}</td>
+                    <td className="py-2">{p.points_cost.toLocaleString()}</td>
+                    <td className="py-2">{p.inventory_quantity === null ? "Unlimited" : p.inventory_quantity}</td>
+                  </tr>
                 ))}
               </tbody>
             </table>

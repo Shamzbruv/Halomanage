@@ -27,10 +27,11 @@ export default async function RewardsPage() {
     );
   }
 
-  const [{ data: balanceRow }, { data: products }, { data: history }] = await Promise.all([
+  const [{ data: balanceRow }, { data: products }, { data: history }, { data: ledger }] = await Promise.all([
     supabase.from("employee_points_balance_v").select("balance").eq("employee_id", employeeId).maybeSingle(),
-    supabase.from("reward_products").select("id, name, description, points_cost, inventory_quantity, is_active, reward_vendors(name, is_active)").eq("organization_id", orgId).eq("is_active", true).order("points_cost"),
+    supabase.from("reward_products").select("id, name, description, image_url, points_cost, inventory_quantity, is_active, reward_vendors(name, is_active)").eq("organization_id", orgId).eq("is_active", true).order("points_cost"),
     supabase.from("reward_redemptions").select("id, points_spent, status, fulfillment_note, created_at, fulfilled_at, reward_products(name)").eq("employee_id", employeeId).order("created_at", { ascending: false }).limit(20),
+    supabase.from("employee_points_ledger").select("id, entry_type, amount, reason, created_at").eq("employee_id", employeeId).order("created_at", { ascending: false }).limit(30),
   ]);
 
   const balance = balanceRow?.balance ?? 0;
@@ -61,7 +62,16 @@ export default async function RewardsPage() {
                 const outOfStock = p.inventory_quantity !== null && p.inventory_quantity <= 0;
                 return (
                   <tr key={p.id}>
-                    <td className="py-3"><strong className="block font-medium text-stone-900">{p.name}</strong>{p.description && <small className="text-stone-500">{p.description}</small>}</td>
+                    <td className="py-3">
+                      <div className="flex items-center gap-3">
+                        {p.image_url ? (
+                          <img src={p.image_url} alt="" style={{ width: 40, height: 40, borderRadius: 8, objectFit: "cover", flexShrink: 0 }} />
+                        ) : (
+                          <span className="metric-icon mint small" style={{ flexShrink: 0 }}><Icon name="spark" size={16} /></span>
+                        )}
+                        <div><strong className="block font-medium text-stone-900">{p.name}</strong>{p.description && <small className="text-stone-500">{p.description}</small>}</div>
+                      </div>
+                    </td>
                     <td className="py-3 text-stone-600">{p.reward_vendors?.name}</td>
                     <td className="py-3 font-medium text-stone-900">{p.points_cost.toLocaleString()}</td>
                     <td className="py-3">{p.inventory_quantity === null ? "—" : outOfStock ? <span className="text-ruby-600">Out of stock</span> : p.inventory_quantity}</td>
@@ -88,6 +98,27 @@ export default async function RewardsPage() {
                   <td className="py-2">{r.points_spent.toLocaleString()}</td>
                   <td className="py-2"><span className={`badge ${statusBadgeClass(r.status)}`}>{r.status.replace(/_/g, " ")}</span></td>
                   <td className="py-2 text-xs text-stone-500">{new Date(r.created_at).toLocaleDateString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+
+      <section className="card overflow-x-auto">
+        <h2 className="mb-3 text-sm font-semibold text-stone-900">Points history</h2>
+        {(ledger ?? []).length === 0 ? (
+          <p className="text-sm text-stone-400">No points activity yet.</p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead><tr className="border-b border-stone-100 text-left text-xs uppercase text-stone-400"><th className="pb-2">Type</th><th className="pb-2">Points</th><th className="pb-2">Reason</th><th className="pb-2">Date</th></tr></thead>
+            <tbody className="divide-y divide-stone-100">
+              {(ledger ?? []).map((entry) => (
+                <tr key={entry.id}>
+                  <td className="py-2"><span className="badge badge-neutral">{entry.entry_type}</span></td>
+                  <td className={`py-2 font-medium ${entry.amount > 0 ? "text-emerald-700" : "text-stone-900"}`}>{entry.amount > 0 ? "+" : ""}{entry.amount.toLocaleString()}</td>
+                  <td className="py-2 text-stone-600">{entry.reason ?? "—"}</td>
+                  <td className="py-2 text-xs text-stone-500">{new Date(entry.created_at).toLocaleDateString()}</td>
                 </tr>
               ))}
             </tbody>

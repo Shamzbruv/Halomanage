@@ -373,3 +373,31 @@ implementation (an Edge Function calling out to a chosen provider — no
 vendor has been contracted yet, so nothing to integrate against), peer-to-
 peer recognition, redemption budgets/limits, and reporting/analytics on
 rewards usage.
+
+**Follow-up pass, same day:** a second proposal re-specified the same
+module in `vendors`/`rewards`/`points_ledger` naming and a somewhat finer
+permission split (`vendors.manage`/`rewards.manage`/`redemptions.manage`).
+Deliberately did not rename anything already shipped and tested — the
+existing `reward_*`-prefixed names already match this codebase's
+module-prefix convention, and renaming a live, deployed schema for
+naming-preference reasons alone would be pure churn. Kept the existing
+`rewards.manage_catalog`/`.fulfill` split rather than fragmenting further
+into vendor-vs-product permissions, since nothing calls for that
+granularity yet and `ALTER TYPE ADD VALUE` is one-way. What *was* genuinely
+missing, and got built:
+
+- `fail_redemption()` — the explicit refund-and-restock transition for
+  when an automatic fulfillment attempt errors (distinct from `cancel_
+  redemption()`, which is "someone decided not to," not "we tried and it
+  failed"). Built and tested ahead of any real vendor integration
+  existing, so the failure path isn't improvised the day it's first needed.
+- Every status-changing action (`award_employee_points`, `redeem_reward`,
+  `fulfill_redemption`, `cancel_redemption`, `fail_redemption`) now calls
+  the pre-existing `private.create_notification()` helper — the same
+  in-app-now/email-via-the-existing-Edge-Function pattern every other
+  module already uses (see `notify_leave_decided()` for the precedent).
+  Nothing new to build for delivery; this was purely a missing call site.
+- A "Points history" ledger view on the employee Rewards page (raw award/
+  redemption/refund entries, distinct from redemption-specific history)
+  and `image_url` rendering in both the admin and employee catalogs — the
+  column already existed and was never read anywhere.

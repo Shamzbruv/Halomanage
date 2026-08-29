@@ -1333,6 +1333,38 @@ async function main() {
     ok("David (no management relationship to Alice, no rewards.award_points) cannot see Alice's points ledger", Number(hidden.rows[0].count) === 0);
   });
 
+  // The automatic_api fulfillment failure path — refund + restock, exactly
+  // like cancel, but semantically distinct ("we tried and it errored" vs.
+  // "someone decided not to"), and each status-changing step now raises a
+  // real notification through the existing private.create_notification().
+  let thirdRedemptionId;
+  await as(ALICE_USER, async () => {
+    const redemption = await db.query(`select * from public.redeem_reward('${productId}')`);
+    thirdRedemptionId = redemption.rows[0].id;
+  });
+  await as(CAROL_USER, async () => {
+    let threw = false;
+    try { await db.query(`select public.fail_redemption('${thirdRedemptionId}', 'Vendor API timeout')`); } catch { threw = true; }
+    ok("Carol (Manager, no rewards.fulfill) cannot mark a redemption failed", threw);
+  });
+  await as(ERIN_USER, async () => {
+    const failed = await db.query(`select * from public.fail_redemption('${thirdRedemptionId}', 'Vendor API timeout')`);
+    ok("Erin can mark a redemption failed", failed.rows[0].status === "failed" && failed.rows[0].fulfillment_note === "Vendor API timeout");
+    const balance = await db.query(`select balance from public.employee_points_balance_v where employee_id = '${ALICE_EMP}'`);
+    ok("a failed redemption refunds the spent points", Number(balance.rows[0].balance) === 5000);
+    const stock = await db.query(`select inventory_quantity from public.reward_products where id = '${productId}'`);
+    ok("a failed redemption restores tracked inventory", stock.rows[0].inventory_quantity === 1);
+  });
+
+  await as(ALICE_USER, async () => {
+    const notifications = await db.query(`select type from public.notifications where employee_id = '${ALICE_EMP}' order by created_at`);
+    const types = notifications.rows.map((r) => r.type);
+    ok("Alice was notified when points were awarded", types.includes("rewards.points_awarded"));
+    ok("Alice was notified when a redemption was fulfilled", types.includes("rewards.redemption_fulfilled"));
+    ok("Alice was notified when a redemption was cancelled", types.includes("rewards.redemption_cancelled"));
+    ok("Alice was notified when a redemption failed", types.includes("rewards.redemption_failed"));
+  });
+
   console.log(`\n${passCount} passed, ${failCount} failed.`);
   if (failCount > 0) process.exitCode = 1;
 }

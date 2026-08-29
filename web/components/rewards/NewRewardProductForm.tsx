@@ -14,6 +14,7 @@ export function NewRewardProductForm({ organizationId, vendors }: { organization
   const [vendorId, setVendorId] = useState(vendors[0]?.id ?? "");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [imageUrl, setImageUrl] = useState("");
   const [pointsCost, setPointsCost] = useState("1000");
   const [trackInventory, setTrackInventory] = useState(false);
   const [inventoryQuantity, setInventoryQuantity] = useState("10");
@@ -29,6 +30,7 @@ export function NewRewardProductForm({ organizationId, vendors }: { organization
       vendor_id: vendorId,
       name,
       description: description || null,
+      image_url: imageUrl || null,
       points_cost: Number(pointsCost),
       inventory_quantity: trackInventory ? Number(inventoryQuantity) : null,
     });
@@ -65,6 +67,7 @@ export function NewRewardProductForm({ organizationId, vendors }: { organization
           <div><label className="label" htmlFor="product-points">Points cost</label><input id="product-points" type="number" min="1" required className="input" value={pointsCost} onChange={(e) => setPointsCost(e.target.value)} /></div>
           <div className="col-span-2"><label className="label" htmlFor="product-name">Name</label><input id="product-name" required className="input" placeholder="$25 Fontana Voucher" value={name} onChange={(e) => setName(e.target.value)} /></div>
           <div className="col-span-2"><label className="label" htmlFor="product-description">Description</label><textarea id="product-description" className="input" rows={2} value={description} onChange={(e) => setDescription(e.target.value)} /></div>
+          <div className="col-span-2"><label className="label" htmlFor="product-image">Image URL <span className="font-normal text-stone-500">(optional)</span></label><input id="product-image" type="url" placeholder="https://" className="input" value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} /></div>
           <div className="col-span-2 flex items-center gap-2">
             <input id="product-track-inventory" type="checkbox" checked={trackInventory} onChange={(e) => setTrackInventory(e.target.checked)} />
             <label htmlFor="product-track-inventory" className="text-sm text-stone-700">Track limited stock</label>
