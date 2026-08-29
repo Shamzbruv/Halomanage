@@ -3,9 +3,9 @@
 // are rendered as the same "gem" badge family as everything else — see
 // .badge-* in app/globals.css. Centralized here instead of copy-pasted
 // per page so the mapping only needs to be right once.
-const GOOD = new Set(["approved", "active", "completed", "matched", "on_time"]);
+const GOOD = new Set(["approved", "active", "completed", "matched", "on_time", "fulfilled"]);
 const BAD = new Set([
-  "rejected", "cancelled", "needs_review", "terminated", "withdrawn", "unmatched", "invalid", "late",
+  "rejected", "cancelled", "needs_review", "terminated", "withdrawn", "unmatched", "invalid", "late", "failed",
 ]);
 const NEUTRAL = new Set(["superseded", "prehire", "skipped"]);
 // Everything else — submitted, pending_supervisor, pending_manager,

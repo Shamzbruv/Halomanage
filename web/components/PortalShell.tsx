@@ -24,6 +24,7 @@ const personalItems: NavGroup[] = [
       { href: "/time", label: "Time & attendance", icon: "clock" },
       { href: "/leave", label: "Leave", icon: "leave" },
       { href: "/pay", label: "My pay", icon: "payroll" },
+      { href: "/rewards", label: "Rewards", icon: "spark" },
       { href: "/onboarding", label: "Onboarding", icon: "onboarding" },
       { href: "/appraisals", label: "Performance", icon: "performance" },
       { href: "/development", label: "Learning & assets", icon: "spark" },
@@ -45,6 +46,7 @@ const adminItems: NavItem[] = [
   { href: "/admin/payroll", label: "Pay records", icon: "payroll" },
   { href: "/admin/compensation-settings", label: "Compensation structure", icon: "payroll" },
   { href: "/admin/pay-calendars", label: "Pay calendars", icon: "calendar" },
+  { href: "/admin/rewards", label: "Rewards catalog", icon: "spark" },
   { href: "/admin/reports", label: "Reports", icon: "reports" },
   { href: "/admin/security", label: "Identity & access", icon: "shield" },
 ];
@@ -55,6 +57,7 @@ const pageTitles: Array<{ pattern: RegExp; title: string; eyebrow: string }> = [
   { pattern: /^\/time/, title: "Time & attendance", eyebrow: "Personal workspace" },
   { pattern: /^\/leave/, title: "Leave", eyebrow: "Personal workspace" },
   { pattern: /^\/pay/, title: "My pay", eyebrow: "Personal workspace" },
+  { pattern: /^\/rewards/, title: "Rewards", eyebrow: "Personal workspace" },
   { pattern: /^\/onboarding/, title: "Onboarding", eyebrow: "Personal workspace" },
   { pattern: /^\/appraisals/, title: "Performance", eyebrow: "Personal workspace" },
   { pattern: /^\/development/, title: "Learning & assets", eyebrow: "Personal workspace" },
@@ -72,6 +75,7 @@ const pageTitles: Array<{ pattern: RegExp; title: string; eyebrow: string }> = [
   { pattern: /^\/admin\/payroll/, title: "Pay records", eyebrow: "Administration" },
   { pattern: /^\/admin\/compensation-settings/, title: "Compensation structure", eyebrow: "Administration" },
   { pattern: /^\/admin\/pay-calendars/, title: "Pay calendars", eyebrow: "Administration" },
+  { pattern: /^\/admin\/rewards/, title: "Rewards catalog", eyebrow: "Administration" },
   { pattern: /^\/admin\/reports/, title: "Reports", eyebrow: "Administration" },
   { pattern: /^\/admin\/security/, title: "Identity & access", eyebrow: "Administration" },
 ];

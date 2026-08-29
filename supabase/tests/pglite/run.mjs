@@ -1211,6 +1211,128 @@ async function main() {
     ok("a logo path outside the organization's own folder is rejected", threw);
   });
 
+  // ============================ REWARDS & RECOGNITION ============================
+  const manualProviderId = (await db.query(`select id from public.reward_providers where key = 'manual'`)).rows[0].id;
+
+  await as(DAVID_USER, async () => {
+    let threw = false;
+    try { await db.query(`insert into public.reward_vendors (organization_id, provider_id, name) values ('${ORG}', '${manualProviderId}', 'Fontana Pharmacy')`); } catch { threw = true; }
+    ok("David (no rewards.manage_catalog) cannot create a reward vendor", threw);
+  });
+
+  let vendorId;
+  await as(ERIN_USER, async () => {
+    const vendor = await db.query(`insert into public.reward_vendors (organization_id, provider_id, name, description) values ('${ORG}', '${manualProviderId}', 'Fontana Pharmacy', 'Local pharmacy voucher partner') returning id`);
+    vendorId = vendor.rows[0].id;
+    ok("Erin can create a manual reward vendor", !!vendorId);
+  });
+
+  // A vendor cannot point at an automatic_api provider until a platform
+  // administrator activates it — proves the "never configure a reward that
+  // can't be fulfilled" guard.
+  const testProviderId = (await db.query(`
+    insert into public.reward_providers (key, name, fulfillment_type, is_active) values ('test_api', 'Test API Provider', 'automatic_api', false) returning id
+  `)).rows[0].id;
+  await as(ERIN_USER, async () => {
+    let threw = false;
+    try { await db.query(`insert into public.reward_vendors (organization_id, provider_id, name) values ('${ORG}', '${testProviderId}', 'Not Yet Connected')`); } catch { threw = true; }
+    ok("a vendor cannot use an inactive automatic_api provider", threw);
+  });
+  await db.exec(`update public.reward_providers set is_active = true where id = '${testProviderId}';`);
+  await as(ERIN_USER, async () => {
+    const vendor = await db.query(`insert into public.reward_vendors (organization_id, provider_id, name) values ('${ORG}', '${testProviderId}', 'Now Connected') returning id`);
+    ok("the same vendor can be created once its provider is activated", vendor.rows.length === 1);
+  });
+
+  let productId;
+  await as(ERIN_USER, async () => {
+    const product = await db.query(`
+      insert into public.reward_products (organization_id, vendor_id, name, points_cost, inventory_quantity)
+      values ('${ORG}', '${vendorId}', '$25 Fontana Voucher', 5000, 1)
+      returning id
+    `);
+    productId = product.rows[0].id;
+    ok("Erin can create a reward product with tracked inventory", !!productId);
+  });
+
+  await as(ORG2_ADMIN_USER, async () => {
+    const visible = await db.query(`select count(*) from public.reward_vendors where id = '${vendorId}'`);
+    ok("ORG2's admin cannot see ORG's reward vendor (tenant isolation)", Number(visible.rows[0].count) === 0);
+  });
+
+  await as(ALICE_USER, async () => {
+    let threw = false;
+    try { await db.query(`select * from public.redeem_reward('${productId}')`); } catch { threw = true; }
+    ok("Alice cannot redeem a reward with zero points balance", threw);
+  });
+
+  await as(DAVID_USER, async () => {
+    let threw = false;
+    try { await db.query(`select public.award_employee_points('${ALICE_EMP}', 10000, 'test')`); } catch { threw = true; }
+    ok("David (no rewards.award_points) cannot award points", threw);
+  });
+
+  await as(ERIN_USER, async () => {
+    await db.query(`select public.award_employee_points('${ALICE_EMP}', 10000, 'Employee of the month')`);
+    const balance = await db.query(`select balance from public.employee_points_balance_v where employee_id = '${ALICE_EMP}'`);
+    ok("Erin can award Alice 10,000 points, reflected in her balance", Number(balance.rows[0].balance) === 10000);
+  });
+
+  let redemptionId;
+  await as(ALICE_USER, async () => {
+    const redemption = await db.query(`select * from public.redeem_reward('${productId}')`);
+    redemptionId = redemption.rows[0].id;
+    ok("Alice can redeem the voucher once she has enough points", redemption.rows[0].status === "pending_fulfillment" && redemption.rows[0].fulfillment_type === "manual");
+    const balance = await db.query(`select balance from public.employee_points_balance_v where employee_id = '${ALICE_EMP}'`);
+    ok("Alice's balance drops by the reward's points cost", Number(balance.rows[0].balance) === 5000);
+    const stock = await db.query(`select inventory_quantity from public.reward_products where id = '${productId}'`);
+    ok("Redeeming decrements tracked inventory", stock.rows[0].inventory_quantity === 0);
+  });
+
+  await as(ALICE_USER, async () => {
+    let threw = false;
+    try { await db.query(`select * from public.redeem_reward('${productId}')`); } catch { threw = true; }
+    ok("the voucher cannot be redeemed again once out of stock", threw);
+  });
+
+  await as(CAROL_USER, async () => {
+    let threw = false;
+    try { await db.query(`select public.fulfill_redemption('${redemptionId}', 'Handed voucher to Alice')`); } catch { threw = true; }
+    ok("Carol (Manager, no rewards.fulfill) cannot fulfill a redemption", threw);
+  });
+
+  await as(ERIN_USER, async () => {
+    const fulfilled = await db.query(`select * from public.fulfill_redemption('${redemptionId}', 'Handed voucher to Alice in person')`);
+    ok("Erin can mark a manual redemption fulfilled", fulfilled.rows[0].status === "fulfilled" && fulfilled.rows[0].fulfillment_note === "Handed voucher to Alice in person");
+    let threw = false;
+    try { await db.query(`select public.fulfill_redemption('${redemptionId}', 'again')`); } catch { threw = true; }
+    ok("an already-fulfilled redemption cannot be fulfilled twice", threw);
+  });
+
+  // Cancel + refund path, on a fresh redemption of a newly restocked item.
+  await db.exec(`update public.reward_products set inventory_quantity = 1 where id = '${productId}';`);
+  let secondRedemptionId;
+  await as(ALICE_USER, async () => {
+    const redemption = await db.query(`select * from public.redeem_reward('${productId}')`);
+    secondRedemptionId = redemption.rows[0].id;
+  });
+  await as(ERIN_USER, async () => {
+    await db.query(`select public.cancel_redemption('${secondRedemptionId}', 'Ordered by mistake')`);
+    const balance = await db.query(`select balance from public.employee_points_balance_v where employee_id = '${ALICE_EMP}'`);
+    ok("cancelling a redemption refunds the spent points", Number(balance.rows[0].balance) === 5000);
+    const stock = await db.query(`select inventory_quantity from public.reward_products where id = '${productId}'`);
+    ok("cancelling a redemption restores tracked inventory", stock.rows[0].inventory_quantity === 1);
+  });
+
+  // David: a plain employee with no management relationship to Alice and no
+  // rewards.award_points — unlike Carol, who has been Alice's supervisor
+  // since much earlier in this file and can legitimately see her ledger
+  // through "read team points ledger".
+  await as(DAVID_USER, async () => {
+    const hidden = await db.query(`select count(*) from public.employee_points_ledger where employee_id = '${ALICE_EMP}'`);
+    ok("David (no management relationship to Alice, no rewards.award_points) cannot see Alice's points ledger", Number(hidden.rows[0].count) === 0);
+  });
+
   console.log(`\n${passCount} passed, ${failCount} failed.`);
   if (failCount > 0) process.exitCode = 1;
 }

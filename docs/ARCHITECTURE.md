@@ -319,3 +319,57 @@ Two bugs specific to this batch, both fixed, both worth remembering:
   `supabase_migrations.schema_migrations` against the migrations directory
   after a gap in deploys, not just before/after the migrations you meant to
   ship that session.
+
+## Rewards & Recognition Marketplace (P0)
+
+Added 2026-08-30. Deliberately not built around any single gift-card API. A
+detailed proposal centered the design on Tremendous/Tango/Giftbit as the
+foundation; the actual requirement is broader and the schema reflects the
+correction: **fulfillment is a property of a vendor, and every organization
+owns its own vendor list** — "Fontana Pharmacy" (a local supplier, fulfilled
+by HR handing over a voucher) is exactly as first-class as an API-integrated
+provider, not a fallback case bolted onto a gift-card-API-shaped schema.
+
+- `reward_providers` — platform infrastructure (`private.is_platform_staff()`
+  gated writes, configured from `/platform/reward-providers`), not tenant
+  data. `'manual'` is seeded active by default and requires no integration.
+  An `automatic_api` provider (Tremendous, Tango, Giftbit, or anything else)
+  is real infrastructure metadata only — key, name, active flag — and is
+  **not usable until a platform administrator activates it**, which is only
+  meaningful once a real API integration with credentials in Edge Function
+  secrets actually exists (this table never stores credentials). A trigger
+  enforces this: a vendor cannot be created against an inactive
+  `automatic_api` provider, so an org can never configure a reward that
+  silently can't be fulfilled.
+- `reward_vendors` / `reward_products` — organization-owned. Each org
+  curates its own vendor list and, per vendor, its own reward catalog with a
+  points cost and optional tracked inventory (`inventory_quantity` — `null`
+  means unlimited/digital, a number means physical stock that
+  `redeem_reward()`/`cancel_redemption()` decrement/restore).
+- **A real points economy**, not a price tag: `employee_points_ledger` is
+  append-only (same pattern as `leave_ledger`), summed by
+  `employee_points_balance_v` (same pattern as `leave_balance_v`).
+  `award_employee_points()` is how points enter the system — gated on
+  `rewards.award_points`, admin-only by default. Peer-to-peer recognition
+  (an employee awarding points to another) is a natural extension of the
+  same ledger and RPC shape but is explicitly not built in this pass — this
+  phase only covers admin/manager-granted recognition.
+- `reward_redemptions` captures `fulfillment_type` at redemption time (not
+  re-derived from the vendor later), so a vendor's provider changing after
+  the fact never rewrites what already happened. `redeem_reward()` serializes
+  each employee's balance check-and-spend with an advisory lock (mirroring
+  `set_member_role()`'s pattern) so two concurrent redemptions can't both
+  pass a balance check against the same starting total.
+- Permissions: `rewards.read_self`/`redeem_self` are in every role's default
+  bundle (re-declared per role, same reasoning as `compensation.read_self`);
+  `rewards.award_points`/`manage_catalog`/`fulfill` default to admin only —
+  a Manager/Supervisor gets none of them until an org explicitly grants it.
+- Gated behind the `rewards_marketplace` platform feature
+  (`organization_feature_overrides`) — the exact mechanism the Platform
+  Console already had, not a new flag system.
+
+Explicitly deferred, not silently skipped: a real `automatic_api` connector
+implementation (an Edge Function calling out to a chosen provider — no
+vendor has been contracted yet, so nothing to integrate against), peer-to-
+peer recognition, redemption budgets/limits, and reporting/analytics on
+rewards usage.

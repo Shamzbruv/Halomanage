@@ -47,7 +47,12 @@ export type AppPermission =
   | "compensation.approve"
   | "compensation.manage_structure"
   | "pay_calendar.read"
-  | "pay_calendar.manage";
+  | "pay_calendar.manage"
+  | "rewards.read_self"
+  | "rewards.redeem_self"
+  | "rewards.award_points"
+  | "rewards.manage_catalog"
+  | "rewards.fulfill";
 
 export type Employee = {
   id: string;

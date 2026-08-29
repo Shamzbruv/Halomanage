@@ -9,6 +9,7 @@ const navItems = [
   { href: "/platform", label: "Dashboard" },
   { href: "/platform/organizations", label: "Organizations" },
   { href: "/platform/sso", label: "SSO requests" },
+  { href: "/platform/reward-providers", label: "Reward providers" },
   { href: "/platform/staff", label: "Platform staff" },
   { href: "/platform/audit", label: "Audit log" },
 ];
