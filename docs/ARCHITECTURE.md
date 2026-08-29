@@ -401,3 +401,90 @@ missing, and got built:
   redemption/refund entries, distinct from redemption-specific history)
   and `image_url` rendering in both the admin and employee catalogs — the
   column already existed and was never read anywhere.
+
+## Peer-to-peer recognition
+
+Added 2026-08-30. The explicit brief for this pass drew one hard line: an
+employee's **redeemable points balance** (what `redeem_reward()` spends
+against) and an employee's **recognition giving allowance** (what they can
+give away to coworkers) are different pools, tracked differently, and must
+never be conflated. A giver's allowance is not a balance sitting in a table
+row to be debited — it's a monthly quota, computed on demand as
+`sum(recognitions.points_given)` for that giver since the start of the
+current month, checked against `organization_recognition_settings
+.monthly_point_allowance`. Nothing is pre-funded or carried over; there is
+no "recognition wallet" to run out of sync with reality.
+
+- `organization_recognition_settings` (one row per org, seeded by a
+  new-org trigger the same way `organization_feature_overrides` and other
+  per-org defaults are) holds `monthly_point_allowance` (0 = kudos-only —
+  the default, so recognition works with zero configuration and zero
+  points-budget risk on day one), an optional `max_points_per_recognition`
+  cap, an optional `max_recognitions_per_day_per_giver` cap, and
+  `default_visibility`. All four are editable by whoever holds
+  `rewards.manage_catalog` — no new permission for this, since "who can
+  configure the rewards program" is already exactly the right audience.
+- `recognition_values` — an org-scoped lookup (e.g. "Teamwork", "Above &
+  Beyond") seeded with four starters per existing org. Kept intentionally
+  simple (name + description + active flag), matching `leave_types`'
+  shape rather than introducing a new lookup-table pattern.
+- `recognitions` — `giver_employee_id`, `recipient_employee_id`,
+  `recognition_value_id`, a 1-500 character `message`, optional
+  `points_given` (default 0), and `visibility` (`public`/`private`). A
+  `CHECK (giver_employee_id <> recipient_employee_id)` makes
+  self-recognition structurally impossible, not just application-checked.
+  RLS lets an org member read any `public` recognition, read their own
+  (given or received) regardless of visibility, and lets anyone holding
+  `rewards.award_points` read everything — there is deliberately no direct
+  `insert`/`update`/`delete` grant on this table for anyone; the only way a
+  row is created is through `give_recognition()`.
+- `give_recognition(p_recipient_employee_id, p_message,
+  p_recognition_value_id, p_points, p_visibility)` is where every rule from
+  the brief is enforced, in one transaction:
+  - Resolves the caller via `private.current_employee_id()` — a terminated
+    or unassigned caller has no employee id and is rejected outright.
+  - Requires `recognition.give` (granted to all four roles by default —
+    recognition is a peer behavior, not a management privilege).
+  - Recipient must be active, in the same organization, and not the giver.
+  - If `p_points > 0`: refuses outright when the org's monthly allowance is
+    0 (kudos-only mode), enforces `max_points_per_recognition` on this one
+    gift, then takes `pg_advisory_xact_lock(hashtextextended(giver_id, 92))`
+    and sums the giver's `points_given` across `recognitions` since the
+    start of the month to enforce the *remaining* monthly allowance — the
+    advisory lock closes the same check-and-spend race window
+    `redeem_reward()` already closes for balance checks, applied here to a
+    computed-on-read quota instead of a ledger balance.
+  - Independently enforces `max_recognitions_per_day_per_giver` via a count
+    of the giver's recognitions since midnight, regardless of points —
+    this is the anti-abuse control for pure kudos-spam, not just
+    points-budget protection.
+  - On success: inserts the `recognitions` row; if points were given,
+    inserts a positive `employee_points_ledger` entry
+    (`entry_type = 'recognition'`, `related_recognition_id` set) — so a
+    recognition with points shows up in the same "Points history" view as
+    an admin-granted award or a redemption, from the recipient's side,
+    without the giver's allowance ever touching the ledger; calls
+    `private.create_notification()` (`type = 'recognition.received'`,
+    linking to `/recognition`); and logs a `RECOGNITION_GIVEN` audit event
+    — recognition gets the same audit trail every other write path in the
+    system has, not a bespoke one.
+- `/recognition` (new employee-facing page, gated on `recognition.give`)
+  shows the caller's remaining monthly allowance, a form to recognize a
+  coworker, and a feed of visible recognitions (their own given/received
+  plus every public recognition in the org). Admins configure the program
+  from the existing `/admin/rewards` page, in a new "Peer-to-peer
+  recognition" settings section and a "Recognition values" manager — kept
+  on the same page as the reward catalog rather than a new admin route,
+  since it's the same audience configuring the same overall program; the
+  page now also relabels the pre-existing admin-grant form
+  "Admin-granted points" so the two point-granting paths (admin-granted
+  vs. peer-given) read as clearly distinct in the UI, not as duplicates.
+- The reward catalog / vendor model (`reward_providers`, `reward_vendors`,
+  `reward_products`, `reward_redemptions`) is untouched by this pass, as
+  directed — recognition and redemption share only the points ledger and
+  the notification helper, nothing else.
+
+Explicitly deferred, not silently skipped: recognition-triggered badges or
+levels, an admin approval step before a recognition posts (every gift is
+final and immediate, same as an admin-granted point award), and reporting/
+analytics on recognition volume or program health beyond the raw feed.

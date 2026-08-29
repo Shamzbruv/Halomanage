@@ -5,6 +5,8 @@ import { NewRewardVendorForm } from "@/components/rewards/NewRewardVendorForm";
 import { NewRewardProductForm } from "@/components/rewards/NewRewardProductForm";
 import { AwardPointsForm } from "@/components/rewards/AwardPointsForm";
 import { RedemptionFulfillmentActions } from "@/components/rewards/RedemptionFulfillmentActions";
+import { RecognitionSettingsForm } from "@/components/rewards/RecognitionSettingsForm";
+import { NewRecognitionValueForm } from "@/components/rewards/NewRecognitionValueForm";
 
 // Gated behind the rewards_marketplace platform feature (see
 // 20260830110000_rewards_marketplace.sql) — an org needs it turned on by a
@@ -33,7 +35,7 @@ export default async function RewardsAdminPage() {
     );
   }
 
-  const [{ data: providers }, { data: vendors }, { data: products }, { data: pendingRedemptions }, { data: employees }] = await Promise.all([
+  const [{ data: providers }, { data: vendors }, { data: products }, { data: pendingRedemptions }, { data: employees }, { data: recognitionSettings }, { data: recognitionValues }] = await Promise.all([
     supabase.from("reward_providers").select("id, name, fulfillment_type").eq("is_active", true).order("name"),
     supabase.from("reward_vendors").select("id, name, description, is_active, reward_providers(name, fulfillment_type)").eq("organization_id", orgId).order("name"),
     supabase.from("reward_products").select("id, name, image_url, points_cost, inventory_quantity, is_active, reward_vendors(name)").eq("organization_id", orgId).order("name"),
@@ -42,6 +44,12 @@ export default async function RewardsAdminPage() {
       : Promise.resolve({ data: [] }),
     canAwardPoints
       ? supabase.from("employees").select("id, first_name, last_name").eq("organization_id", orgId).eq("status", "active").order("last_name")
+      : Promise.resolve({ data: [] }),
+    canManageCatalog
+      ? supabase.from("organization_recognition_settings").select("monthly_point_allowance, max_points_per_recognition, max_recognitions_per_day_per_giver, default_visibility").eq("organization_id", orgId).maybeSingle()
+      : Promise.resolve({ data: null }),
+    canManageCatalog
+      ? supabase.from("recognition_values").select("id, name, description, is_active").eq("organization_id", orgId).order("name")
       : Promise.resolve({ data: [] }),
   ]);
 
@@ -76,8 +84,31 @@ export default async function RewardsAdminPage() {
 
       {canAwardPoints && (
         <section className="card">
-          <div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-semibold text-stone-900">Recognition</h2><AwardPointsForm employees={(employees ?? []).map((e) => ({ id: e.id, label: `${e.first_name} ${e.last_name}` }))} /></div>
-          <p className="text-xs text-stone-500">Award points to an employee for anything worth recognizing — they can spend them in the catalog below.</p>
+          <div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-semibold text-stone-900">Admin-granted points</h2><AwardPointsForm employees={(employees ?? []).map((e) => ({ id: e.id, label: `${e.first_name} ${e.last_name}` }))} /></div>
+          <p className="text-xs text-stone-500">Award points to an employee directly for anything worth recognizing — they can spend them in the catalog below. Separate from peer-to-peer recognition below, which draws from each employee&apos;s own monthly giving allowance.</p>
+        </section>
+      )}
+
+      {canManageCatalog && recognitionSettings && (
+        <section className="card">
+          <h2 className="mb-1 text-sm font-semibold text-stone-900">Peer-to-peer recognition</h2>
+          <p className="mb-4 text-xs text-stone-500">Any employee can recognize a coworker. Points are optional — set the monthly allowance to 0 to run recognition as kudos-only.</p>
+          <RecognitionSettingsForm organizationId={orgId} initial={recognitionSettings} />
+        </section>
+      )}
+
+      {canManageCatalog && (
+        <section className="card overflow-x-auto">
+          <div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-semibold text-stone-900">Recognition values</h2><NewRecognitionValueForm organizationId={orgId} /></div>
+          <table className="w-full text-sm">
+            <thead><tr className="border-b border-stone-100 text-left text-xs uppercase text-stone-400"><th className="pb-2">Name</th><th className="pb-2">Description</th><th className="pb-2">Active</th></tr></thead>
+            <tbody className="divide-y divide-stone-100">
+              {(recognitionValues ?? []).length === 0 && <tr><td colSpan={3} className="py-4 text-stone-400">No values yet.</td></tr>}
+              {(recognitionValues ?? []).map((v) => (
+                <tr key={v.id}><td className="py-2 font-medium text-stone-900">{v.name}</td><td className="py-2 text-xs text-stone-500">{v.description ?? "—"}</td><td className="py-2">{v.is_active ? "Yes" : "No"}</td></tr>
+              ))}
+            </tbody>
+          </table>
         </section>
       )}
 

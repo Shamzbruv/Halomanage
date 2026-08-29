@@ -1365,6 +1365,112 @@ async function main() {
     ok("Alice was notified when a redemption failed", types.includes("rewards.redemption_failed"));
   });
 
+  // ============================ PEER RECOGNITION ============================
+  // Carol, not David, is the primary giver here: David's employee status
+  // was set to 'terminated' by a raw update much earlier in this file
+  // (see the attendance section), and private.current_employee_id() —
+  // which give_recognition() uses to identify the giver — correctly
+  // excludes terminated employees. He's still a perfectly valid observer
+  // for the visibility tests below (org membership, which is all
+  // "read public recognitions" requires, doesn't depend on employee status).
+  //
+  // Default settings: monthly_point_allowance = 0 (kudos-only until an
+  // admin opts in) — proves recognition works with zero points before any
+  // policy is configured, and that giving points is correctly refused
+  // until it is.
+  await as(CAROL_USER, async () => {
+    const recognition = await db.query(`select * from public.give_recognition('${ALICE_EMP}', 'Great work covering for me yesterday')`);
+    ok("Carol can recognize Alice with zero points under default (kudos-only) settings", recognition.rows[0].points_given === 0);
+  });
+  await as(CAROL_USER, async () => {
+    let threw = false;
+    try { await db.query(`select public.give_recognition('${CAROL_EMP}', 'Self five')`); } catch { threw = true; }
+    ok("an employee cannot recognize themselves", threw);
+  });
+  await as(CAROL_USER, async () => {
+    let threw = false;
+    try { await db.query(`select public.give_recognition('${ALICE_EMP}', 'Have some points', null, 10)`); } catch { threw = true; }
+    ok("points-based recognition is refused while the org's monthly allowance is 0", threw);
+  });
+  await as(CAROL_USER, async () => {
+    let threw = false;
+    try { await db.query(`select public.give_recognition('${ORG2_ADMIN_EMP}', 'Wrong org')`); } catch { threw = true; }
+    ok("an employee cannot recognize someone outside their own organization", threw);
+  });
+
+  await as(DAVID_USER, async () => {
+    // An RLS-blocked UPDATE doesn't throw — the row is simply invisible to
+    // the USING clause, so it silently matches zero rows. Assert on the
+    // value staying put, not on an exception.
+    await db.query(`update public.organization_recognition_settings set monthly_point_allowance = 999 where organization_id = '${ORG}'`);
+    const settings = await db.query(`select monthly_point_allowance from public.organization_recognition_settings where organization_id = '${ORG}'`);
+    ok("David (no rewards.manage_catalog) cannot change recognition settings", Number(settings.rows[0].monthly_point_allowance) === 0);
+  });
+  await as(ERIN_USER, async () => {
+    await db.query(`update public.organization_recognition_settings set monthly_point_allowance = 100, max_points_per_recognition = 50 where organization_id = '${ORG}'`);
+    ok("Erin can turn on points-based recognition and cap points per recognition", true);
+  });
+
+  await as(CAROL_USER, async () => {
+    let threw = false;
+    try { await db.query(`select public.give_recognition('${ALICE_EMP}', 'Too generous', null, 60)`); } catch { threw = true; }
+    ok("a single recognition cannot exceed the org's per-recognition points cap", threw);
+  });
+  await as(CAROL_USER, async () => {
+    await db.query(`select public.give_recognition('${ALICE_EMP}', 'Nailed the client demo', null, 30)`);
+    const balance = await db.query(`select balance from public.employee_points_balance_v where employee_id = '${ALICE_EMP}'`);
+    ok("recognizing Alice with 30 points adds to her redeemable balance, not Carol's", Number(balance.rows[0].balance) === 5030);
+  });
+  await as(CAROL_USER, async () => {
+    // 30 + 50 = 80, each individually within the 50-point per-recognition
+    // cap; a further 21 would cross the 100-point monthly allowance.
+    await db.query(`select public.give_recognition('${ALICE_EMP}', 'And another save this week', null, 50)`);
+    let threw = false;
+    try { await db.query(`select public.give_recognition('${ALICE_EMP}', 'One more', null, 21)`); } catch { threw = true; }
+    ok("giving 30 then 50 points (Carol's 100-point monthly allowance leaves only 20) blocks a further gift of 21", threw);
+  });
+
+  await as(ALICE_USER, async () => {
+    let threw = false;
+    try { await db.query(`select public.give_recognition('${CAROL_EMP}', 'Would exceed Carol''s allowance, not mine', null, 40)`); } catch { threw = true; }
+    ok("the monthly allowance is tracked per giver — Alice still has her own full allowance", !threw);
+  });
+
+  let publicRecognitionId, privateRecognitionId;
+  await as(CAROL_USER, async () => {
+    const pub = await db.query(`select * from public.give_recognition('${ALICE_EMP}', 'Public shoutout', null, 0, 'public')`);
+    publicRecognitionId = pub.rows[0].id;
+    const priv = await db.query(`select * from public.give_recognition('${ALICE_EMP}', 'Private note', null, 0, 'private')`);
+    privateRecognitionId = priv.rows[0].id;
+  });
+  await as(DAVID_USER, async () => {
+    const visible = await db.query(`select id from public.recognitions where id in ('${publicRecognitionId}', '${privateRecognitionId}')`);
+    ok("an uninvolved but still org-member observer can see a public recognition but not a private one", visible.rows.length === 1 && visible.rows[0].id === publicRecognitionId);
+  });
+  await as(ALICE_USER, async () => {
+    const visible = await db.query(`select id from public.recognitions where id in ('${publicRecognitionId}', '${privateRecognitionId}')`);
+    ok("the recipient can see both the public and the private recognition addressed to them", visible.rows.length === 2);
+  });
+
+  await as(ERIN_USER, async () => {
+    await db.query(`update public.organization_recognition_settings set max_recognitions_per_day_per_giver = 1 where organization_id = '${ORG}'`);
+  });
+  await as(CAROL_USER, async () => {
+    let threw = false;
+    try { await db.query(`select public.give_recognition('${ALICE_EMP}', 'A third one today')`); } catch { threw = true; }
+    ok("a daily per-giver recognition cap is enforced", threw);
+  });
+
+  await as(ALICE_USER, async () => {
+    const notifications = await db.query(`select count(*) from public.notifications where employee_id = '${ALICE_EMP}' and type = 'recognition.received'`);
+    ok("Alice was notified each time she was recognized", Number(notifications.rows[0].count) >= 1);
+  });
+
+  await as(ORG2_ADMIN_USER, async () => {
+    const hidden = await db.query(`select count(*) from public.recognitions where id = '${publicRecognitionId}'`);
+    ok("ORG2's admin cannot see ORG's public recognition (cross-tenant isolation)", Number(hidden.rows[0].count) === 0);
+  });
+
   console.log(`\n${passCount} passed, ${failCount} failed.`);
   if (failCount > 0) process.exitCode = 1;
 }
