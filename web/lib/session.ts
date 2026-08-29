@@ -29,6 +29,25 @@ export function sessionCan(session: Pick<CurrentSession, "permissions">, permiss
   return session.permissions.includes(permission);
 }
 
+// A Server Component can't persist a refreshed session back to the browser
+// (only middleware/Route Handlers/Server Actions can set cookies — see the
+// comment in lib/supabase/server.ts), so a token that expires mid-render,
+// or a refresh middleware already rotated a moment earlier, can leave one
+// of the queries below holding a stale JWT even though supabase.auth.
+// getUser() just succeeded. PostgREST reports that as PGRST301 ("JWT
+// expired"); treat it as "not signed in" (a clean bounce to /login where
+// the person just signs in again) rather than as a data error — the
+// alternative was surfacing "we couldn't load your organization data,
+// try again" for what is really just an expired session, a confusing
+// dead end that "try again" wouldn't actually fix since the same stale
+// cookie is still sitting in the browser.
+function isExpiredSessionError(error: { code?: string; message?: string } | null | undefined): boolean {
+  if (!error) return false;
+  if (error.code === "PGRST301") return true;
+  const message = error.message?.toLowerCase() ?? "";
+  return message.includes("jwt expired") || message.includes("invalid refresh token") || message.includes("refresh_token_not_found");
+}
+
 // Everything the portal shell needs to decide what to show — one place so
 // every page/layout asks the same question the same way. Every query here
 // still goes through the user's own RLS-scoped client (lib/supabase/server)
@@ -47,6 +66,10 @@ export async function getCurrentSession(): Promise<CurrentSession | null> {
     supabase.from("role_assignments").select("organization_id, role").eq("user_id", user.id),
   ]);
 
+  if (isExpiredSessionError(employeeResult.error) || isExpiredSessionError(roleResult.error)) {
+    return null;
+  }
+
   if (employeeResult.error || roleResult.error) {
     console.error("session: failed to resolve workspace membership", {
       employeeCode: employeeResult.error?.code,
@@ -64,6 +87,9 @@ export async function getCurrentSession(): Promise<CurrentSession | null> {
   let permissionsError = false;
   if (organizationId) {
     const permissionResult = await supabase.rpc("get_effective_permissions", { p_org_id: organizationId });
+    if (isExpiredSessionError(permissionResult.error)) {
+      return null;
+    }
     if (permissionResult.error) {
       permissionsError = true;
       console.error("session: failed to resolve effective permissions", { code: permissionResult.error.code });
@@ -87,6 +113,9 @@ export async function getCurrentSession(): Promise<CurrentSession | null> {
       .select("id, name, slug, settings")
       .eq("id", organizationId)
       .maybeSingle();
+    if (isExpiredSessionError(result.error)) {
+      return null;
+    }
     organizationError = Boolean(result.error);
     if (result.error) {
       console.error("session: failed to resolve organization", { code: result.error.code });
