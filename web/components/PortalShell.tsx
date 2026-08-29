@@ -23,6 +23,7 @@ const personalItems: NavGroup[] = [
     items: [
       { href: "/time", label: "Time & attendance", icon: "clock" },
       { href: "/leave", label: "Leave", icon: "leave" },
+      { href: "/pay", label: "My pay", icon: "payroll" },
       { href: "/onboarding", label: "Onboarding", icon: "onboarding" },
       { href: "/appraisals", label: "Performance", icon: "performance" },
       { href: "/development", label: "Learning & assets", icon: "spark" },
@@ -53,6 +54,7 @@ const pageTitles: Array<{ pattern: RegExp; title: string; eyebrow: string }> = [
   { pattern: /^\/profile/, title: "My profile", eyebrow: "Personal workspace" },
   { pattern: /^\/time/, title: "Time & attendance", eyebrow: "Personal workspace" },
   { pattern: /^\/leave/, title: "Leave", eyebrow: "Personal workspace" },
+  { pattern: /^\/pay/, title: "My pay", eyebrow: "Personal workspace" },
   { pattern: /^\/onboarding/, title: "Onboarding", eyebrow: "Personal workspace" },
   { pattern: /^\/appraisals/, title: "Performance", eyebrow: "Personal workspace" },
   { pattern: /^\/development/, title: "Learning & assets", eyebrow: "Personal workspace" },

@@ -1,10 +1,11 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentSession } from "@/lib/session";
+import { getCurrentSession, sessionCan } from "@/lib/session";
 import { OrgUnitForm } from "@/components/OrgUnitForm";
 import { PositionForm } from "@/components/PositionForm";
 import { LocationForm } from "@/components/LocationForm";
 import { OrganizationPortalCard } from "@/components/OrganizationPortalCard";
+import { CompanyProfileForm } from "@/components/CompanyProfileForm";
 
 // Ref: PRODUCT_BLUEPRINT.md "Organization Structure" — departments, teams,
 // locations, positions, reporting lines. Until this page existed, an admin
@@ -12,24 +13,56 @@ import { OrganizationPortalCard } from "@/components/OrganizationPortalCard";
 export default async function OrganizationAdminPage() {
   const session = await getCurrentSession();
   if (!session) redirect("/login");
-  if (!session.roles.includes("admin")) redirect("/dashboard");
+  if (!sessionCan(session, "organization.manage")) redirect("/dashboard");
   if (!session.organizationId || !session.organization) redirect("/dashboard");
 
   const supabase = await createClient();
-  const [{ data: orgUnits }, { data: positions }, { data: locations }] = await Promise.all([
+  const [{ data: orgUnits }, { data: positions }, { data: locations }, { data: profile }, { data: branding }] = await Promise.all([
     supabase.from("org_units").select("id, name, type, parent_id").eq("organization_id", session.organizationId).order("name"),
     supabase.from("positions").select("id, title, job_code").eq("organization_id", session.organizationId).order("title"),
     supabase.from("locations").select("id, name, city, country_code").eq("organization_id", session.organizationId).order("name"),
+    // Company profile and portal branding moved out of organizations.settings
+    // JSON into typed columns / their own table (see
+    // 20260829142948_employee_experience_branding.sql) — read the live
+    // values directly instead of the stale settings blob.
+    supabase
+      .from("organizations")
+      .select("name, legal_name, contact_email, phone_number, website_url, address_line1, address_line2, city, region, postal_code, country_code, timezone, default_locale")
+      .eq("id", session.organizationId)
+      .single(),
+    supabase.from("organization_branding").select("portal_title, portal_message, logo_path, primary_color, accent_color").eq("organization_id", session.organizationId).maybeSingle(),
   ]);
 
   const unitById = new Map((orgUnits ?? []).map((u) => [u.id, u]));
-  const portalTitle = typeof session.organization.settings.portal_title === "string" ? session.organization.settings.portal_title : `Welcome to ${session.organization.name}`;
-  const portalMessage = typeof session.organization.settings.portal_message === "string" ? session.organization.settings.portal_message : "Sign in to manage your workday, time away, documents, and development.";
+  const portalTitle = branding?.portal_title ?? `Welcome to ${session.organization.name}`;
+  const portalMessage = branding?.portal_message ?? "Sign in to manage your workday, time away, documents, and development.";
+  const logoUrl = branding?.logo_path
+    ? supabase.storage.from("organization-branding").getPublicUrl(branding.logo_path).data.publicUrl
+    : null;
 
   return (
     <div className="space-y-6">
       <div className="page-intro"><span className="eyebrow">Structure & reporting</span><h1>Model how your organization really works.</h1><p>Keep locations, departments, teams, and positions configurable so every workflow follows the right relationships.</p></div>
-      <OrganizationPortalCard organizationId={session.organizationId} organizationName={session.organization.name} initialSlug={session.organization.slug} initialTitle={portalTitle} initialMessage={portalMessage} siteUrl={process.env.NEXT_PUBLIC_SITE_URL ?? ""} />
+
+      {profile && (
+        <div className="card">
+          <h2 className="mb-1 text-sm font-semibold text-stone-900">Company profile</h2>
+          <p className="mb-4 text-xs text-stone-500">Your legal and contact details. Separate from what employees see on the sign-in page below.</p>
+          <CompanyProfileForm organizationId={session.organizationId} initial={profile} />
+        </div>
+      )}
+
+      <OrganizationPortalCard
+        organizationId={session.organizationId}
+        organizationName={session.organization.name}
+        initialSlug={session.organization.slug}
+        initialTitle={portalTitle}
+        initialMessage={portalMessage}
+        initialLogoUrl={logoUrl}
+        initialPrimaryColor={branding?.primary_color ?? "#101B3D"}
+        initialAccentColor={branding?.accent_color ?? "#F2B84B"}
+        siteUrl={process.env.NEXT_PUBLIC_SITE_URL ?? ""}
+      />
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="card space-y-4">
           <h2 className="text-sm font-semibold text-stone-900">Departments &amp; teams</h2>

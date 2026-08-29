@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { PortalShell } from "@/components/PortalShell";
-import { getCurrentSession, highestRole } from "@/lib/session";
+import { getCurrentSession, highestRole, sessionCan } from "@/lib/session";
 import { createClient } from "@/lib/supabase/server";
 import { Brand } from "@/components/Brand";
 import { Icon } from "@/components/Icon";
@@ -27,8 +27,11 @@ export default async function PortalLayout({ children }: { children: React.React
   }
 
   const role = highestRole(session.roles);
-  const canSeeTeam = session.roles.some((item) => item === "supervisor" || item === "manager" || item === "admin");
-  const canSeeAdmin = session.roles.includes("admin");
+  // Navigation follows the same effective permission bundle as RLS. This
+  // keeps custom role bundles and effective-dated promotions/demotions from
+  // disagreeing with what the database actually allows.
+  const canSeeTeam = sessionCan(session, "employee.read_team") || sessionCan(session, "employee.read_org");
+  const canSeeAdmin = sessionCan(session, "organization.manage");
   const name = session.employee
     ? `${session.employee.preferred_name || session.employee.first_name} ${session.employee.last_name}`
     : session.email?.split("@")[0] || "Team member";

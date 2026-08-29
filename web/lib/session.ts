@@ -63,7 +63,10 @@ export async function getCurrentSession(): Promise<CurrentSession | null> {
 
   const [employeeResult, roleResult] = await Promise.all([
     supabase.from("employees").select("*").eq("user_id", user.id).maybeSingle(),
-    supabase.from("role_assignments").select("organization_id, role").eq("user_id", user.id),
+    supabase
+      .from("role_assignments")
+      .select("organization_id, role, valid_from, valid_until")
+      .eq("user_id", user.id),
   ]);
 
   if (isExpiredSessionError(employeeResult.error) || isExpiredSessionError(roleResult.error)) {
@@ -78,9 +81,18 @@ export async function getCurrentSession(): Promise<CurrentSession | null> {
   }
 
   const employee = employeeResult.data;
-  const roleRows = roleResult.data;
+  // Role assignments are effective-dated. Keep the browser shell aligned
+  // with get_effective_permissions()/RLS instead of retaining every role the
+  // member has ever held (the previous behaviour made a demoted admin still
+  // look like an admin in navigation indefinitely).
+  const now = Date.now();
+  const roleRows = (roleResult.data ?? []).filter((row) => {
+    const validFrom = new Date(row.valid_from).getTime();
+    const validUntil = row.valid_until ? new Date(row.valid_until).getTime() : null;
+    return validFrom <= now && (validUntil === null || validUntil > now);
+  });
 
-  const roles = [...new Set((roleRows ?? []).map((r) => r.role as AppRole))];
+  const roles = [...new Set(roleRows.map((r) => r.role as AppRole))];
   const organizationId = employee?.organization_id ?? roleRows?.[0]?.organization_id ?? null;
 
   let permissions: AppPermission[] = [];

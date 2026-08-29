@@ -70,6 +70,9 @@ export function RoleAssignmentForm({
             <option key={value} value={value}>{value.charAt(0).toUpperCase() + value.slice(1)}</option>
           ))}
         </select>
+        <p className="field-help">
+          A role controls permissions. Supervisor and manager visibility also requires employees to name this person in their current reporting assignment.
+        </p>
       </div>
       <div>
         <label className="label" htmlFor="member-role-expires">Expires on <span className="font-normal text-stone-500">(optional)</span></label>
@@ -85,7 +88,12 @@ export function RoleAssignmentForm({
       </div>
       {isSelf && <p className="text-xs text-stone-500">You cannot change your own role. Ask another administrator.</p>}
       {error && <p className="alert-error" role="alert">{error}</p>}
-      {saved && !error && <p className="text-xs text-emerald-700" role="status">Role updated.</p>}
+      {saved && !error && (
+        <p className="text-xs text-emerald-700" role="status">
+          Role updated. The employee will see the new workspace after refreshing or signing in again
+          {role === "manager" || role === "supervisor" ? "; assign their direct reports below to populate the Team hub." : "."}
+        </p>
+      )}
       <button type="submit" className="btn-secondary" disabled={loading || isSelf}>
         {loading ? "Saving…" : "Update role"}
       </button>

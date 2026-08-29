@@ -241,3 +241,81 @@ supabase/functions/    ↔ "Suggested minimal Edge Functions / RPC surface"
 supabase/tests/        ↔ "Testing strategy" (pgTAP: RLS denial tests are first-class product code)
 web/                   ↔ "Portals, RBAC and RLS authorization" (four portals, one data model)
 ```
+
+## Session experience: role changes, schedules, leave, pay visibility, branding
+
+Added 2026-08-29. A user audit surfaced several places where a role change or
+a piece of admin configuration had no visible effect anywhere in the product.
+Root causes, in order of how much they explain:
+
+1. **`session.roles` never expired.** `role_assignments` is effective-dated —
+   a role change closes the old row (`valid_until`) and opens a new one, the
+   row is never deleted. `getCurrentSession()` was reading every row for a
+   user regardless of validity, so a demoted admin kept looking like an admin
+   in navigation indefinitely, and a promotion could look like "nothing
+   happened" if the stale role already implied the same nav visibility. Fixed
+   by filtering on `valid_from`/`valid_until` the same way RLS and
+   `get_effective_permissions()` already did — the database was never wrong,
+   only the browser shell's own read of it. `(portal)/layout.tsx`'s
+   `canSeeTeam`/`canSeeAdmin` now also read `sessionCan()` instead of
+   `session.roles.includes(...)`, for the same reason `admin/payroll` needed
+   that fix earlier.
+2. **A role change never assigned anyone to be led.** Promoting someone to
+   Supervisor/Manager grants the *capability* to see a team; nothing ever
+   decided *whose* team. `set_employee_reporting_scope()`
+   (`20260829143000_role_reporting_scope.sql`) is the missing piece — an
+   audited RPC that assigns/removes direct reports through the same
+   effective-dated `employee_assignments` pattern, with a Team hub UI at
+   `admin/employees/[id]` (`ReportingScopeForm`) sitting right next to the
+   role selector.
+3. **Only the founder ever got schedule/leave defaults.** Starter-workspace
+   provisioning enrolled the first employee in a default work schedule and
+   leave policies; every employee invited afterward got neither.
+   `20260829143521_schedule_leave_provisioning.sql` turns that into standing
+   behavior — `provision_employee_defaults()` runs on every activation (and
+   once, idempotently, for every existing active employee), backed by
+   `create_work_schedule()`/`assign_employee_schedule()` audited RPCs and a
+   richer Team hub (`(portal)/team`) that surfaces schedule and leave-balance
+   gaps per person instead of silently showing nothing.
+4. **Compensation had a database but no employee-facing screen.** The
+   Compensation & Pay Administration schema (see above) was admin-only.
+   `(portal)/pay` is the missing "My pay" page — current rate, next pay date,
+   compensation history, active components, and the compensation calendar —
+   gated on `compensation.read_self`, which every role already holds by
+   default. It required a genuinely new access path:
+   `20260829153000_compensation_employee_self_service.sql` adds RLS letting
+   an employee read the specific pay group/calendar/periods their *own*
+   effective compensation links to (previously only reachable through admin
+   permissions), and `create_pay_calendar()` fixes a real two-write race
+   (creating a calendar and wiring `pay_groups.pay_calendar_id` used to be
+   two separate browser calls that could disagree if the second one failed).
+5. **Company profile and portal branding had no UI.** Organization contact/
+   address/legal-name fields and per-organization portal branding (title,
+   message, logo, colors) are real, typed columns and a dedicated
+   `organization_branding` table (`20260829142948_employee_experience_branding.sql`,
+   replacing what used to live in `organizations.settings` JSON), reachable
+   through `update_organization_profile()`/`update_organization_branding()`.
+   `CompanyProfileForm` and an extended `OrganizationPortalCard` (logo
+   upload to the public `organization-branding` bucket, color pickers) are
+   the admin UI; the public `/portal/[slug]` sign-in page now actually
+   renders the uploaded logo and applies the chosen colors instead of a
+   generic initials badge on the default palette.
+
+Two bugs specific to this batch, both fixed, both worth remembering:
+
+- **`GRANT ... ON ALL TABLES IN SCHEMA public`** only covers tables that
+  exist *at the moment it runs* — a table created in a later migration is
+  not retroactively covered and needs its own explicit grant (RLS policies
+  alone are moot without the underlying table privilege). Verified this
+  project's compensation tables were unaffected in practice (Supabase's
+  default-privileges provisioning already covered them), but the pglite
+  suite now asserts `has_table_privilege(...)` for every compensation table
+  directly, so a future migration that forgets this can't pass silently.
+- **`employee_migration_center` (2026-08-26) and its citext follow-up fix
+  (2026-08-27) were committed but never applied to the live database** —
+  found via `admin/setup` querying a table, `employee_import_batches`, that
+  simply didn't exist in production. A committed migration file is not the
+  same thing as a deployed one; always cross-check
+  `supabase_migrations.schema_migrations` against the migrations directory
+  after a gap in deploys, not just before/after the migrations you meant to
+  ship that session.

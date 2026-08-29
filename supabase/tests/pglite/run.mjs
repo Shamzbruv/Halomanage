@@ -87,6 +87,29 @@ async function main() {
   }
   console.log(`Applied ${fs.readdirSync(migrationsDir).filter((f) => f.endsWith(".sql")).length} migrations cleanly.\n`);
 
+  // Compensation tables were added after an earlier one-time blanket grant.
+  // This assertion intentionally runs before the test harness mimics broad
+  // Supabase provisioning below, so a migration that forgets explicit Data
+  // API privileges cannot be masked by the harness itself.
+  const compensationGrantCheck = await db.query(`
+    select bool_and(
+      has_table_privilege('authenticated', table_name, 'SELECT')
+      and has_table_privilege('authenticated', table_name, 'INSERT')
+      and has_table_privilege('authenticated', table_name, 'UPDATE')
+      and has_table_privilege('authenticated', table_name, 'DELETE')
+    ) as granted
+    from unnest(array[
+      'public.pay_groups',
+      'public.pay_calendars',
+      'public.pay_periods',
+      'public.pay_grades',
+      'public.compensation_components',
+      'public.compensation_change_reasons',
+      'public.employee_compensation_components'
+    ]) as grants(table_name)
+  `);
+  ok("all compensation administration tables have explicit authenticated Data API grants", compensationGrantCheck.rows[0].granted === true);
+
   // Mimic Supabase's default provisioning grants (real projects have these
   // already; our migrations correctly don't redo them).
   await db.exec(`
@@ -192,7 +215,11 @@ async function main() {
     const portal = await db.query(`select * from public.update_organization_portal(
       '${independentOrgId}', 'independent-team', 'Welcome, Independent team', 'Clock in, request leave, and manage your employee account.'
     )`);
-    ok("an administrator can customize the organization employee portal", portal.rows[0].slug === "independent-team" && portal.rows[0].settings.portal_title === "Welcome, Independent team");
+    // Portal branding moved out of organizations.settings JSON into its own
+    // table (see 20260829142948_employee_experience_branding.sql) — check
+    // the actual source of truth, not the now-stale settings blob.
+    const brandingRow = await db.query(`select portal_title from public.organization_branding where organization_id = '${independentOrgId}'`);
+    ok("an administrator can customize the organization employee portal", portal.rows[0].slug === "independent-team" && brandingRow.rows[0].portal_title === "Welcome, Independent team");
 
     let reservedThrew = false;
     try {
@@ -213,7 +240,7 @@ async function main() {
   await db.exec(`set role anon; select set_config('request.jwt.uid', '', false);`);
   const publicPortal = await db.query(`select * from public.get_organization_portal('independent-team')`);
   await db.exec(`reset role;`);
-  ok("the anonymous employee portal lookup returns only safe branded fields", publicPortal.rows.length === 1 && publicPortal.rows[0].name === "Independent Co" && Object.keys(publicPortal.rows[0]).sort().join(",") === "name,portal_message,portal_title,slug");
+  ok("the anonymous employee portal lookup returns only safe branded fields", publicPortal.rows.length === 1 && publicPortal.rows[0].name === "Independent Co" && Object.keys(publicPortal.rows[0]).sort().join(",") === "accent_color,logo_path,name,portal_message,portal_title,primary_color,slug");
 
   // Clean up the bootstrap-test org/employee/roles so it doesn't collide
   // with seed.sql's fixed UUIDs or pollute the persona tests below.
@@ -446,10 +473,15 @@ async function main() {
   // ================================== LEAVE ====================================
   let leaveRequestId, leaveTotalDays;
   await as(ALICE_USER, async () => {
+    // +14/+15 (two weeks out), not +7/+8 (one week out): date_trunc('week', ...)
+    // is the Monday of the CURRENT ISO week, so if "today" is a Saturday or
+    // Sunday, +7/+8 lands only 1-2 days out — under the 3-day minimum notice
+    // this same request checks below. +14/+15 keeps the same deterministic
+    // Monday-Tuesday span regardless of which weekday the suite runs on.
     const res = await db.query(`select * from public.submit_leave(
       (select id from public.leave_types where organization_id = '${ORG}' and code = 'VAC'),
-      (date_trunc('week', current_date)::date + 7),
-      (date_trunc('week', current_date)::date + 8),
+      (date_trunc('week', current_date)::date + 14),
+      (date_trunc('week', current_date)::date + 15),
       false, 'Family trip', null
     )`);
     leaveRequestId = res.rows[0].id;
@@ -948,10 +980,17 @@ async function main() {
   await as(ERIN_USER, async () => {
     const pg = await db.query(`insert into public.pay_groups (organization_id, name, code, pay_frequency) values ('${ORG}', 'Salaried Monthly', 'SAL-M', 'monthly') returning id`);
     payGroupId = pg.rows[0].id;
-    const cal = await db.query(`insert into public.pay_calendars (organization_id, pay_group_id, name, pay_frequency) values ('${ORG}', '${payGroupId}', 'Monthly Calendar', 'monthly') returning id`);
+    const cal = await db.query(`select * from public.create_pay_calendar('${ORG}', 'Monthly Calendar', 'monthly', '${payGroupId}')`);
     payCalendarId = cal.rows[0].id;
-    await db.query(`update public.pay_groups set pay_calendar_id = '${payCalendarId}' where id = '${payGroupId}'`);
-    ok("Erin (compensation.manage_structure) can create a pay group and pay calendar", !!payGroupId && !!payCalendarId);
+    const linked = await db.query(`select pay_calendar_id from public.pay_groups where id = '${payGroupId}'`);
+    ok("create_pay_calendar atomically creates and wires a pay group's source-of-truth calendar", !!payCalendarId && linked.rows[0].pay_calendar_id === payCalendarId);
+    const audit = await db.query(`select count(*) from public.audit_events where action = 'PAY_CALENDAR_CREATED' and entity_id = '${payCalendarId}'`);
+    ok("create_pay_calendar records an audit event", Number(audit.rows[0].count) === 1);
+  });
+  await as(DAVID_USER, async () => {
+    let threw = false;
+    try { await db.query(`select * from public.create_pay_calendar('${ORG}', 'Unauthorized calendar', 'monthly', '${payGroupId}')`); } catch { threw = true; }
+    ok("David (no pay_calendar.manage) cannot create or rewire a pay calendar", threw);
   });
   await as(ORG2_ADMIN_USER, async () => {
     const visible = await db.query(`select count(*) from public.pay_groups where id = '${payGroupId}'`);
@@ -973,6 +1012,10 @@ async function main() {
     let threw = false;
     try { await db.query(`select * from public.generate_pay_periods('${payCalendarId}', '2028-01-01', 1)`); } catch { threw = true; }
     ok("David (no pay_calendar.manage) cannot generate pay periods", threw);
+  });
+  await as(ALICE_USER, async () => {
+    const hidden = await db.query(`select count(*) from public.pay_groups where id = '${payGroupId}'`);
+    ok("Alice cannot see a pay group before it is part of her effective compensation", Number(hidden.rows[0].count) === 0);
   });
 
   // --- Pay grades ---
@@ -1013,12 +1056,27 @@ async function main() {
     ok("Carol (Manager, employee.read_team only) cannot change compensation without an explicit grant", threw);
   });
   await as(ERIN_USER, async () => {
-    const first = await db.query(`select * from public.change_employee_compensation('${ALICE_EMP}', 60000, 'salaried', current_date, 'USD', 'year', 'monthly')`);
+    const first = await db.query(`select * from public.change_employee_compensation(
+      p_employee_id => '${ALICE_EMP}',
+      p_amount => 60000,
+      p_pay_type => 'salaried',
+      p_effective_date => current_date,
+      p_currency => 'USD',
+      p_rate_unit => 'year',
+      p_pay_frequency => 'monthly',
+      p_pay_group_id => '${payGroupId}'
+    )`);
     ok("Erin can set Alice's initial compensation", Number(first.rows[0].amount) === 60000);
   });
   await as(ALICE_USER, async () => {
     const mine = await db.query(`select amount, pay_type, end_date from public.employee_compensation where employee_id = '${ALICE_EMP}' and end_date is null`);
     ok("Alice can read her own current compensation", mine.rows.length === 1 && Number(mine.rows[0].amount) === 60000);
+    const group = await db.query(`select id from public.pay_groups where id = '${payGroupId}'`);
+    const calendar = await db.query(`select id from public.pay_calendars where id = '${payCalendarId}'`);
+    const periods = await db.query(`select count(*) from public.pay_periods where pay_calendar_id = '${payCalendarId}'`);
+    ok("Alice can read the pay group on her effective compensation", group.rows.length === 1);
+    ok("Alice can read the calendar wired to her effective pay group", calendar.rows.length === 1);
+    ok("Alice can read future periods on her own compensation calendar", Number(periods.rows[0].count) === 3);
   });
   await as(CAROL_USER, async () => {
     const hidden = await db.query(`select count(*) from public.employee_compensation where employee_id = '${ALICE_EMP}'`);
@@ -1056,6 +1114,102 @@ async function main() {
     ok("compensation.manage_structure alone does NOT let David change an individual's pay", threw);
   });
   await db.exec(`delete from public.role_permissions where organization_id = '${ORG}' and role = 'employee';`);
+
+  // ================ REPORTING SCOPE, WORK SCHEDULES, ORG PROFILE ================
+  // A role change grants capability; it never by itself decides who reports
+  // to whom (see 20260829143000_role_reporting_scope.sql) — this is the RPC
+  // that actually populates a leader's Team hub roster.
+  await as(ERIN_USER, async () => {
+    await db.query(`select public.set_member_role('${CAROL_EMP}', 'manager', null)`);
+  });
+  await as(DAVID_USER, async () => {
+    let threw = false;
+    try { await db.query(`select public.set_employee_reporting_scope('${CAROL_EMP}', array['${ALICE_EMP}']::uuid[], 'manager')`); } catch { threw = true; }
+    ok("David (no employee.manage) cannot set reporting scope", threw);
+  });
+  await as(ERIN_USER, async () => {
+    let threw = false;
+    try { await db.query(`select public.set_employee_reporting_scope('${ALICE_EMP}', array['${CAROL_EMP}']::uuid[], 'manager')`); } catch { threw = true; }
+    ok("cannot assign manager reports to someone without the Manager/Admin role", threw);
+  });
+  // David is excluded from this scope test: an earlier, pre-existing test
+  // in this file already flipped his status to 'terminated' via a raw
+  // update, and set_employee_reporting_scope correctly rejects a
+  // non-active target — verified separately below rather than by accident.
+  await as(ERIN_USER, async () => {
+    const result = await db.query(`select public.set_employee_reporting_scope('${CAROL_EMP}', array['${ALICE_EMP}']::uuid[], 'manager') as result`);
+    ok("Erin can assign Carol a manager direct report", result.rows[0].result.direct_report_count === 1);
+  });
+  await as(CAROL_USER, async () => {
+    const reports = await db.query(`select employee_id from public.employee_assignments where manager_employee_id = '${CAROL_EMP}' and end_date is null`);
+    ok("Carol's manager reporting scope now includes exactly Alice", reports.rows.length === 1 && reports.rows[0].employee_id === ALICE_EMP);
+  });
+  await as(ERIN_USER, async () => {
+    let threw = false;
+    try { await db.query(`select public.set_employee_reporting_scope('${CAROL_EMP}', array['${DAVID_EMP}']::uuid[], 'manager')`); } catch { threw = true; }
+    ok("a terminated employee cannot be assigned as a direct report", threw);
+  });
+  await as(ERIN_USER, async () => {
+    const result = await db.query(`select public.set_employee_reporting_scope('${CAROL_EMP}', array[]::uuid[], 'manager') as result`);
+    ok("Erin can clear Carol's reporting scope back to zero reports", result.rows[0].result.direct_report_count === 0);
+  });
+  await as(CAROL_USER, async () => {
+    const aliceAssignment = await db.query(`select manager_employee_id from public.employee_assignments where employee_id = '${ALICE_EMP}' and end_date is null`);
+    ok("Alice is no longer one of Carol's manager reports after being removed", aliceAssignment.rows[0].manager_employee_id !== CAROL_EMP);
+  });
+
+  // --- Work schedules ---
+  let scheduleId;
+  await as(DAVID_USER, async () => {
+    let threw = false;
+    try { await db.query(`select * from public.create_work_schedule('${ORG}', 'Evening Shift')`); } catch { threw = true; }
+    ok("David (no attendance.manage_policies) cannot create a work schedule", threw);
+  });
+  await as(ERIN_USER, async () => {
+    const schedule = await db.query(`select * from public.create_work_schedule('${ORG}', 'Evening Shift', 'Afternoon coverage', false, array[1,2,3,4,5]::smallint[], '14:00', '22:00', 30)`);
+    scheduleId = schedule.rows[0].id;
+    ok("Erin can create a new work schedule", !!scheduleId);
+  });
+  await as(DAVID_USER, async () => {
+    let threw = false;
+    try { await db.query(`select * from public.assign_employee_schedule('${ALICE_EMP}', '${scheduleId}')`); } catch { threw = true; }
+    ok("David (no attendance.manage_policies) cannot assign a schedule", threw);
+  });
+  await as(ERIN_USER, async () => {
+    const assignment = await db.query(`select * from public.assign_employee_schedule('${ALICE_EMP}', '${scheduleId}')`);
+    ok("Erin can assign Alice to the new schedule", assignment.rows[0].schedule_id === scheduleId);
+  });
+  await as(ALICE_USER, async () => {
+    const mine = await db.query(`select schedule_id from public.schedule_assignments where employee_id = '${ALICE_EMP}' and end_date is null`);
+    ok("Alice has exactly one open schedule assignment after being reassigned", mine.rows.length === 1 && mine.rows[0].schedule_id === scheduleId);
+  });
+
+  // --- Organization profile & branding ---
+  const currentOrgSlug = (await db.query(`select slug::text from public.organizations where id = '${ORG}'`)).rows[0].slug;
+  await as(DAVID_USER, async () => {
+    let threw = false;
+    try { await db.query(`select * from public.update_organization_profile('${ORG}', 'New Name')`); } catch { threw = true; }
+    ok("David (no organization.manage) cannot update the company profile", threw);
+  });
+  await as(ERIN_USER, async () => {
+    const profile = await db.query(`select * from public.update_organization_profile(
+      '${ORG}', 'Acme Test Corp', 'Acme Test Corporation Ltd', 'hr@acme.test', '+1 555-0100',
+      'https://acme.test', '1 Main St', null, 'Springfield', 'IL', '62701', 'US', 'UTC', 'en'
+    )`);
+    ok("Erin can update the company profile", profile.rows[0].legal_name === "Acme Test Corporation Ltd" && profile.rows[0].contact_email === "hr@acme.test");
+  });
+  await as(DAVID_USER, async () => {
+    let threw = false;
+    try { await db.query(`select * from public.update_organization_branding('${ORG}', '${currentOrgSlug}', true, 'Welcome', 'Sign in below', null, '#101B3D', '#F2B84B')`); } catch { threw = true; }
+    ok("David (no organization.manage) cannot update employee portal branding", threw);
+  });
+  await as(ERIN_USER, async () => {
+    const branding = await db.query(`select * from public.update_organization_branding('${ORG}', '${currentOrgSlug}', true, 'Welcome aboard', 'Sign in to get started', null, '#123456', '#ABCDEF')`);
+    ok("Erin can update employee portal branding colors", branding.rows[0].primary_color === "#123456" && branding.rows[0].accent_color === "#ABCDEF");
+    let threw = false;
+    try { await db.query(`select * from public.update_organization_branding('${ORG}', '${currentOrgSlug}', true, 'x', 'y', 'not-a-valid-path.png', '#101B3D', '#F2B84B')`); } catch { threw = true; }
+    ok("a logo path outside the organization's own folder is rejected", threw);
+  });
 
   console.log(`\n${passCount} passed, ${failCount} failed.`);
   if (failCount > 0) process.exitCode = 1;

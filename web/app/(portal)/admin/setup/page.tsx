@@ -4,7 +4,7 @@ import { Icon, type IconName } from "@/components/Icon";
 import { InitializeWorkspaceButton } from "@/components/InitializeWorkspaceButton";
 import { OrganizationPortalCard } from "@/components/OrganizationPortalCard";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentSession } from "@/lib/session";
+import { getCurrentSession, sessionCan } from "@/lib/session";
 
 type SetupItem = {
   title: string;
@@ -18,10 +18,21 @@ type SetupItem = {
 export default async function SetupGuidePage() {
   const session = await getCurrentSession();
   if (!session) redirect("/login");
-  if (!session.roles.includes("admin") || !session.organizationId || !session.organization) redirect("/dashboard");
+  if (!sessionCan(session, "organization.manage") || !session.organizationId || !session.organization) redirect("/dashboard");
 
   const supabase = await createClient();
   const organizationId = session.organizationId;
+  const queryNames = [
+    "people",
+    "departments",
+    "positions",
+    "locations",
+    "leave policies",
+    "onboarding templates",
+    "performance templates",
+    "documents",
+    "employee imports",
+  ] as const;
   const results = await Promise.all([
     supabase.from("employees").select("id, user_id").eq("organization_id", organizationId),
     supabase.from("org_units").select("id").eq("organization_id", organizationId),
@@ -33,17 +44,32 @@ export default async function SetupGuidePage() {
     supabase.from("documents").select("id").eq("organization_id", organizationId).eq("is_active", true),
     supabase.from("employee_import_batches").select("id, status").eq("organization_id", organizationId).eq("status", "committed"),
   ]);
+  const { data: branding } = await supabase
+    .from("organization_branding")
+    .select("portal_title, portal_message, logo_path, primary_color, accent_color")
+    .eq("organization_id", organizationId)
+    .maybeSingle();
 
-  const queryError = results.find((result) => result.error)?.error;
-  if (queryError) console.error("setup guide: failed to load setup counts", { code: queryError.code });
+  const queryFailures = results.flatMap((result, index) => result.error ? [{
+    module: queryNames[index],
+    code: result.error.code,
+    message: result.error.message,
+    hint: result.error.hint,
+  }] : []);
+  if (queryFailures.length) console.error("setup guide: failed to load setup modules", queryFailures);
 
   const [employees, orgUnits, positions, locations, leaveTypes, onboardingTemplates, appraisalTemplates, documents, employeeImports] = results.map((result) => result.data ?? []);
   const invitedEmployees = employees.filter((employee: any) => employee.user_id).length;
   const hasStructure = orgUnits.length > 0 && positions.length > 0 && locations.length > 0;
   const initialized = Boolean(session.organization.settings.starter_workspace_initialized_at);
   const settings = session.organization.settings;
-  const portalTitle = typeof settings.portal_title === "string" ? settings.portal_title : `Welcome to ${session.organization.name}`;
-  const portalMessage = typeof settings.portal_message === "string" ? settings.portal_message : "Sign in to manage your workday, time away, documents, and development.";
+  // Portal branding moved out of organizations.settings JSON into its own
+  // table (see 20260829142948_employee_experience_branding.sql).
+  const portalTitle = branding?.portal_title ?? `Welcome to ${session.organization.name}`;
+  const portalMessage = branding?.portal_message ?? "Sign in to manage your workday, time away, documents, and development.";
+  const portalLogoUrl = branding?.logo_path
+    ? supabase.storage.from("organization-branding").getPublicUrl(branding.logo_path).data.publicUrl
+    : null;
 
   const items: SetupItem[] = [
     { title: "Employee portal", description: "Preview and share your organization-specific sign-in page.", href: `#employee-portal`, complete: Boolean(session.organization.slug), icon: "shield", action: "View portal" },
@@ -65,7 +91,11 @@ export default async function SetupGuidePage() {
         <div className="setup-progress"><strong>{progress}%</strong><span>{completed} of {items.length} essentials ready</span><div><i style={{ width: `${progress}%` }} /></div></div>
       </section>
 
-      {queryError && <div className="alert-error">Some setup counts could not be loaded. The page remains usable, but check your latest Supabase migrations and grants.</div>}
+      {queryFailures.length > 0 && (
+        <div className="alert-error" role="alert">
+          Could not verify {queryFailures.map((failure) => failure.module).join(", ")}. The other setup modules remain usable. An administrator should check the latest Supabase migrations and Data API grants.
+        </div>
+      )}
 
       {!initialized && (
         <section className="starter-setup-banner">
@@ -92,6 +122,9 @@ export default async function SetupGuidePage() {
           initialSlug={session.organization.slug}
           initialTitle={portalTitle}
           initialMessage={portalMessage}
+          initialLogoUrl={portalLogoUrl}
+          initialPrimaryColor={branding?.primary_color ?? "#101B3D"}
+          initialAccentColor={branding?.accent_color ?? "#F2B84B"}
           siteUrl={process.env.NEXT_PUBLIC_SITE_URL ?? ""}
         />
       </div>

@@ -7,7 +7,9 @@ import { Icon } from "@/components/Icon";
 
 const FREQUENCIES = ["weekly", "biweekly", "semimonthly", "monthly", "quarterly", "annual", "custom"];
 
-export function NewPayCalendarForm({ organizationId, payGroups }: { organizationId: string; payGroups: { id: string; name: string }[] }) {
+type PayGroupOption = { id: string; name: string; pay_frequency: string };
+
+export function NewPayCalendarForm({ organizationId, payGroups }: { organizationId: string; payGroups: PayGroupOption[] }) {
   const supabase = createClient();
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -21,11 +23,11 @@ export function NewPayCalendarForm({ organizationId, payGroups }: { organization
     event.preventDefault();
     setLoading(true);
     setError(null);
-    const { error: insertError } = await supabase.from("pay_calendars").insert({
-      organization_id: organizationId,
-      name,
-      pay_frequency: payFrequency,
-      pay_group_id: payGroupId || null,
+    const { error: insertError } = await supabase.rpc("create_pay_calendar", {
+      p_organization_id: organizationId,
+      p_name: name,
+      p_pay_frequency: payFrequency,
+      p_pay_group_id: payGroupId || null,
     });
     if (insertError) {
       setError(insertError.message);
@@ -35,6 +37,12 @@ export function NewPayCalendarForm({ organizationId, payGroups }: { organization
     setOpen(false);
     setLoading(false);
     router.refresh();
+  }
+
+  function handlePayGroupChange(nextPayGroupId: string) {
+    setPayGroupId(nextPayGroupId);
+    const selectedGroup = payGroups.find((group) => group.id === nextPayGroupId);
+    if (selectedGroup) setPayFrequency(selectedGroup.pay_frequency);
   }
 
   if (!open) {
@@ -50,13 +58,13 @@ export function NewPayCalendarForm({ organizationId, payGroups }: { organization
           <div><label className="label">Name</label><input required className="input" placeholder="Monthly Calendar" value={name} onChange={(e) => setName(e.target.value)} /></div>
           <div>
             <label className="label">Frequency</label>
-            <select className="input" value={payFrequency} onChange={(e) => setPayFrequency(e.target.value)}>
+            <select className="input" value={payFrequency} disabled={Boolean(payGroupId)} onChange={(e) => setPayFrequency(e.target.value)}>
               {FREQUENCIES.map((f) => <option key={f} value={f}>{f}</option>)}
             </select>
           </div>
           <div className="col-span-2">
             <label className="label">Pay group (optional)</label>
-            <select className="input" value={payGroupId} onChange={(e) => setPayGroupId(e.target.value)}>
+            <select className="input" value={payGroupId} onChange={(e) => handlePayGroupChange(e.target.value)}>
               <option value="">Not tied to a specific group</option>
               {payGroups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
             </select>

@@ -17,7 +17,7 @@ export default async function PayCalendarsPage() {
 
   const [{ data: calendars }, { data: payGroups }, { data: periods }] = await Promise.all([
     supabase.from("pay_calendars").select("*, pay_groups(name)").eq("organization_id", orgId).order("name"),
-    supabase.from("pay_groups").select("id, name").eq("organization_id", orgId).eq("is_active", true).order("name"),
+    supabase.from("pay_groups").select("id, name, pay_frequency").eq("organization_id", orgId).eq("is_active", true).order("name"),
     supabase.from("pay_periods").select("*").eq("organization_id", orgId).order("period_start", { ascending: false }),
   ]);
 

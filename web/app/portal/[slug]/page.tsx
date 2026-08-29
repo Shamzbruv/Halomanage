@@ -12,6 +12,9 @@ type PortalDetails = {
   slug: string;
   portal_title: string;
   portal_message: string;
+  logo_path: string | null;
+  primary_color: string;
+  accent_color: string;
 };
 
 type IdentityOptions = {
@@ -35,13 +38,25 @@ export default async function EmployeePortalPage({ params }: { params: Promise<{
   if (!portal) notFound();
   const { data: identityData } = await supabase.rpc("get_portal_identity_options", { p_slug: slug });
   const identity = (Array.isArray(identityData) ? identityData[0] : identityData) as IdentityOptions | undefined;
+  const logoUrl = portal.logo_path
+    ? supabase.storage.from("organization-branding").getPublicUrl(portal.logo_path).data.publicUrl
+    : null;
 
   return (
-    <main className="employee-portal-shell" id="main-content" tabIndex={-1}>
-      <section className="employee-portal-brand-panel">
+    <main
+      className="employee-portal-shell"
+      id="main-content"
+      tabIndex={-1}
+      style={{ "--portal-primary": portal.primary_color, "--portal-accent": portal.accent_color } as React.CSSProperties}
+    >
+      <section className="employee-portal-brand-panel" style={{ background: portal.primary_color }}>
         <Brand inverse tagline />
         <div className="employee-portal-company">
-          <span className="organization-avatar large">{portal.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase()}</span>
+          {logoUrl ? (
+            <img className="organization-avatar large employee-portal-logo" src={logoUrl} alt={`${portal.name} logo`} />
+          ) : (
+            <span className="organization-avatar large">{portal.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase()}</span>
+          )}
           <span className="eyebrow">Employee workspace</span>
           <h1>{portal.portal_title}</h1>
           <p>{portal.portal_message}</p>

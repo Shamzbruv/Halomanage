@@ -7,6 +7,7 @@ import { ChangeAssignmentForm } from "@/components/ChangeAssignmentForm";
 import { ChangeCompensationForm } from "@/components/ChangeCompensationForm";
 import { GrantLeaveBalanceForm } from "@/components/GrantLeaveBalanceForm";
 import { InviteButton } from "@/components/InviteButton";
+import { ReportingScopeForm } from "@/components/ReportingScopeForm";
 import { RoleAssignmentForm } from "@/components/RoleAssignmentForm";
 import { TerminateEmployeeButton } from "@/components/TerminateEmployeeButton";
 import { statusBadgeClass } from "@/lib/ui";
@@ -41,6 +42,7 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
     { data: payGroups },
     { data: payGrades },
     { data: changeReasons },
+    { data: orgAssignments },
   ] = await Promise.all([
     supabase.from("employees").select("*").eq("id", id).single(),
     // Query the real employee_assignments table directly rather than
@@ -53,13 +55,16 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
     supabase.from("org_units").select("id, name").eq("organization_id", orgId).order("name"),
     supabase.from("positions").select("id, title").eq("organization_id", orgId).order("title"),
     supabase.from("locations").select("id, name").eq("organization_id", orgId).order("name"),
-    supabase.from("employees").select("id, first_name, last_name").eq("organization_id", orgId).order("last_name"),
+    supabase.from("employees").select("id, first_name, last_name, employee_number, status").eq("organization_id", orgId).order("last_name"),
     supabase.from("leave_types").select("id, name").eq("organization_id", orgId).eq("is_active", true).order("name"),
     supabase.from("leave_balance_v").select("balance, leave_type_name").eq("employee_id", id),
     supabase.from("employee_compensation").select("*").eq("employee_id", id).order("start_date", { ascending: false }),
     supabase.from("pay_groups").select("id, name").eq("organization_id", orgId).eq("is_active", true).order("name"),
     supabase.from("pay_grades").select("id, name").eq("organization_id", orgId).eq("is_active", true).order("name"),
     supabase.from("compensation_change_reasons").select("id, name").eq("organization_id", orgId).eq("is_active", true).order("name"),
+    // Every other org member's current reporting line, so ReportingScopeForm
+    // can pre-check whoever already reports to this person.
+    supabase.from("employee_assignments").select("employee_id, supervisor_employee_id, manager_employee_id").eq("organization_id", orgId).is("end_date", null),
   ]);
 
   if (!employee) notFound();
@@ -83,6 +88,17 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
     )?.role ?? null;
   const isSelf = employee.user_id === session.userId;
 
+  const assignmentByEmployeeId = new Map((orgAssignments ?? []).map((a) => [a.employee_id, a]));
+  const reportingCandidates = (employees ?? [])
+    .filter((e) => e.id !== employee.id && e.status !== "terminated")
+    .map((e) => ({
+      id: e.id,
+      label: `${e.first_name} ${e.last_name}`,
+      employeeNumber: e.employee_number,
+      supervisorEmployeeId: assignmentByEmployeeId.get(e.id)?.supervisor_employee_id ?? null,
+      managerEmployeeId: assignmentByEmployeeId.get(e.id)?.manager_employee_id ?? null,
+    }));
+
   const supervisorName = currentAssignment?.supervisor_employee_id
     ? employees?.find((e) => e.id === currentAssignment.supervisor_employee_id)
     : null;
@@ -90,7 +106,10 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
     ? employees?.find((e) => e.id === currentAssignment.manager_employee_id)
     : null;
 
-  const currentCompensation = (compensationHistory ?? []).find((c) => c.end_date === null) ?? null;
+  const today = new Date().toISOString().slice(0, 10);
+  const currentCompensation = (compensationHistory ?? []).find(
+    (c) => c.start_date <= today && (!c.end_date || c.end_date >= today),
+  ) ?? null;
   const payGroupName = payGroups?.find((g) => g.id === currentCompensation?.pay_group_id)?.name ?? null;
   const payGradeName = payGrades?.find((g) => g.id === currentCompensation?.pay_grade_id)?.name ?? null;
 
@@ -102,7 +121,7 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
         .from("pay_periods")
         .select("pay_date")
         .eq("pay_calendar_id", group.pay_calendar_id)
-        .gte("pay_date", new Date().toISOString().slice(0, 10))
+        .gte("pay_date", today)
         .order("pay_date", { ascending: true })
         .limit(1)
         .maybeSingle();
@@ -189,6 +208,21 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
             Controls what {employee.first_name} can see and manage across the organization. Takes effect immediately.
           </p>
           <RoleAssignmentForm employeeId={employee.id} currentRole={currentRole as "employee" | "supervisor" | "manager" | "admin" | null} isSelf={isSelf} />
+
+          {!isSelf && (
+            <>
+              <h3 className="mb-1 mt-5 text-xs font-semibold uppercase text-stone-400">Direct reports</h3>
+              <p className="mb-3 text-xs text-stone-500">
+                A Supervisor/Manager role grants the capability to see a team — this list decides whose records actually
+                show up in {employee.first_name}&apos;s Team hub.
+              </p>
+              <ReportingScopeForm
+                leaderEmployeeId={employee.id}
+                currentRole={currentRole as "employee" | "supervisor" | "manager" | "admin" | null}
+                candidates={reportingCandidates}
+              />
+            </>
+          )}
         </div>
       )}
 
