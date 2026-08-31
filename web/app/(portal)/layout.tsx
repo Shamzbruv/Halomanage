@@ -4,11 +4,21 @@ import { getCurrentSession, sessionCan } from "@/lib/session";
 import { createClient } from "@/lib/supabase/server";
 import { Brand } from "@/components/Brand";
 import { Icon } from "@/components/Icon";
+import { SignOutButton } from "@/components/SignOutButton";
 
 export default async function PortalLayout({ children }: { children: React.ReactNode }) {
   const session = await getCurrentSession();
   if (!session) redirect("/login");
   if (session.dataError) {
+    // This card previously had no working way out: "Try again" reloads the
+    // same page (useless if the underlying cause isn't transient) and
+    // "Repair workspace setup" is a different flow entirely — for a
+    // genuinely broken org/employee record, not a stuck session. Someone
+    // whose browser holds a stale or already-revoked session (e.g. they
+    // signed out in another tab, or the cookie is mid-refresh) had no
+    // button anywhere on this screen to actually sign out and get a clean
+    // login — SignOutButton fixes that directly, and doesn't depend on
+    // correctly diagnosing which of many possible error shapes caused this.
     return (
       <div className="workspace-repair-shell">
         <Brand />
@@ -16,8 +26,14 @@ export default async function PortalLayout({ children }: { children: React.React
           <span className="empty-state-icon"><Icon name="shield" size={25} /></span>
           <span className="eyebrow">Workspace connection</span>
           <h1>We couldn&apos;t load your organization data.</h1>
-          <p>Your account is signed in, but the database did not return its employee or role details. No information has been lost.</p>
-          <div className="workspace-repair-actions"><a className="btn-primary" href="/dashboard">Try again</a><a className="btn-secondary" href="/signup/complete">Repair workspace setup</a></div>
+          <p>This can happen when a session is stale — signing out and back in almost always fixes it. No information has been lost.</p>
+          <div className="workspace-repair-actions">
+            <SignOutButton className="btn-primary" />
+            <a className="btn-secondary" href="/dashboard">Try again</a>
+          </div>
+          <p className="mt-3 text-xs text-stone-500">
+            Still stuck after signing back in? <a className="text-royal-700 hover:text-royal-800" href="/signup/complete">Repair workspace setup</a>.
+          </p>
         </div>
       </div>
     );

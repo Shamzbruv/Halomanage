@@ -50,7 +50,24 @@ function isExpiredSessionError(error: { code?: string; message?: string } | null
   if (!error) return false;
   if (error.code === "PGRST301") return true;
   const message = error.message?.toLowerCase() ?? "";
-  return message.includes("jwt expired") || message.includes("invalid refresh token") || message.includes("refresh_token_not_found");
+  // PGRST301 covers a plain expired JWT, but a stale/revoked/malformed
+  // session (signed out elsewhere, a cookie mid-refresh, a token GoTrue no
+  // longer recognizes) can surface under several other codes/messages
+  // depending on exactly what's wrong with it — broadened here rather than
+  // relying on the workspace-repair card's sign-out escape hatch alone
+  // (see (portal)/layout.tsx) to catch every case.
+  return (
+    message.includes("jwt expired") ||
+    message.includes("invalid refresh token") ||
+    message.includes("refresh_token_not_found") ||
+    message.includes("invalid jwt") ||
+    message.includes("invalid claim") ||
+    message.includes("jwserror") ||
+    message.includes("signature is invalid") ||
+    message.includes("session_not_found") ||
+    message.includes("session not found") ||
+    message.includes("user not found")
+  );
 }
 
 // Everything the portal shell needs to decide what to show — one place so
