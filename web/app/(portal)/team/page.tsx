@@ -2,16 +2,13 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Icon } from "@/components/Icon";
 import { LeaveDecisionButtons } from "@/components/LeaveDecisionButtons";
+import { TeamRosterTable, type RosterRow } from "@/components/team/TeamRosterTable";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession, sessionCan } from "@/lib/session";
 import { statusBadgeClass } from "@/lib/ui";
 
 function fullName(person: { first_name?: string | null; last_name?: string | null }) {
   return [person.first_name, person.last_name].filter(Boolean).join(" ") || "Team member";
-}
-
-function initials(person: { first_name?: string | null; last_name?: string | null }) {
-  return `${person.first_name?.[0] ?? ""}${person.last_name?.[0] ?? ""}`.toUpperCase() || "TM";
 }
 
 export default async function TeamPage() {
@@ -36,7 +33,7 @@ export default async function TeamPage() {
       .order("first_name"),
     supabase
       .from("employee_assignments")
-      .select("employee_id, supervisor_employee_id, manager_employee_id, employment_type")
+      .select("employee_id, supervisor_employee_id, manager_employee_id, employment_type, positions(title), org_units(name)")
       .eq("organization_id", organizationId)
       .is("end_date", null),
     supabase
@@ -102,6 +99,44 @@ export default async function TeamPage() {
 
   const isOrgReader = sessionCan(session, "employee.read_org");
 
+  // A person not currently visible in `people` (RLS-scoped) can still be
+  // someone's resolved supervisor/manager name to display — most commonly
+  // the viewer themselves, excluded from `people` above.
+  const viewerEmployeeId = session.employee.id;
+  function resolveName(employeeId: string | null): string | null {
+    if (!employeeId) return null;
+    if (employeeId === viewerEmployeeId) return "You";
+    const match: any = personById.get(employeeId);
+    return match ? fullName(match) : null;
+  }
+
+  const rosterRows: RosterRow[] = (people as any[]).map((person) => {
+    const assignment: any = assignmentByEmployee.get(person.id);
+    const scheduleAssignment: any = scheduleAssignmentByEmployee.get(person.id);
+    const employeeBalances = balancesByEmployee.get(person.id) ?? [];
+    const embeddedPosition = assignment?.positions;
+    const position = Array.isArray(embeddedPosition) ? embeddedPosition[0] : embeddedPosition;
+    const embeddedUnit = assignment?.org_units;
+    const orgUnit = Array.isArray(embeddedUnit) ? embeddedUnit[0] : embeddedUnit;
+    return {
+      id: person.id,
+      name: fullName(person),
+      employeeNumber: person.employee_number,
+      email: person.work_email,
+      status: person.status,
+      positionTitle: position?.title ?? null,
+      departmentName: orgUnit?.name ?? null,
+      supervisorId: assignment?.supervisor_employee_id ?? null,
+      supervisorName: resolveName(assignment?.supervisor_employee_id ?? null),
+      managerName: resolveName(assignment?.manager_employee_id ?? null),
+      scheduleName: scheduleAssignment ? scheduleById.get(scheduleAssignment.schedule_id) ?? "Assigned schedule" : null,
+      leaveSummary: employeeBalances
+        .slice(0, 2)
+        .map((item) => `${item.leave_type_name}: ${Number(item.balance).toLocaleString(undefined, { maximumFractionDigits: 1 })}d`)
+        .join(" · "),
+    };
+  });
+
   return (
     <div className="space-y-6">
       <div className="page-intro">
@@ -136,36 +171,10 @@ export default async function TeamPage() {
 
       <section className="card overflow-x-auto">
         <div className="panel-heading">
-          <div><span className="panel-icon"><Icon name="people" /></span><div><h3>Team roster &amp; working patterns</h3><p>Role access and reporting assignments are managed separately.</p></div></div>
+          <div><span className="panel-icon"><Icon name="people" /></span><div><h3>Team roster &amp; working patterns</h3><p>Grouped by direct supervisor. Role access and reporting assignments are managed separately.</p></div></div>
           {sessionCan(session, "employee.manage") && <Link className="btn-secondary" href="/admin/employees">Manage people</Link>}
         </div>
-        <table className="w-full text-sm">
-          <thead><tr className="border-b border-stone-100 text-left"><th className="pb-3">Employee</th><th className="pb-3">Relationship</th><th className="pb-3">Schedule</th><th className="pb-3">Leave available</th><th className="pb-3">Status</th></tr></thead>
-          <tbody className="divide-y divide-stone-100">
-            {people.length === 0 && <tr><td colSpan={5} className="py-8 text-center text-stone-400">No employees are currently visible in this scope.</td></tr>}
-            {people.map((person: any) => {
-              const assignment: any = assignmentByEmployee.get(person.id);
-              const scheduleAssignment: any = scheduleAssignmentByEmployee.get(person.id);
-              const employeeBalances = balancesByEmployee.get(person.id) ?? [];
-              const relationship = isOrgReader
-                ? "Organization"
-                : assignment?.supervisor_employee_id === session.employee?.id
-                  ? "Direct supervisor"
-                  : assignment?.manager_employee_id === session.employee?.id
-                    ? "Direct manager"
-                    : "In scope";
-              return (
-                <tr key={person.id}>
-                  <td className="py-3"><div className="flex items-center gap-2"><span className="user-avatar small">{initials(person)}</span><span><strong className="block font-medium text-stone-900">{fullName(person)}</strong><small className="text-stone-500">{person.employee_number}{person.work_email ? ` · ${person.work_email}` : ""}</small></span></div></td>
-                  <td className="py-3 text-stone-600">{relationship}</td>
-                  <td className="py-3 text-stone-600">{scheduleAssignment ? scheduleById.get(scheduleAssignment.schedule_id) ?? "Assigned schedule" : <span className="text-amber-700">Not assigned</span>}</td>
-                  <td className="py-3 text-stone-600">{employeeBalances.length ? employeeBalances.slice(0, 2).map((item) => `${item.leave_type_name}: ${Number(item.balance).toLocaleString(undefined, { maximumFractionDigits: 1 })}d`).join(" · ") : <span className="text-amber-700">Not provisioned</span>}</td>
-                  <td className="py-3"><span className={`badge ${person.status === "active" ? "badge-emerald" : "badge-neutral"}`}>{String(person.status).replace(/_/g, " ")}</span></td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <TeamRosterTable rows={rosterRows} />
       </section>
 
       <div className="grid gap-6 xl:grid-cols-2">
