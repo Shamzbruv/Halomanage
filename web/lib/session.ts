@@ -6,6 +6,11 @@ export type CurrentSession = {
   email: string | null;
   employee: Employee | null;
   roles: AppRole[];
+  // Human-readable label(s) for whatever this person currently holds — the
+  // 4 built-ins' display names plus the name of any custom organization
+  // role(s) (see 20260831100000_custom_organization_roles.sql). Display
+  // only; every actual authorization decision goes through `permissions`.
+  roleLabels: string[];
   permissions: AppPermission[];
   organizationId: string | null;
   organization: {
@@ -65,7 +70,7 @@ export async function getCurrentSession(): Promise<CurrentSession | null> {
     supabase.from("employees").select("*").eq("user_id", user.id).maybeSingle(),
     supabase
       .from("role_assignments")
-      .select("organization_id, role, valid_from, valid_until")
+      .select("organization_id, role, valid_from, valid_until, custom_role_id, organization_roles(name)")
       .eq("user_id", user.id),
   ]);
 
@@ -92,7 +97,22 @@ export async function getCurrentSession(): Promise<CurrentSession | null> {
     return validFrom <= now && (validUntil === null || validUntil > now);
   });
 
-  const roles = [...new Set(roleRows.map((r) => r.role as AppRole))];
+  const roles = [...new Set(roleRows.filter((r) => r.role !== null).map((r) => r.role as AppRole))];
+  const builtInLabel: Record<AppRole, string> = { employee: "Employee", supervisor: "Supervisor", manager: "Manager", admin: "Admin" };
+  const roleLabels = [
+    ...new Set(
+      roleRows.map((r) => {
+        if (r.role) return builtInLabel[r.role as AppRole];
+        // Many-to-one embed of a nullable FK — PostgREST returns a single
+        // object here, but this project has already hit a case where its
+        // query-string type inference reports an array shape instead (see
+        // the compensation employee-self-service pay page); handle both.
+        const embedded = r.organization_roles as { name: string } | { name: string }[] | null;
+        const customRole = Array.isArray(embedded) ? embedded[0] : embedded;
+        return customRole?.name ?? null;
+      }).filter((label): label is string => Boolean(label)),
+    ),
+  ];
   const organizationId = employee?.organization_id ?? roleRows?.[0]?.organization_id ?? null;
 
   let permissions: AppPermission[] = [];
@@ -146,6 +166,7 @@ export async function getCurrentSession(): Promise<CurrentSession | null> {
     email: user.email ?? null,
     employee: (employee as Employee) ?? null,
     roles,
+    roleLabels,
     permissions,
     organizationId,
     organization,

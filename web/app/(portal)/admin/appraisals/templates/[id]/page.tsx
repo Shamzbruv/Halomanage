@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect, notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentSession } from "@/lib/session";
+import { getCurrentSession, sessionCan } from "@/lib/session";
 import { AppraisalSectionForm } from "@/components/AppraisalSectionForm";
 import { AppraisalQuestionForm } from "@/components/AppraisalQuestionForm";
 
@@ -9,7 +9,7 @@ export default async function AppraisalTemplatePage({ params }: { params: Promis
   const { id } = await params;
   const session = await getCurrentSession();
   if (!session) redirect("/login");
-  if (!session.roles.includes("admin")) redirect("/dashboard");
+  if (!sessionCan(session, "appraisal.manage_cycles")) redirect("/dashboard");
 
   const supabase = await createClient();
   const { data: template } = await supabase.from("appraisal_templates").select("*").eq("id", id).single();

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Icon } from "@/components/Icon";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentSession } from "@/lib/session";
+import { getCurrentSession, sessionCan } from "@/lib/session";
 import { statusBadgeClass } from "@/lib/ui";
 
 export default async function AppraisalsPage() {
@@ -24,7 +24,7 @@ export default async function AppraisalsPage() {
         <div className="metric-card"><span className="metric-icon mint"><Icon name="performance" /></span><div><small>My active checkpoints</small><strong>{active}</strong><em>in progress</em></div></div>
         <div className="metric-card"><span className="metric-icon sun"><Icon name="team" /></span><div><small>Reviews to complete</small><strong>{reviewingOthers.length}</strong><em>for your team</em></div></div>
       </div>
-      {(own ?? []).length === 0 && reviewingOthers.length === 0 && session.roles.includes("admin") && (
+      {(own ?? []).length === 0 && reviewingOthers.length === 0 && sessionCan(session, "appraisal.manage_cycles") && (
         <div className="workspace-nudge"><span className="metric-icon sun"><Icon name="spark" /></span><div><strong>Your growth framework is ready to shape</strong><p>Review the starter quarterly template, adjust the questions, then launch the first checkpoint when your team is ready.</p></div><Link className="btn-secondary" href="/admin/appraisals">Open performance setup</Link></div>
       )}
       <div className="grid gap-6 xl:grid-cols-2">

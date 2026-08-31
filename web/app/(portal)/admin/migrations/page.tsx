@@ -2,14 +2,14 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { EmployeeImportUploadForm } from "@/components/EmployeeImportUploadForm";
 import { Icon } from "@/components/Icon";
-import { getCurrentSession } from "@/lib/session";
+import { getCurrentSession, sessionCan } from "@/lib/session";
 import { createClient } from "@/lib/supabase/server";
 import { statusBadgeClass } from "@/lib/ui";
 
 export default async function MigrationCenterPage() {
   const session = await getCurrentSession();
   if (!session) redirect("/login");
-  if (!session.roles.includes("admin") || !session.organizationId) redirect("/dashboard");
+  if (!sessionCan(session, "employee.manage") || !session.organizationId) redirect("/dashboard");
 
   const supabase = await createClient();
   const { data: batches, error } = await supabase

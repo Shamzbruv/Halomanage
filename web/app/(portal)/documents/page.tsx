@@ -4,7 +4,7 @@ import { AcknowledgeDocumentButton } from "@/components/AcknowledgeDocumentButto
 import { DocumentDownloadButton } from "@/components/DocumentDownloadButton";
 import { Icon } from "@/components/Icon";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentSession } from "@/lib/session";
+import { getCurrentSession, sessionCan } from "@/lib/session";
 
 export default async function DocumentsPage() {
   const session = await getCurrentSession();
@@ -35,7 +35,7 @@ export default async function DocumentsPage() {
             <div className="context-empty">
               <span><Icon name="document" size={22} /></span>
               <div><strong>Your document hub is ready</strong><p>Policies, contracts, certificates, handbooks, and HR letters will stay organized here as they are published.</p></div>
-              {session.roles.includes("admin") && <Link className="btn-secondary" href="/admin/documents">Add the first document</Link>}
+              {sessionCan(session, "documents.manage_org") && <Link className="btn-secondary" href="/admin/documents">Add the first document</Link>}
             </div>
           )}
           {(documents ?? []).map((document) => {

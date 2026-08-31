@@ -1471,6 +1471,206 @@ async function main() {
     ok("ORG2's admin cannot see ORG's public recognition (cross-tenant isolation)", Number(hidden.rows[0].count) === 0);
   });
 
+  // ==================== CUSTOM ORGANIZATION ROLES ====================
+  // Ref: 20260831100000_custom_organization_roles.sql. Fresh, dedicated
+  // fixtures (Frank/Grace) rather than reusing Alice/Bob/Carol/David/Erin
+  // for most of this block — by this point in the file Bob and David are
+  // terminated and Alice/Carol/Erin's roles have already been mutated by
+  // earlier tests, so a shared persona's *current* state can't be assumed
+  // without re-deriving it. Carol/Erin ARE deliberately reused for the
+  // last-roles.manage-holder invariant tests below, to prove the guard
+  // against the org's real (sole) admin, matching the existing built-in
+  // "last admin" test's pattern.
+  const FRANK_USER = "10000000-0000-0000-0000-0000000000f1";
+  const FRANK_EMP = "00000000-0000-0000-0000-0000000000f1";
+  const GRACE_USER = "10000000-0000-0000-0000-0000000000f2";
+  const GRACE_EMP = "00000000-0000-0000-0000-0000000000f2";
+  await db.exec(`
+    insert into auth.users (id, email) values ('${FRANK_USER}', 'frank@acme.test'), ('${GRACE_USER}', 'grace@acme.test');
+    insert into public.employees (id, organization_id, employee_number, first_name, last_name, work_email, status, user_id)
+    values
+      ('${FRANK_EMP}', '${ORG}', 'ACME-F001', 'Frank', 'Nguyen', 'frank@acme.test', 'active', '${FRANK_USER}'),
+      ('${GRACE_EMP}', '${ORG}', 'ACME-G001', 'Grace', 'Osei', 'grace@acme.test', 'active', '${GRACE_USER}');
+    insert into public.role_assignments (organization_id, user_id, role)
+    values ('${ORG}', '${FRANK_USER}', 'employee'), ('${ORG}', '${GRACE_USER}', 'employee');
+  `);
+
+  let hrRoleId;
+  await as(ERIN_USER, async () => {
+    const created = await db.query(`select * from public.create_organization_role('${ORG}', 'HR Manager', 'Handles people records', array['employee.manage','employee.read_org']::public.app_permission[])`);
+    hrRoleId = created.rows[0].id;
+    ok("Erin (roles.manage) can create a custom role", created.rows[0].name === "HR Manager" && created.rows[0].is_active === true);
+  });
+  await as(ERIN_USER, async () => {
+    let threw = false;
+    try { await db.query(`select public.create_organization_role('${ORG}', 'hr manager', null, '{}')`); } catch { threw = true; }
+    ok("a custom role name must be unique per org, case-insensitively", threw);
+  });
+  await as(FRANK_USER, async () => {
+    let threw = false;
+    try { await db.query(`select public.create_organization_role('${ORG}', 'Shadow Admin', null, '{}')`); } catch { threw = true; }
+    ok("Frank (no roles.manage) cannot create a custom role", threw);
+  });
+
+  await as(ERIN_USER, async () => {
+    const assigned = await db.query(`select * from public.set_member_role('${FRANK_EMP}', null, null, '${hrRoleId}')`);
+    ok("Frank can be assigned the custom HR Manager role instead of a built-in one", assigned.rows[0].role === null && assigned.rows[0].custom_role_id === hrRoleId);
+  });
+
+  let org2RoleId;
+  await as(ORG2_ADMIN_USER, async () => {
+    const created = await db.query(`select * from public.create_organization_role('${ORG2}', 'ORG2 Only Role', null, '{}')`);
+    org2RoleId = created.rows[0].id;
+  });
+  await as(ERIN_USER, async () => {
+    let threw = false;
+    try { await db.query(`select public.set_member_role('${GRACE_EMP}', null, null, '${org2RoleId}')`); } catch { threw = true; }
+    ok("a custom role from another organization cannot be assigned here", threw);
+  });
+
+  await as(FRANK_USER, async () => {
+    const permissions = await db.query(`select * from public.get_effective_permissions('${ORG}')`);
+    ok("Frank's effective permissions resolve through his custom role", permissions.rows.some((r) => r.get_effective_permissions === "employee.manage"));
+  });
+  await as(ERIN_USER, async () => {
+    await db.query(`select public.set_organization_role_permissions('${hrRoleId}', array['reports.org']::public.app_permission[])`);
+  });
+  await as(FRANK_USER, async () => {
+    const permissions = await db.query(`select * from public.get_effective_permissions('${ORG}')`);
+    const names = permissions.rows.map((r) => r.get_effective_permissions);
+    ok("replacing a custom role's permissions takes effect immediately for its current holder", names.includes("reports.org") && !names.includes("employee.manage"));
+  });
+
+  await as(ERIN_USER, async () => {
+    let threw = false;
+    try { await db.query(`select public.set_organization_role_active('${hrRoleId}', false)`); } catch { threw = true; }
+    ok("a custom role cannot be deactivated while someone actively holds it", threw);
+  });
+  await as(ERIN_USER, async () => {
+    await db.query(`select public.set_member_role('${FRANK_EMP}', 'employee', null, null)`);
+    await db.query(`select public.set_organization_role_active('${hrRoleId}', false)`);
+    const row = await db.query(`select is_active from public.organization_roles where id = '${hrRoleId}'`);
+    ok("deactivation succeeds once nobody actively holds the role", row.rows[0].is_active === false);
+  });
+  await as(ERIN_USER, async () => {
+    let threw = false;
+    try { await db.query(`select public.set_member_role('${GRACE_EMP}', null, null, '${hrRoleId}')`); } catch { threw = true; }
+    ok("a deactivated custom role cannot be newly assigned", threw);
+  });
+  await as(ERIN_USER, async () => {
+    await db.query(`select public.set_organization_role_active('${hrRoleId}', true)`);
+    const assigned = await db.query(`select * from public.set_member_role('${GRACE_EMP}', null, null, '${hrRoleId}')`);
+    ok("reactivating a custom role makes it assignable again", assigned.rows[0].custom_role_id === hrRoleId);
+  });
+
+  // --- Editing a built-in role's bundle for this org ---
+  await as(ERIN_USER, async () => {
+    await db.query(`select public.set_default_role_permissions('${ORG}', 'employee', array['employee.read_self']::public.app_permission[])`);
+    ok("Erin can narrow the built-in Employee role's permission bundle for this org", true);
+  });
+  await as(FRANK_USER, async () => {
+    // Grace still holds the HR Manager custom role from the reactivation
+    // test above, not the built-in Employee role — Frank (reset to plain
+    // 'employee' earlier) is the one whose bundle this actually changes.
+    const permissions = await db.query(`select * from public.get_effective_permissions('${ORG}')`);
+    const names = permissions.rows.map((r) => r.get_effective_permissions);
+    ok("the org's customized Employee bundle applies immediately — update_self is gone", names.includes("employee.read_self") && !names.includes("employee.update_self"));
+  });
+  await as(ERIN_USER, async () => {
+    let threw = false;
+    try { await db.query(`select public.set_default_role_permissions('${ORG}', 'employee', '{}')`); } catch { threw = true; }
+    ok("a built-in role's bundle cannot be saved empty (it would silently fall back to Halomanage's default, not mean 'nothing')", threw);
+  });
+  await as(ERIN_USER, async () => {
+    await db.query(`select public.reset_default_role_permissions('${ORG}', 'employee')`);
+  });
+  await as(FRANK_USER, async () => {
+    const permissions = await db.query(`select * from public.get_effective_permissions('${ORG}')`);
+    const names = permissions.rows.map((r) => r.get_effective_permissions);
+    ok("resetting to default restores update_self for every Employee in this org", names.includes("employee.update_self"));
+  });
+  await as(FRANK_USER, async () => {
+    let threw = false;
+    try { await db.query(`select public.set_default_role_permissions('${ORG}', 'employee', array['employee.read_self']::public.app_permission[])`); } catch { threw = true; }
+    ok("Frank (no roles.manage) cannot edit a built-in role's bundle", threw);
+  });
+
+  // --- The "last person able to manage roles" invariant, generalized past
+  //     a literal role = 'admin' check (see set_member_role()/
+  //     set_organization_role_permissions() in the migration). Reuses
+  //     Carol/Erin — the org's real admin population — matching the
+  //     existing built-in "last admin" test's approach above. ---
+  await as(ERIN_USER, async () => {
+    await db.query(`select public.set_member_role('${CAROL_EMP}', 'admin', null)`);
+    const demoted = await db.query(`select * from public.set_member_role('${ERIN_EMP}', 'employee', null)`);
+    ok("Erin can step down once Carol is also an admin", demoted.rows[0].role === "employee");
+  });
+  await as(CAROL_USER, async () => {
+    let threw = false;
+    try { await db.query(`select public.set_member_role('${CAROL_EMP}', 'manager', null)`); } catch { threw = true; }
+    ok("Carol (now the sole roles.manage holder) cannot demote herself", threw);
+    await db.query(`select public.set_member_role('${ERIN_EMP}', 'admin', null)`);
+    await db.query(`select public.set_member_role('${CAROL_EMP}', 'manager', null)`);
+  });
+
+  let roleAdminId;
+  await as(ERIN_USER, async () => {
+    const created = await db.query(`select * from public.create_organization_role('${ORG}', 'Role Admin', 'Can manage roles without full Admin', array['roles.manage']::public.app_permission[])`);
+    roleAdminId = created.rows[0].id;
+    await db.query(`select public.set_member_role('${CAROL_EMP}', null, null, '${roleAdminId}')`);
+    const demoted = await db.query(`select * from public.set_member_role('${ERIN_EMP}', 'employee', null)`);
+    ok("a custom role granting roles.manage counts as a roles.manage holder for the last-holder guard — Erin can step down", demoted.rows[0].role === "employee");
+  });
+  await as(CAROL_USER, async () => {
+    let threw = false;
+    try { await db.query(`select public.set_member_role('${CAROL_EMP}', 'manager', null)`); } catch { threw = true; }
+    ok("Carol cannot switch away from her only roles.manage-granting custom role while she's the last holder", threw);
+    let bundleThrew = false;
+    try { await db.query(`select public.set_organization_role_permissions('${roleAdminId}', '{}')`); } catch { bundleThrew = true; }
+    ok("stripping roles.manage from the last holder's own custom role bundle is blocked the same way", bundleThrew);
+    await db.query(`select public.set_member_role('${ERIN_EMP}', 'admin', null)`);
+  });
+  await as(ERIN_USER, async () => {
+    await db.query(`select public.set_member_role('${CAROL_EMP}', 'manager', null)`);
+    ok("normal org state (Erin admin, Carol manager) is restored", true);
+  });
+
+  // --- set_employee_reporting_scope() via a custom role's team-visibility
+  //     permission, not a built-in supervisor/manager/admin role ---
+  let teamLeadRoleId;
+  await as(ERIN_USER, async () => {
+    const created = await db.query(`select * from public.create_organization_role('${ORG}', 'Team Lead', 'Leads a pod without a built-in role', array['employee.read_team']::public.app_permission[])`);
+    teamLeadRoleId = created.rows[0].id;
+    await db.query(`select public.set_member_role('${GRACE_EMP}', null, null, '${teamLeadRoleId}')`);
+    // Frank has no employee_assignments row yet (he was inserted directly,
+    // not through onboarding) — set_employee_reporting_scope() only
+    // updates an existing open assignment row, it doesn't create one.
+    await db.query(`select * from public.change_employee_assignment('${FRANK_EMP}', null, null, null, null, null, 'full_time', current_date, 'Fixture setup')`);
+  });
+  await as(ERIN_USER, async () => {
+    await db.query(`select public.set_employee_reporting_scope('${GRACE_EMP}', array['${FRANK_EMP}']::uuid[], 'supervisor')`);
+    const assignment = await db.query(`select supervisor_employee_id from public.employee_assignments where employee_id = '${FRANK_EMP}' and end_date is null`);
+    ok("a custom role with employee.read_team can be assigned direct reports just like a built-in Supervisor/Manager", assignment.rows[0]?.supervisor_employee_id === GRACE_EMP);
+  });
+
+  // --- Platform Console visibility: a custom role's name, not a raw enum ---
+  // Carol's platform_staff row was removed by the earlier Platform Console
+  // test section (it deliberately cleans up after itself) — re-grant it
+  // for this one check, matching that section's own direct-insert pattern.
+  await db.exec(`insert into public.platform_staff (user_id, role) values ('${CAROL_USER}', 'support');`);
+  await as(CAROL_USER, async () => {
+    const roster = await db.query(`select * from public.platform_list_organization_employees('${ORG}')`);
+    const grace = roster.rows.find((r) => r.id === GRACE_EMP);
+    ok("the Platform Console reports a custom role's name instead of a blank/enum value", grace?.role === "Team Lead");
+  });
+  await db.exec(`delete from public.platform_staff where user_id = '${CAROL_USER}';`);
+
+  // --- Cross-tenant isolation for organization_roles itself ---
+  await as(FRANK_USER, async () => {
+    const hidden = await db.query(`select count(*) from public.organization_roles where id = '${org2RoleId}'`);
+    ok("an org cannot see another organization's custom roles", Number(hidden.rows[0].count) === 0);
+  });
+
   console.log(`\n${passCount} passed, ${failCount} failed.`);
   if (failCount > 0) process.exitCode = 1;
 }

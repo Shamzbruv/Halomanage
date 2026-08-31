@@ -4,13 +4,13 @@ import { Icon } from "@/components/Icon";
 import { InviteButton } from "@/components/InviteButton";
 import { NewEmployeeForm } from "@/components/NewEmployeeForm";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentSession } from "@/lib/session";
+import { getCurrentSession, sessionCan } from "@/lib/session";
 import { statusBadgeClass } from "@/lib/ui";
 
 export default async function EmployeesAdminPage() {
   const session = await getCurrentSession();
   if (!session) redirect("/login");
-  if (!session.roles.includes("admin")) redirect("/dashboard");
+  if (!sessionCan(session, "employee.manage")) redirect("/dashboard");
   if (!session.organizationId || !session.organization) redirect("/dashboard");
   const portalSlug = session.organization.slug;
   const supabase = await createClient();

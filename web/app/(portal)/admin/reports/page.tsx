@@ -1,12 +1,12 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentSession } from "@/lib/session";
+import { getCurrentSession, sessionCan } from "@/lib/session";
 import { Icon } from "@/components/Icon";
 
 export default async function ReportsPage() {
   const session = await getCurrentSession();
   if (!session) redirect("/login");
-  if (!session.roles.includes("admin")) redirect("/dashboard");
+  if (!sessionCan(session, "reports.org")) redirect("/dashboard");
   if (!session.organizationId) redirect("/dashboard");
 
   const supabase = await createClient();

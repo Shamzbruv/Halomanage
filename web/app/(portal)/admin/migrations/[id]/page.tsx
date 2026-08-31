@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { EmployeeImportActions } from "@/components/EmployeeImportActions";
 import { EmployeeImportMappingForm } from "@/components/EmployeeImportMappingForm";
 import { Icon } from "@/components/Icon";
-import { getCurrentSession } from "@/lib/session";
+import { getCurrentSession, sessionCan } from "@/lib/session";
 import { createClient } from "@/lib/supabase/server";
 import { statusBadgeClass } from "@/lib/ui";
 
@@ -32,7 +32,7 @@ export default async function MigrationBatchPage({ params }: { params: Promise<{
   const { id } = await params;
   const session = await getCurrentSession();
   if (!session) redirect("/login");
-  if (!session.roles.includes("admin") || !session.organizationId) redirect("/dashboard");
+  if (!sessionCan(session, "employee.manage") || !session.organizationId) redirect("/dashboard");
 
   const supabase = await createClient();
   const [{ data: batch }, { data: rows }, { data: employees }] = await Promise.all([

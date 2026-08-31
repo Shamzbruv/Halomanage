@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { Icon } from "@/components/Icon";
 import { SsoRequestForm } from "@/components/SsoRequestForm";
-import { getCurrentSession } from "@/lib/session";
+import { getCurrentSession, sessionCan } from "@/lib/session";
 import { createClient } from "@/lib/supabase/server";
 
 type IdentityProvider = {
@@ -26,7 +26,7 @@ const statusStyles: Record<IdentityProvider["status"], string> = {
 export default async function SecurityAdminPage() {
   const session = await getCurrentSession();
   if (!session) redirect("/login");
-  if (!session.roles.includes("admin") || !session.organizationId) redirect("/dashboard");
+  if (!sessionCan(session, "organization.manage") || !session.organizationId) redirect("/dashboard");
 
   const supabase = await createClient();
   const [{ data }, { data: ssoEnabled }] = await Promise.all([

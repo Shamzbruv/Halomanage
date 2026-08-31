@@ -49,6 +49,7 @@ const adminItems: NavItem[] = [
   { href: "/admin/pay-calendars", label: "Pay calendars", icon: "calendar" },
   { href: "/admin/rewards", label: "Rewards catalog", icon: "spark" },
   { href: "/admin/reports", label: "Reports", icon: "reports" },
+  { href: "/admin/roles", label: "Roles & permissions", icon: "shield" },
   { href: "/admin/security", label: "Identity & access", icon: "shield" },
 ];
 
@@ -79,6 +80,7 @@ const pageTitles: Array<{ pattern: RegExp; title: string; eyebrow: string }> = [
   { pattern: /^\/admin\/pay-calendars/, title: "Pay calendars", eyebrow: "Administration" },
   { pattern: /^\/admin\/rewards/, title: "Rewards catalog", eyebrow: "Administration" },
   { pattern: /^\/admin\/reports/, title: "Reports", eyebrow: "Administration" },
+  { pattern: /^\/admin\/roles/, title: "Roles & permissions", eyebrow: "Administration" },
   { pattern: /^\/admin\/security/, title: "Identity & access", eyebrow: "Administration" },
 ];
 
@@ -125,7 +127,7 @@ function Navigation({ groups, pathname, onNavigate }: { groups: NavGroup[]; path
   );
 }
 
-export function PortalShell({ children, avatarUrl, canSeeAdmin, canSeeTeam, email, name, organizationName, role }: {
+export function PortalShell({ children, avatarUrl, canSeeAdmin, canSeeTeam, email, name, organizationName, roleLabels }: {
   children: React.ReactNode;
   avatarUrl: string | null;
   canSeeAdmin: boolean;
@@ -133,7 +135,7 @@ export function PortalShell({ children, avatarUrl, canSeeAdmin, canSeeTeam, emai
   email: string | null;
   name: string;
   organizationName: string;
-  role: string | null;
+  roleLabels: string[];
 }) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -195,7 +197,7 @@ export function PortalShell({ children, avatarUrl, canSeeAdmin, canSeeTeam, emai
         <Navigation groups={groups} pathname={pathname} />
         <div className="portal-account">
           <UserAvatar name={name} avatarUrl={avatarUrl} />
-          <span className="portal-account-copy"><strong>{name}</strong><small>{role ? role.replace(/_/g, " ") : email}</small></span>
+          <span className="portal-account-copy"><strong>{name}</strong><small>{roleLabels.length > 0 ? roleLabels.join(" · ") : email}</small></span>
           <SignOutButton compact />
         </div>
       </aside>

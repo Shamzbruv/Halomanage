@@ -488,3 +488,134 @@ Explicitly deferred, not silently skipped: recognition-triggered badges or
 levels, an admin approval step before a recognition posts (every gift is
 final and immediate, same as an admin-granted point award), and reporting/
 analytics on recognition volume or program health beyond the raw feed.
+
+## Custom organization roles, and the route-guard audit that made them matter
+
+Added 2026-08-31. Prompted by a direct user finding while auditing the
+Overview tab: there was no "HR" role, and no page anywhere to configure
+what a role can actually do. Investigating turned up two separate problems
+that both needed fixing together — a schema gap (no way to create a named
+role beyond the fixed 4) and a much bigger latent bug (most of the app
+gated on a literal role string instead of the permission its own RPCs
+enforced, which would have made a permission editor pointless even after
+building one).
+
+**The route-guard bug, fixed first because it's a prerequisite:**
+`sessionCan()` already existed (added for the compensation module, with a
+code comment explicitly warning about this exact pattern) but was never
+rolled out past a handful of pages. 22 call sites across ~18 files —
+every `/admin/*` page's access gate, plus several employee-facing "here's
+an admin shortcut" links — still checked `session.roles.includes("admin")`
+literally instead of the specific permission each page's own RPCs already
+enforced (`documents.manage_org` for the document library,
+`appraisal.manage_cycles` for performance setup, `reports.org` for
+reports, and so on). This meant an org's permission customization —
+built-in or custom — could never actually change who gets into a page,
+only what they could do once the literal-role check already let them in.
+All 22 sites now check the specific permission via `sessionCan()`,
+matching the pattern the compensation module already established.
+
+Two more bugs surfaced by the same audit, both in `(portal)/layout.tsx`:
+`session.roles.length === 0` was used as "does this person hold any role
+at all" to decide whether to bounce someone into workspace repair — but
+`session.roles` only ever holds the 4 built-in values, so a person holding
+*only* a custom role would look roleless and get stuck in a repair loop
+forever, never reaching a single page. Fixed by checking the new
+`session.roleLabels` (below) instead, which covers both. Separately,
+`canSeeAdmin` (whether the "Manage" nav section renders at all) checked
+only `organization.manage` — so a custom role granted, say, just
+`roles.manage` or `payroll.import` would never see the section header
+needed to reach the one admin page it's actually authorized for. Widened
+to an OR across every permission that gates at least one admin page.
+Deliberately not fixed in this pass: `adminItems` itself is still an
+unfiltered flat list once `canSeeAdmin` is true, so a narrowly-scoped
+custom role sees nav entries it can't open — clicking one safely redirects
+to `/dashboard` via that page's own gate rather than erroring, so this is
+a cosmetic rough edge (a stray dead link), not a security or correctness
+gap; per-item nav filtering is a reasonable follow-up, not done here.
+
+**Schema** (`20260831100000_custom_organization_roles.sql`): the 4
+built-in roles remain permanent, unrenamed, and un-deletable — several
+places in the schema (starter-workspace seeding on first admin, the
+supervisor/manager/admin tiering in `set_employee_reporting_scope()`)
+legitimately mean "the literal built-in Admin/Manager/Supervisor role,"
+not "whichever role has the most permissions," and rewriting those to be
+fully generic wasn't worth the risk for what they actually do. Custom
+roles sit alongside them instead of replacing them:
+
+- `organization_roles` — an org's own named roles (id, name, description,
+  is_active). `role_assignments` and `role_permissions` both gain a
+  nullable `custom_role_id` FK alongside the now-nullable `role` enum
+  column, with a `CHECK` that exactly one of the two is set per row —
+  every assignment or permission-bundle row is either built-in or custom,
+  never both, never neither.
+- `private.role_grants_permission()` / `private.custom_role_grants_permission()`
+  — the override-aware "does this role grant this permission" resolution,
+  factored out so `has_permission()`, `get_effective_permissions()`, and
+  the invariant checks below all resolve it identically instead of
+  duplicating the logic a third time.
+- `private.user_has_permission(org, user_id, permission)` — the same
+  check `has_permission()` already did, but parameterized by user instead
+  of always `auth.uid()`, so the "does anyone else still hold this"
+  invariant checks below can ask the question about a *different* org
+  member than the caller.
+- Direct writes to `role_permissions` were technically RLS-permitted
+  before (an unused policy — no UI ever exercised it); now revoked in
+  favor of audited RPCs only, matching `role_assignments`' already-hardened
+  pattern from the lifecycle RBAC migration.
+
+**The "last person able to manage roles" invariant, generalized.**
+`set_member_role()`/`terminate_employee()` previously checked literally
+`role = 'admin'` to stop an org's last administrator from being demoted,
+expired, or terminated out from under it. That's now resolved through
+`roles.manage` permission ownership instead — which behaves identically
+for every org that hasn't customized anything (only the default Admin
+bundle grants `roles.manage`), but now also protects an org that granted
+`roles.manage` to a custom role instead of relying on built-in Admin. The
+same protection was added at the *bundle* level in
+`set_organization_role_permissions()`/`set_default_role_permissions()`:
+stripping `roles.manage` from a role's permission set is blocked if doing
+so would leave the organization with nobody able to manage roles, since
+that's a single action that can affect every current holder of that role
+at once, not just one person's assignment.
+
+**RPCs**: `create_organization_role()`, `update_organization_role()`,
+`set_organization_role_permissions()` (replace-all — an empty set on a
+custom role unambiguously means "grants nothing," since there's no
+global-default fallback to worry about the way there is for a built-in
+role), `set_organization_role_active()` (blocks deactivation while anyone
+actively holds the role), `set_default_role_permissions()` /
+`reset_default_role_permissions()` (an org's override of one of the 4
+built-in bundles — rejects an empty set here specifically, since deleting
+every override row falls straight through to the global default rather
+than meaning "nothing," a footgun worth a clear error over). `set_member_role()`
+gained an optional `p_custom_role_id`, mutually exclusive with `p_role`.
+`set_employee_reporting_scope()`'s supervisor/manager-role gate now also
+accepts a custom role carrying `employee.read_team`/`employee.read_org` —
+copied from the original function and modified at exactly those two
+checks, not reimplemented from scratch (an earlier draft of this same
+migration *did* reimplement it from a partial read and silently dropped
+the circular-reporting-line check, the 500-report cap, and the real
+effective-dated history preservation in the process — caught by rerunning
+the full pre-existing pglite suite, not by anything new, which is exactly
+why that suite exists).
+
+**Frontend**: a new `/admin/roles` ("Roles & permissions") page — an
+editable checklist per built-in role (grouped by permission domain, via
+`lib/permissions.ts`) plus a custom-role manager (create, rename,
+re-permission, deactivate/reactivate), gated on `roles.manage`.
+`RoleAssignmentForm` now offers built-in and custom roles in one dropdown.
+`ReportingScopeForm` takes a `canLead` boolean computed by its parent
+page (built-in tier or custom-role permission) instead of inferring it
+from a fixed role union internally. `session.ts` adds `roleLabels: string[]`
+(built-in display names plus any held custom role names) for display —
+`permissions` remains the only thing anything actually authorizes against.
+
+Explicitly deferred: per-item admin-nav filtering (noted above), a
+confirmation step warning an admin before they remove their *own* last
+permission to reach a page they're standing on, and letting a custom
+role's assignment carry a management-scope tier distinction the way
+built-in Supervisor/Manager/Admin do (a custom role with team-visibility
+permissions can lead either relationship tier — see
+`set_employee_reporting_scope()` above — rather than being restricted the
+way a bare Supervisor can't take Manager-tier reports).

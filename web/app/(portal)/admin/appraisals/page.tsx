@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentSession } from "@/lib/session";
+import { getCurrentSession, sessionCan } from "@/lib/session";
 import { AppraisalTemplateForm } from "@/components/AppraisalTemplateForm";
 import { AppraisalCycleForm } from "@/components/AppraisalCycleForm";
 import { LaunchCycleButton } from "@/components/LaunchCycleButton";
@@ -10,7 +10,7 @@ import { statusBadgeClass } from "@/lib/ui";
 export default async function AppraisalsAdminPage() {
   const session = await getCurrentSession();
   if (!session) redirect("/login");
-  if (!session.roles.includes("admin")) redirect("/dashboard");
+  if (!sessionCan(session, "appraisal.manage_cycles")) redirect("/dashboard");
   if (!session.organizationId) redirect("/dashboard");
 
   const supabase = await createClient();

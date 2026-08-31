@@ -4,7 +4,7 @@ import { CompleteOffboardingTaskButton } from "@/components/CompleteOffboardingT
 import { Icon } from "@/components/Icon";
 import { OffboardingTemplateForm } from "@/components/OffboardingTemplateForm";
 import { StartOffboardingForm } from "@/components/StartOffboardingForm";
-import { getCurrentSession } from "@/lib/session";
+import { getCurrentSession, sessionCan } from "@/lib/session";
 import { createClient } from "@/lib/supabase/server";
 
 type OffboardingTemplate = {
@@ -61,7 +61,7 @@ function ownerLabel(value: string) {
 export default async function OffboardingAdminPage() {
   const session = await getCurrentSession();
   if (!session) redirect("/login");
-  if (!session.roles.includes("admin")) redirect("/dashboard");
+  if (!sessionCan(session, "employee.manage")) redirect("/dashboard");
   if (!session.organizationId) redirect("/dashboard");
 
   const supabase = await createClient();

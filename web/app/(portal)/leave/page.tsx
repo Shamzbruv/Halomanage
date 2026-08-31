@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { Icon } from "@/components/Icon";
 import { LeaveRequestForm } from "@/components/LeaveRequestForm";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentSession } from "@/lib/session";
+import { getCurrentSession, sessionCan } from "@/lib/session";
 import { statusBadgeClass } from "@/lib/ui";
 import type { LeaveType } from "@/lib/supabase/types";
 
@@ -39,7 +39,7 @@ export default async function LeavePage() {
             <div className="context-empty card">
               <span><Icon name="leave" size={22} /></span>
               <div><strong>Leave policies are not configured yet</strong><p>Add vacation, sick, unpaid, or business-specific policies before employees submit requests.</p></div>
-              {session.roles.includes("admin") && <Link className="btn-primary" href="/admin/setup">Finish leave setup</Link>}
+              {sessionCan(session, "leave.manage_policies") && <Link className="btn-primary" href="/admin/setup">Finish leave setup</Link>}
             </div>
           )}
         </div>

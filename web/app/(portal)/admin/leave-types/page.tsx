@@ -1,12 +1,12 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentSession } from "@/lib/session";
+import { getCurrentSession, sessionCan } from "@/lib/session";
 import { LeaveTypeForm } from "@/components/LeaveTypeForm";
 
 export default async function LeaveTypesAdminPage() {
   const session = await getCurrentSession();
   if (!session) redirect("/login");
-  if (!session.roles.includes("admin")) redirect("/dashboard");
+  if (!sessionCan(session, "leave.manage_policies")) redirect("/dashboard");
   if (!session.organizationId) redirect("/dashboard");
 
   const supabase = await createClient();

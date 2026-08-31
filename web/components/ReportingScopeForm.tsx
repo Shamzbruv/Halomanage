@@ -18,10 +18,17 @@ type Relationship = "supervisor" | "manager";
 export function ReportingScopeForm({
   leaderEmployeeId,
   currentRole,
+  canLead,
   candidates,
 }: {
   leaderEmployeeId: string;
   currentRole: "employee" | "supervisor" | "manager" | "admin" | null;
+  // Computed by the parent, which knows both the built-in role and whether
+  // any currently-held custom role carries team-visibility permissions
+  // (see set_employee_reporting_scope() in
+  // 20260831100000_custom_organization_roles.sql for the matching
+  // server-side check).
+  canLead: boolean;
   candidates: Candidate[];
 }) {
   const router = useRouter();
@@ -73,10 +80,8 @@ export function ReportingScopeForm({
     router.refresh();
   }
 
-  const roleCanLead = currentRole === "supervisor" || currentRole === "manager" || currentRole === "admin";
-
-  if (!roleCanLead) {
-    return <p className="text-sm text-stone-500">Assign a Supervisor or Manager role first, then return here to choose direct reports.</p>;
+  if (!canLead) {
+    return <p className="text-sm text-stone-500">Assign a Supervisor or Manager role (or a custom role with team-visibility permissions) first, then return here to choose direct reports.</p>;
   }
 
   return (

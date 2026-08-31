@@ -16,7 +16,7 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
   const { id } = await params;
   const session = await getCurrentSession();
   if (!session) redirect("/login");
-  if (!session.roles.includes("admin")) redirect("/dashboard");
+  if (!sessionCan(session, "employee.manage")) redirect("/dashboard");
   if (!session.organizationId || !session.organization) redirect("/dashboard");
   // Compensation access is a separate grant from ordinary employee
   // management (see 20260829110000_compensation_pay_administration.sql) —
@@ -43,6 +43,8 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
     { data: payGrades },
     { data: changeReasons },
     { data: orgAssignments },
+    { data: customRoles },
+    { data: customRolePermissions },
   ] = await Promise.all([
     supabase.from("employees").select("*").eq("id", id).single(),
     // Query the real employee_assignments table directly rather than
@@ -65,6 +67,8 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
     // Every other org member's current reporting line, so ReportingScopeForm
     // can pre-check whoever already reports to this person.
     supabase.from("employee_assignments").select("employee_id, supervisor_employee_id, manager_employee_id").eq("organization_id", orgId).is("end_date", null),
+    supabase.from("organization_roles").select("id, name").eq("organization_id", orgId).eq("is_active", true).order("name"),
+    supabase.from("role_permissions").select("custom_role_id, permission").eq("organization_id", orgId).not("custom_role_id", "is", null),
   ]);
 
   if (!employee) notFound();
@@ -76,17 +80,31 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
   const { data: roleRows } = employee.user_id
     ? await supabase
         .from("role_assignments")
-        .select("role, valid_from, valid_until")
+        .select("role, custom_role_id, valid_from, valid_until")
         .eq("organization_id", orgId)
         .eq("user_id", employee.user_id)
         .order("valid_from", { ascending: false })
     : { data: null };
   const now = new Date();
-  const currentRole =
-    (roleRows ?? []).find(
-      (row) => new Date(row.valid_from) <= now && (!row.valid_until || new Date(row.valid_until) > now),
-    )?.role ?? null;
+  const currentAssignmentRow = (roleRows ?? []).find(
+    (row) => new Date(row.valid_from) <= now && (!row.valid_until || new Date(row.valid_until) > now),
+  );
+  const currentRole = currentAssignmentRow?.role ?? null;
+  const currentCustomRoleId = currentAssignmentRow?.custom_role_id ?? null;
   const isSelf = employee.user_id === session.userId;
+
+  // Does whatever this person currently holds carry team-visibility
+  // permissions? Built-in supervisor/manager/admin, or a custom role
+  // explicitly granted employee.read_team/employee.read_org — mirrors
+  // set_employee_reporting_scope()'s server-side check.
+  const currentCustomRolePermissions = new Set(
+    (customRolePermissions ?? [])
+      .filter((rp) => rp.custom_role_id === currentCustomRoleId)
+      .map((rp) => rp.permission),
+  );
+  const canLeadTeam =
+    currentRole === "supervisor" || currentRole === "manager" || currentRole === "admin" ||
+    (currentCustomRoleId !== null && (currentCustomRolePermissions.has("employee.read_team") || currentCustomRolePermissions.has("employee.read_org")));
 
   const assignmentByEmployeeId = new Map((orgAssignments ?? []).map((a) => [a.employee_id, a]));
   const reportingCandidates = (employees ?? [])
@@ -207,18 +225,25 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
           <p className="mb-4 text-xs text-stone-500">
             Controls what {employee.first_name} can see and manage across the organization. Takes effect immediately.
           </p>
-          <RoleAssignmentForm employeeId={employee.id} currentRole={currentRole as "employee" | "supervisor" | "manager" | "admin" | null} isSelf={isSelf} />
+          <RoleAssignmentForm
+            employeeId={employee.id}
+            currentRole={currentRole as "employee" | "supervisor" | "manager" | "admin" | null}
+            currentCustomRoleId={currentCustomRoleId}
+            customRoles={customRoles ?? []}
+            isSelf={isSelf}
+          />
 
           {!isSelf && (
             <>
               <h3 className="mb-1 mt-5 text-xs font-semibold uppercase text-stone-400">Direct reports</h3>
               <p className="mb-3 text-xs text-stone-500">
-                A Supervisor/Manager role grants the capability to see a team — this list decides whose records actually
-                show up in {employee.first_name}&apos;s Team hub.
+                A Supervisor/Manager role (or a custom role with team-visibility permissions) grants the capability to see a
+                team — this list decides whose records actually show up in {employee.first_name}&apos;s Team hub.
               </p>
               <ReportingScopeForm
                 leaderEmployeeId={employee.id}
                 currentRole={currentRole as "employee" | "supervisor" | "manager" | "admin" | null}
+                canLead={canLeadTeam}
                 candidates={reportingCandidates}
               />
             </>

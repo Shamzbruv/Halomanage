@@ -4,7 +4,7 @@ import { ClockButton } from "@/components/ClockButton";
 import { Icon } from "@/components/Icon";
 import type { IconName } from "@/components/Icon";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentSession } from "@/lib/session";
+import { getCurrentSession, sessionCan } from "@/lib/session";
 import { statusBadgeClass } from "@/lib/ui";
 import type { AttendanceSession, LeaveRequest } from "@/lib/supabase/types";
 
@@ -159,7 +159,7 @@ export default async function DashboardPage() {
   const openTaskCount = (onboardingTasks ?? []).length + (reviews ?? []).length;
   const totalLeave = (balances ?? []).reduce((sum, item) => sum + Number(item.balance || 0), 0);
   const assignmentData = assignment as any;
-  const canManage = session.roles.some((role) => role === "supervisor" || role === "manager" || role === "admin");
+  const canManage = sessionCan(session, "employee.read_team") || sessionCan(session, "employee.read_org");
 
   // Org-wide "what needs an Admin today" feed, combining sources that each
   // already have their own full page (Team, Migration Center, Onboarding,
@@ -168,7 +168,12 @@ export default async function DashboardPage() {
   // so this can never surface a row this admin's own RLS wouldn't already
   // allow — the .eq("organization_id", …) filters below are for index
   // usage and clarity, not the security boundary.
-  const isAdmin = session.roles.includes("admin");
+  // "Needs an Admin today" is a cross-domain feed (attendance, leave,
+  // onboarding, offboarding, expiring items) with no single matching
+  // permission — reports.org (org-wide visibility, admin-only by default)
+  // is the closest fit and, unlike a literal role check, actually reflects
+  // an org's own permission customization.
+  const isAdmin = sessionCan(session, "reports.org");
   let adminActions: AdminAction[] = [];
   if (isAdmin && session.organizationId) {
     const organizationId = session.organizationId;
@@ -279,7 +284,7 @@ export default async function DashboardPage() {
         </div>
       </section>
 
-      {session.roles.includes("admin") && session.organization && (
+      {sessionCan(session, "organization.manage") && session.organization && (
         <section className="workspace-launch-strip">
           <span className="metric-icon sun"><Icon name="spark" /></span>
           <div><small>Organization launch centre</small><strong>Finish setting up {session.organization.name}</strong><p>Review your business structure, add employees, prepare workflows, and share your team&apos;s sign-in link.</p></div>

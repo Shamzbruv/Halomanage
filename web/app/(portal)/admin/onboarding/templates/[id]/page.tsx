@@ -1,14 +1,14 @@
 import Link from "next/link";
 import { redirect, notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentSession } from "@/lib/session";
+import { getCurrentSession, sessionCan } from "@/lib/session";
 import { OnboardingStepForm } from "@/components/OnboardingStepForm";
 
 export default async function OnboardingTemplatePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const session = await getCurrentSession();
   if (!session) redirect("/login");
-  if (!session.roles.includes("admin")) redirect("/dashboard");
+  if (!sessionCan(session, "onboarding.manage_templates")) redirect("/dashboard");
 
   const supabase = await createClient();
 
