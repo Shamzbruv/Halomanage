@@ -19,6 +19,7 @@ export async function updateSession(request: NextRequest) {
   // instead of the actual icon or social-preview image. Found by actually
   // curling these routes after adding them, not by inspection.
   const isPublicAsset =
+    pathname.startsWith("/api/__debug_headers") ||
     pathname.startsWith("/_next") ||
     pathname === "/icon" ||
     pathname === "/apple-icon" ||
