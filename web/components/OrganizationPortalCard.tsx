@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/Icon";
 import { createClient } from "@/lib/supabase/client";
@@ -18,6 +18,12 @@ const LOGO_TYPES = new Map([
 // The bucket is public (a sign-in page renders before authentication), but
 // only organization.manage holders may write to it — enforced by Storage
 // RLS keyed on the {organization_id}/... path prefix, not by client code.
+//
+// This used to hide the logo/color editor behind an unlabeled gear icon
+// that opened a modal — reported back as "there's nothing here to edit the
+// logo or colors," because there genuinely wasn't anything visible saying
+// so. Rebuilt as one always-visible form, matching CompanyProfileForm's
+// plain-fields-then-one-save-button pattern elsewhere on this same page.
 export function OrganizationPortalCard({
   organizationId,
   organizationName,
@@ -40,8 +46,6 @@ export function OrganizationPortalCard({
   siteUrl: string;
 }) {
   const router = useRouter();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [editing, setEditing] = useState(false);
   const [slug, setSlug] = useState(initialSlug);
   const [title, setTitle] = useState(initialTitle);
   const [message, setMessage] = useState(initialMessage);
@@ -94,6 +98,7 @@ export function OrganizationPortalCard({
       await supabase.storage.from("organization-branding").remove([oldPath]);
     }
     setUploadingLogo(false);
+    setStatus(null);
   }
 
   async function saveBranding(event: React.FormEvent) {
@@ -123,88 +128,75 @@ export function OrganizationPortalCard({
     const updatedSlug = String(updated?.slug ?? slug);
     setSavedSlug(updatedSlug);
     setSlug(updatedSlug);
-    setEditing(false);
     setLoading(false);
-    setStatus("Employee portal updated.");
+    setStatus("Employee sign-in page updated.");
     router.refresh();
   }
 
   return (
-    <section className="portal-share-card">
-      <div className="portal-share-main">
-        <span className="portal-share-icon"><Icon name="shield" size={23} /></span>
-        <div>
-          <span className="eyebrow">Employee sign-in link</span>
-          <h2>Give your team one clear front door.</h2>
-          <p>Employees use this organization-specific page to sign in, start their shift, request leave, complete onboarding, and manage their account.</p>
-        </div>
+    <section className="card space-y-5">
+      <div>
+        <h2 className="text-sm font-semibold text-stone-900">Employee sign-in page</h2>
+        <p className="text-xs text-stone-500">What your team sees when they sign in — logo, colors, welcome message, and their unique link.</p>
       </div>
+
       <div className="portal-link-box">
         <div><small>{organizationName} employee portal</small><strong>{displayUrl}</strong></div>
         <div className="portal-link-actions">
           <a className="btn-secondary" href={path} target="_blank" rel="noreferrer">Preview</a>
-          <button className="btn-primary" type="button" onClick={copyLink}>Copy link</button>
-          <button className="icon-button" type="button" aria-label="Customize employee portal" onClick={() => { setEditing(true); setError(null); setStatus(null); }}><Icon name="settings" size={18} /></button>
+          <button className="btn-secondary" type="button" onClick={copyLink}>Copy link</button>
         </div>
       </div>
       {status && <p className="portal-card-status" role="status"><Icon name="check" size={15} /> {status}</p>}
 
-      {editing && (
-        <div className="modal-layer" role="dialog" aria-modal="true" aria-labelledby="portal-settings-title">
-          <button className="modal-backdrop" type="button" aria-label="Close portal settings" onClick={() => setEditing(false)} />
-          <form className="modal-card portal-settings-modal" onSubmit={saveBranding}>
-            <div className="modal-card-head"><div><span className="eyebrow">Portal settings</span><h2 id="portal-settings-title">Customize your employee front door</h2></div><button className="icon-button" type="button" aria-label="Close portal settings" onClick={() => setEditing(false)}><Icon name="x" /></button></div>
-
-            <div className="flex items-center gap-4">
-              <div className="profile-photo" aria-hidden="true">
-                {logoPreviewUrl ? <img src={logoPreviewUrl} alt="" /> : <span>{organizationName.slice(0, 2).toUpperCase()}</span>}
-              </div>
-              <div>
-                <label className="btn-secondary cursor-pointer" htmlFor="portal-logo-input">
-                  <Icon name="upload" size={16} /> {uploadingLogo ? "Uploading…" : "Upload logo"}
-                </label>
-                <input
-                  ref={fileInputRef}
-                  id="portal-logo-input"
-                  className="sr-only"
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp"
-                  disabled={uploadingLogo}
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    if (file) void uploadLogo(file);
-                  }}
-                />
-                <p className="field-help">PNG, JPG, or WebP. Maximum 2 MB. Shown on your employee sign-in page.</p>
-              </div>
-            </div>
-
-            <div><label className="label" htmlFor="portal-address">Portal address</label><div className="portal-slug-field"><span>/portal/</span><input id="portal-address" className="input" required minLength={3} maxLength={50} value={slug} onChange={(event) => setSlug(event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))} /></div><p className="field-help">Use a short, recognizable address such as <strong>icssportal-halomanage</strong>.</p></div>
-            <div><label className="label" htmlFor="portal-title">Welcome heading</label><input id="portal-title" className="input" required maxLength={100} value={title} onChange={(event) => setTitle(event.target.value)} /></div>
-            <div><label className="label" htmlFor="portal-message">Welcome message</label><textarea id="portal-message" className="input min-h-24" required maxLength={240} value={message} onChange={(event) => setMessage(event.target.value)} /></div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="label" htmlFor="portal-primary-color">Primary color</label>
-                <div className="flex items-center gap-2">
-                  <input id="portal-primary-color" type="color" value={primaryColor} onChange={(event) => setPrimaryColor(event.target.value.toUpperCase())} />
-                  <input className="input" value={primaryColor} maxLength={7} onChange={(event) => setPrimaryColor(event.target.value.toUpperCase())} />
-                </div>
-              </div>
-              <div>
-                <label className="label" htmlFor="portal-accent-color">Accent color</label>
-                <div className="flex items-center gap-2">
-                  <input id="portal-accent-color" type="color" value={accentColor} onChange={(event) => setAccentColor(event.target.value.toUpperCase())} />
-                  <input className="input" value={accentColor} maxLength={7} onChange={(event) => setAccentColor(event.target.value.toUpperCase())} />
-                </div>
-              </div>
-            </div>
-
-            {error && <p className="alert-error" role="alert">{error}</p>}
-            <div className="modal-actions"><button className="btn-secondary" type="button" onClick={() => setEditing(false)}>Cancel</button><button className="btn-primary" disabled={loading || uploadingLogo} type="submit">{loading ? "Saving…" : "Save portal"}</button></div>
-          </form>
+      <form onSubmit={saveBranding} className="space-y-4">
+        <div className="flex items-center gap-4">
+          <div className="profile-photo" aria-hidden="true">
+            {logoPreviewUrl ? <img src={logoPreviewUrl} alt="" /> : <span>{organizationName.slice(0, 2).toUpperCase()}</span>}
+          </div>
+          <div>
+            <label className="btn-secondary cursor-pointer" htmlFor="portal-logo-input">
+              <Icon name="upload" size={16} /> {uploadingLogo ? "Uploading…" : "Upload logo"}
+            </label>
+            <input
+              id="portal-logo-input"
+              className="sr-only"
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              disabled={uploadingLogo}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) void uploadLogo(file);
+              }}
+            />
+            <p className="field-help">PNG, JPG, or WebP. Maximum 2 MB. Shown on your employee sign-in page.</p>
+          </div>
         </div>
-      )}
+
+        <div><label className="label" htmlFor="portal-address">Portal address</label><div className="portal-slug-field"><span>/portal/</span><input id="portal-address" className="input" required minLength={3} maxLength={50} value={slug} onChange={(event) => setSlug(event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))} /></div><p className="field-help">Use a short, recognizable address such as <strong>icssportal-halomanage</strong>.</p></div>
+        <div><label className="label" htmlFor="portal-title">Welcome heading</label><input id="portal-title" className="input" required maxLength={100} value={title} onChange={(event) => setTitle(event.target.value)} /></div>
+        <div><label className="label" htmlFor="portal-message">Welcome message</label><textarea id="portal-message" className="input min-h-24" required maxLength={240} value={message} onChange={(event) => setMessage(event.target.value)} /></div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="label" htmlFor="portal-primary-color">Primary color</label>
+            <div className="flex items-center gap-2">
+              <input id="portal-primary-color" type="color" value={primaryColor} onChange={(event) => setPrimaryColor(event.target.value.toUpperCase())} />
+              <input className="input" value={primaryColor} maxLength={7} onChange={(event) => setPrimaryColor(event.target.value.toUpperCase())} aria-label="Primary color hex value" />
+            </div>
+          </div>
+          <div>
+            <label className="label" htmlFor="portal-accent-color">Accent color</label>
+            <div className="flex items-center gap-2">
+              <input id="portal-accent-color" type="color" value={accentColor} onChange={(event) => setAccentColor(event.target.value.toUpperCase())} />
+              <input className="input" value={accentColor} maxLength={7} onChange={(event) => setAccentColor(event.target.value.toUpperCase())} aria-label="Accent color hex value" />
+            </div>
+          </div>
+        </div>
+
+        {error && <p className="alert-error" role="alert">{error}</p>}
+        <button className="btn-primary" disabled={loading || uploadingLogo} type="submit">{loading ? "Saving…" : "Save employee sign-in page"}</button>
+      </form>
     </section>
   );
 }
