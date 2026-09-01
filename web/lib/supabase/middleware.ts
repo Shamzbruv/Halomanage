@@ -19,7 +19,6 @@ export async function updateSession(request: NextRequest) {
   // instead of the actual icon or social-preview image. Found by actually
   // curling these routes after adding them, not by inspection.
   const isPublicAsset =
-    pathname.startsWith("/api/debug-headers-check") ||
     pathname.startsWith("/_next") ||
     pathname === "/icon" ||
     pathname === "/apple-icon" ||
@@ -126,6 +125,38 @@ export async function updateSession(request: NextRequest) {
       url.pathname = "/dashboard";
       url.search = "";
       return NextResponse.redirect(url);
+    }
+
+    // Per-organization network access control (see
+    // 20260901100000_network_access_control.sql) — checked on every
+    // request, not just at sign-in, since that's what "only usable from
+    // our office network" actually has to mean to be worth anything.
+    // /platform/* is a separate, cross-tenant console; platform staff
+    // aren't subject to any tenant's network policy. Skipped for orgs that
+    // never configured this (check_network_access() returns allowed:true
+    // immediately in that case), so this is a no-op extra round-trip for
+    // the overwhelming majority of requests today.
+    if (user && !isPlatformRoute && pathname !== "/network-restricted") {
+      // Railway's edge sets this authoritatively — verified directly
+      // against this project's own deployment that a client-supplied
+      // X-Real-IP is discarded, never forwarded as sent.
+      const realIp = request.headers.get("x-real-ip");
+      if (realIp) {
+        try {
+          const { data, error: networkError } = await supabase.rpc("check_network_access", { p_ip: realIp });
+          if (networkError) {
+            // Fail open: a bug or outage in this check must never be able
+            // to take the whole app down for every signed-in user. This is
+            // a defense-in-depth control layered on top of real
+            // authentication/RLS, not itself the primary security boundary.
+            console.error("middleware: network access check failed, allowing through", networkError.message);
+          } else if (data && data.allowed === false) {
+            return NextResponse.rewrite(new URL("/network-restricted", request.url));
+          }
+        } catch (networkErr) {
+          console.error("middleware: unexpected error during network access check, allowing through", networkErr);
+        }
+      }
     }
 
     return response;

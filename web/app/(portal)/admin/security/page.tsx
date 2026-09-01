@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { Icon } from "@/components/Icon";
 import { SsoRequestForm } from "@/components/SsoRequestForm";
+import { NetworkAccessSettings } from "@/components/security/NetworkAccessSettings";
 import { getCurrentSession, sessionCan } from "@/lib/session";
 import { createClient } from "@/lib/supabase/server";
 
@@ -29,13 +30,31 @@ export default async function SecurityAdminPage() {
   if (!sessionCan(session, "organization.manage") || !session.organizationId) redirect("/dashboard");
 
   const supabase = await createClient();
-  const [{ data }, { data: ssoEnabled }] = await Promise.all([
+  const orgId = session.organizationId;
+  const [
+    { data },
+    { data: ssoEnabled },
+    { data: networkPolicy },
+    { data: networkRanges },
+    { data: networkExemptions },
+    { data: customRoles },
+    { data: employees },
+  ] = await Promise.all([
     supabase
       .from("organization_identity_providers")
       .select("id, domain, metadata_url, status, enforce_sso, requested_at, activated_at, last_error")
-      .eq("organization_id", session.organizationId)
+      .eq("organization_id", orgId)
       .order("requested_at", { ascending: false }),
-    supabase.rpc("organization_has_feature", { p_org_id: session.organizationId, p_feature_key: "sso" }),
+    supabase.rpc("organization_has_feature", { p_org_id: orgId, p_feature_key: "sso" }),
+    supabase.from("organization_network_policies").select("enforcement_mode").eq("organization_id", orgId).maybeSingle(),
+    supabase.from("organization_network_ranges").select("id, cidr, label, created_at").eq("organization_id", orgId).order("created_at"),
+    supabase
+      .from("organization_network_exemptions")
+      .select("id, role, custom_role_id, employee_id, organization_roles(name), employees(first_name, last_name)")
+      .eq("organization_id", orgId)
+      .order("created_at"),
+    supabase.from("organization_roles").select("id, name").eq("organization_id", orgId).eq("is_active", true).order("name"),
+    supabase.from("employees").select("id, first_name, last_name").eq("organization_id", orgId).eq("status", "active").order("last_name"),
   ]);
   const providers = (data ?? []) as IdentityProvider[];
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "https://YOUR_PROJECT.supabase.co";
@@ -102,6 +121,28 @@ export default async function SecurityAdminPage() {
           </div>
         </aside>
       </div>
+
+      <NetworkAccessSettings
+        organizationId={orgId}
+        initialMode={(networkPolicy?.enforcement_mode as "disabled" | "monitor" | "enforced") ?? "disabled"}
+        ranges={(networkRanges ?? []).map((r) => ({ id: r.id, cidr: r.cidr, label: r.label, createdAt: r.created_at }))}
+        exemptions={(networkExemptions ?? []).map((ex: any) => {
+          const customRole = Array.isArray(ex.organization_roles) ? ex.organization_roles[0] : ex.organization_roles;
+          const employee = Array.isArray(ex.employees) ? ex.employees[0] : ex.employees;
+          return {
+            id: ex.id,
+            label: ex.role
+              ? `Role: ${ex.role.charAt(0).toUpperCase()}${ex.role.slice(1)}`
+              : customRole
+                ? `Role: ${customRole.name}`
+                : employee
+                  ? `Employee: ${employee.first_name} ${employee.last_name}`
+                  : "Unknown",
+          };
+        })}
+        customRoles={(customRoles ?? []).map((r) => ({ id: r.id, label: r.name }))}
+        employees={(employees ?? []).map((e) => ({ id: e.id, label: `${e.first_name} ${e.last_name}` }))}
+      />
     </div>
   );
 }

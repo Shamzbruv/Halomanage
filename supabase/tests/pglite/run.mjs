@@ -1671,6 +1671,205 @@ async function main() {
     ok("an org cannot see another organization's custom roles", Number(hidden.rows[0].count) === 0);
   });
 
+  // ==================== NETWORK ACCESS CONTROL ====================
+  // Ref: 20260901100000_network_access_control.sql. A fresh, fully
+  // isolated third organization — this feature is folded directly into
+  // private.has_permission(), the single most-depended-on function in the
+  // entire schema, so flipping enforcement on for the shared ORG fixture
+  // (used by literally every other test in this file) would risk
+  // cross-contaminating unrelated assertions if anything were left on by
+  // mistake. ORG3 exists only for this block.
+  const ORG3 = "00000000-0000-0000-0000-000000000003";
+  const ORG3_ADMIN_USER = "10000000-0000-0000-0000-00000000a003";
+  const ORG3_ADMIN_EMP = "00000000-0000-0000-0000-00000000a003";
+  const ORG3_EMP_USER = "10000000-0000-0000-0000-00000000a004";
+  const ORG3_EMP_EMP = "00000000-0000-0000-0000-00000000a004";
+  await db.exec(`
+    insert into auth.users (id, email) values ('${ORG3_ADMIN_USER}', 'org3admin@acme.test'), ('${ORG3_EMP_USER}', 'org3emp@acme.test');
+    insert into public.organizations (id, name, slug) values ('${ORG3}', 'Acme Three', 'acme-three');
+    insert into public.employees (id, organization_id, employee_number, first_name, last_name, work_email, status, user_id)
+    values
+      ('${ORG3_ADMIN_EMP}', '${ORG3}', 'ORG3-0001', 'Three', 'Admin', 'org3admin@acme.test', 'active', '${ORG3_ADMIN_USER}'),
+      ('${ORG3_EMP_EMP}', '${ORG3}', 'ORG3-0002', 'Three', 'Employee', 'org3emp@acme.test', 'active', '${ORG3_EMP_USER}');
+    insert into public.role_assignments (organization_id, user_id, role)
+    values ('${ORG3}', '${ORG3_ADMIN_USER}', 'admin'), ('${ORG3}', '${ORG3_EMP_USER}', 'employee');
+  `);
+
+  // Simulates the request.headers GUC PostgREST sets on every real HTTP
+  // request (verified empirically against the live project — see the
+  // migration's header comment) — always reset in finally, matching as()'s
+  // own discipline for role/jwt state. is_local must be false (session-
+  // scoped): each db.exec()/db.query() call here is its own top-level
+  // statement, so a transaction-local (true) setting would already be
+  // gone by the time the very next call runs the actual probe — exactly
+  // as as() itself already sets request.jwt.uid with false, not true.
+  async function withHeaders(headersJson, fn) {
+    await db.exec(`select set_config('request.headers', '${headersJson}', false);`);
+    try {
+      return await fn();
+    } finally {
+      await db.exec(`select set_config('request.headers', '', false);`);
+    }
+  }
+
+  // --- check_network_access() — the app-layer entry point proxy.ts calls ---
+  await as(ORG3_EMP_USER, async () => {
+    const result = await db.query(`select public.check_network_access('1.2.3.4'::inet) as result`);
+    ok("network access is unrestricted by default", result.rows[0].result.allowed === true && result.rows[0].result.mode === "disabled");
+  });
+  await as(ORG3_ADMIN_USER, async () => {
+    let threw = false;
+    try { await db.query(`select public.set_network_enforcement_mode('${ORG3}', 'enforced')`); } catch { threw = true; }
+    ok("enforcement cannot be turned on before at least one range is added", threw);
+  });
+
+  let org3RangeId;
+  await as(ORG3_ADMIN_USER, async () => {
+    const range = await db.query(`select * from public.add_network_range('${ORG3}', '203.0.113.0/24', 'HQ')`);
+    org3RangeId = range.rows[0].id;
+    await db.query(`select public.set_network_enforcement_mode('${ORG3}', 'enforced')`);
+    ok("Erin-equivalent admin can add a range and turn on enforcement", true);
+  });
+
+  await as(ORG3_EMP_USER, async () => {
+    const inRange = await db.query(`select public.check_network_access('203.0.113.42'::inet) as result`);
+    ok("an in-range IP is allowed under enforced mode", inRange.rows[0].result.allowed === true && inRange.rows[0].result.reason === "in_range");
+
+    const outOfRange = await db.query(`select public.check_network_access('8.8.8.8'::inet) as result`);
+    ok("an out-of-range IP is blocked under enforced mode", outOfRange.rows[0].result.allowed === false && outOfRange.rows[0].result.reason === "out_of_range");
+  });
+  await as(ORG3_ADMIN_USER, async () => {
+    const blocked = await db.query(`select count(*) from public.audit_events where organization_id = '${ORG3}' and action = 'NETWORK_ACCESS_BLOCKED'`);
+    ok("a blocked attempt is recorded in the audit trail", Number(blocked.rows[0].count) === 1);
+  });
+
+  let roleExemptionId;
+  await as(ORG3_ADMIN_USER, async () => {
+    const exemption = await db.query(`select * from public.add_network_exemption('${ORG3}', 'employee', null, null)`);
+    roleExemptionId = exemption.rows[0].id;
+  });
+  await as(ORG3_EMP_USER, async () => {
+    const result = await db.query(`select public.check_network_access('8.8.8.8'::inet) as result`);
+    ok("a role-level exemption allows an out-of-range IP through", result.rows[0].result.allowed === true && result.rows[0].result.reason === "exempt");
+  });
+  await as(ORG3_ADMIN_USER, async () => {
+    await db.query(`select public.remove_network_exemption('${roleExemptionId}')`);
+  });
+  await as(ORG3_EMP_USER, async () => {
+    const result = await db.query(`select public.check_network_access('8.8.8.8'::inet) as result`);
+    ok("removing the exemption blocks the out-of-range IP again", result.rows[0].result.allowed === false);
+  });
+
+  await as(ORG3_ADMIN_USER, async () => {
+    await db.query(`select public.set_network_enforcement_mode('${ORG3}', 'monitor')`);
+  });
+  await as(ORG3_EMP_USER, async () => {
+    const result = await db.query(`select public.check_network_access('8.8.8.8'::inet) as result`);
+    ok("monitor mode never actually blocks", result.rows[0].result.allowed === true && result.rows[0].result.reason === "flagged_monitor_mode");
+  });
+  await as(ORG3_ADMIN_USER, async () => {
+    const flagged = await db.query(`select count(*) from public.audit_events where organization_id = '${ORG3}' and action = 'NETWORK_ACCESS_FLAGGED'`);
+    ok("a monitor-mode attempt is logged as flagged, not blocked", Number(flagged.rows[0].count) === 1);
+    await db.query(`select public.set_network_enforcement_mode('${ORG3}', 'enforced')`);
+  });
+
+  let org3CustomRoleId;
+  await as(ORG3_ADMIN_USER, async () => {
+    const role = await db.query(`select * from public.create_organization_role('${ORG3}', 'Field Rep', null, '{}')`);
+    org3CustomRoleId = role.rows[0].id;
+    await db.query(`select public.set_member_role('${ORG3_EMP_EMP}', null, null, '${org3CustomRoleId}')`);
+    await db.query(`select public.add_network_exemption('${ORG3}', null, '${org3CustomRoleId}', null)`);
+  });
+  await as(ORG3_EMP_USER, async () => {
+    const result = await db.query(`select public.check_network_access('8.8.8.8'::inet) as result`);
+    ok("a custom-role exemption allows an out-of-range IP through", result.rows[0].result.allowed === true && result.rows[0].result.reason === "exempt");
+  });
+  await as(ORG3_ADMIN_USER, async () => {
+    // Back to the built-in Employee role (no exemption on it) before the
+    // employee-specific exemption test below, so only that one exemption
+    // is in play.
+    await db.query(`select public.set_member_role('${ORG3_EMP_EMP}', 'employee', null, null)`);
+    const result = await db.query(`select * from public.add_network_exemption('${ORG3}', null, null, '${ORG3_EMP_EMP}')`);
+    ok("an individual employee can be exempted directly", !!result.rows[0].id);
+  });
+  await as(ORG3_EMP_USER, async () => {
+    const result = await db.query(`select public.check_network_access('8.8.8.8'::inet) as result`);
+    ok("an employee-specific exemption allows an out-of-range IP through", result.rows[0].result.allowed === true && result.rows[0].result.reason === "exempt");
+  });
+
+  // --- CRUD validation and permission gating ---
+  await as(ORG3_EMP_USER, async () => {
+    let threw = false;
+    try { await db.query(`select public.set_network_enforcement_mode('${ORG3}', 'monitor')`); } catch { threw = true; }
+    ok("a non-admin cannot change the enforcement mode", threw);
+  });
+  await as(ORG3_ADMIN_USER, async () => {
+    let threw = false;
+    try { await db.query(`select public.add_network_range('${ORG3}', 'not-a-cidr', null)`); } catch { threw = true; }
+    ok("an invalid CIDR is rejected with a clear error", threw);
+  });
+  await as(ORG3_ADMIN_USER, async () => {
+    let threw = false;
+    try { await db.query(`select public.add_network_exemption('${ORG3}', null, null, null)`); } catch { threw = true; }
+    ok("an exemption with no target is rejected", threw);
+  });
+  await as(ORG3_ADMIN_USER, async () => {
+    let threw = false;
+    try { await db.query(`select public.add_network_exemption('${ORG3}', 'employee', '${org3CustomRoleId}', null)`); } catch { threw = true; }
+    ok("an exemption with more than one target is rejected", threw);
+  });
+  await as(ORG3_ADMIN_USER, async () => {
+    let threw = false;
+    try { await db.query(`select public.add_network_exemption('${ORG3}', null, null, '${FRANK_EMP}')`); } catch { threw = true; }
+    ok("an exemption cannot reference another organization's employee", threw);
+  });
+  await as(FRANK_USER, async () => {
+    const hidden = await db.query(`select count(*) from public.organization_network_ranges where organization_id = '${ORG3}'`);
+    ok("an unrelated organization's member cannot see ORG3's network ranges (cross-tenant isolation)", Number(hidden.rows[0].count) === 0);
+  });
+
+  // --- Anti-lockout: the admin CRUD RPCs must stay reachable even when the
+  // caller themselves would fail the DB-layer network check, or an admin
+  // who steps off-network could never undo an 'enforced' policy again. ---
+  await as(ORG3_ADMIN_USER, async () => {
+    await withHeaders('{"cf-connecting-ip":"8.8.8.8"}', async () => {
+      const result = await db.query(`select * from public.set_network_enforcement_mode('${ORG3}', 'monitor')`);
+      ok("an admin who is themselves off-network can still change the network policy (anti-lockout)", result.rows[0].enforcement_mode === "monitor");
+      await db.query(`select public.set_network_enforcement_mode('${ORG3}', 'enforced')`);
+    });
+  });
+
+  // --- private.has_permission()'s folded-in database-layer check ---
+  // private.* isn't directly callable by `authenticated` (no schema USAGE
+  // grant — by design, matching how every other private.* helper in this
+  // schema is only ever reached indirectly through a SECURITY DEFINER
+  // wrapper, never called bare by a client). Exercised instead through
+  // create_organization_role(), an ordinary roles.manage-gated RPC that
+  // goes through the normal (network-checked) has_permission() path —
+  // deliberately NOT one of the five network-config RPCs special-cased
+  // above to bypass it.
+  await as(ORG3_ADMIN_USER, async () => {
+    const noHeaders = await db.query(`select * from public.create_organization_role('${ORG3}', 'Probe Role A', null, '{}')`);
+    ok("with no request.headers at all (a non-HTTP caller, e.g. this test harness), the DB-layer check fails open", !!noHeaders.rows[0].id);
+
+    await withHeaders('{"cf-connecting-ip":"8.8.8.8"}', async () => {
+      let threw = false;
+      try { await db.query(`select public.create_organization_role('${ORG3}', 'Probe Role B', null, '{}')`); } catch { threw = true; }
+      ok("an out-of-range cf-connecting-ip blocks an ordinary has_permission()-gated RPC even for a role that would otherwise allow it", threw);
+    });
+    await withHeaders('{"cf-connecting-ip":"203.0.113.42"}', async () => {
+      const allowed = await db.query(`select * from public.create_organization_role('${ORG3}', 'Probe Role C', null, '{}')`);
+      ok("an in-range cf-connecting-ip allows the same RPC through", !!allowed.rows[0].id);
+    });
+    await withHeaders('{"cf-connecting-ip":"8.8.8.8","x-halomanage-server-relay":"1"}', async () => {
+      const relayed = await db.query(`select * from public.create_organization_role('${ORG3}', 'Probe Role D', null, '{}')`);
+      ok("a request carrying the server-relay marker skips the DB-layer check even when out of range", !!relayed.rows[0].id);
+    });
+
+    // Leave ORG3 back in a harmless state.
+    await db.query(`select public.set_network_enforcement_mode('${ORG3}', 'disabled')`);
+  });
+
   console.log(`\n${passCount} passed, ${failCount} failed.`);
   if (failCount > 0) process.exitCode = 1;
 }

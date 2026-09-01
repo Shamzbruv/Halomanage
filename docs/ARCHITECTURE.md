@@ -619,3 +619,113 @@ built-in Supervisor/Manager/Admin do (a custom role with team-visibility
 permissions can lead either relationship tier — see
 `set_employee_reporting_scope()` above — rather than being restricted the
 way a bare Supervisor can't take Manager-tier reports).
+
+## Network access control
+
+Added 2026-09-01, following a direct question: can sign-in be restricted
+to a company's own network, with exemptions HR/Admin controls? Two
+enforcement layers exist, deliberately unequal in strength — the
+difference is load-bearing and came from testing against this project's
+actual, real infrastructure rather than assuming:
+
+- **App layer** (`proxy.ts` → `lib/supabase/middleware.ts`): checked on
+  *every* request, continuously, not just at sign-in — the only way "only
+  usable from our network" means anything in practice, since login-time-
+  only enforcement is trivially sidestepped (sign in at the office, work
+  from home all afternoon). Reads Railway's `x-real-ip` header, confirmed
+  empirically (a temporary diagnostic route, deployed and then removed)
+  to be set authoritatively by Railway's edge and silently overwritten
+  when a client tries to supply its own — the header cannot be spoofed by
+  the visitor.
+- **Database layer** (`private.has_permission()`): defense in depth
+  against a stolen session token being used to call Supabase's REST API
+  directly, bypassing this app entirely. This layer can only ever see the
+  *real* visitor IP for requests that go straight from a browser to
+  Supabase — verified empirically (a throwaway probe function, called
+  over the real REST endpoint, then dropped) that Cloudflare's
+  `cf-connecting-ip` header is likewise set authoritatively and
+  overwritten if a caller tries to supply their own. A request this app's
+  **server** relays on a signed-in user's behalf (every Server Component
+  page load — the majority of this app) reaches Supabase from Railway's
+  own outbound connection, not the visitor's — the database cannot tell
+  that apart from any other stray request by IP alone, so a same-strength
+  check here would either block every server-rendered page outright or
+  be meaningless. `lib/supabase/server.ts` therefore tags every request
+  it relays with an internal marker header
+  (`x-halomanage-server-relay`), which `private.network_policy_ok()`
+  trusts as "the app layer already checked this exact request" — this is
+  not cryptographically signed (a stolen token *and* knowledge of this
+  header name would still get through this layer specifically), a
+  deliberate scope decision: closing that fully needs signing
+  infrastructure disproportionate to what it buys over the app layer
+  alone, which already stops that same attacker from ever reaching a page
+  to steal a token from.
+
+**Schema** (`20260901100000_network_access_control.sql`):
+- `organization_network_policies` — one `enforcement_mode` per org:
+  `disabled` (default), `monitor` (evaluates and logs every attempt,
+  blocks nothing — lets an admin validate their ranges before committing
+  to enforcement), or `enforced`.
+- `organization_network_ranges` — CIDR blocks (Postgres's native `cidr`
+  type, so a malformed value is rejected at the type level before it
+  ever reaches application logic), with a friendly re-wrap of the cast
+  error in `add_network_range()`.
+- `organization_network_exemptions` — exempts a built-in role, a custom
+  role, or one specific employee (mutually exclusive, same
+  exactly-one-of-three CHECK pattern as `organization_network_exemptions`'
+  siblings elsewhere in this schema). `private.is_network_exempt()`
+  resolves this once and is shared by both enforcement layers, so they
+  can never disagree about who's exempt.
+- `check_network_access(p_ip)` — the app layer's entry point. Resolves
+  the caller's organization from `auth.uid()` itself rather than
+  accepting one as an argument, so a client can never probe a different
+  org's policy. Logs `NETWORK_ACCESS_BLOCKED`/`NETWORK_ACCESS_FLAGGED`
+  audit events (reusing the existing `audit_events.ip_address` column,
+  never populated before this) only for attempts that weren't allowed —
+  ordinary traffic is never logged, to keep the audit trail meaningful
+  rather than flooded.
+- A policy that's `enforced` with zero ranges configured, or a request
+  with no resolvable IP at all, both fail *open* (allowed) rather than
+  locking out an entire organization or every non-HTTP caller (this test
+  suite's own pglite sessions included) — a deliberate safety net, not an
+  oversight.
+
+**The anti-lockout rule**: the five network-configuration RPCs
+(`set_network_enforcement_mode`, `add_network_range`,
+`remove_network_range`, `add_network_exemption`,
+`remove_network_exemption`) check `private.user_has_permission()` — the
+network-check-*free* variant — never `private.has_permission()`. An
+admin who steps off the allowed network under an `enforced` policy must
+always be able to reach these five RPCs to loosen or turn off the policy
+themselves; gating the lock's configuration behind the lock itself would
+turn one off-network moment into a support ticket with no self-service
+way out.
+
+**Frontend**: a new "Network access" section on the existing
+`admin/security` ("Identity & access") page — mode selector, range
+list, exemption list, sharing that page with SSO configuration since
+both are "how people get in" settings for the same audience. A blocked
+request is rewritten (not redirected — matches `/setup-required`'s
+existing precedent, so the URL bar doesn't change) to `/network-restricted`,
+a plain top-level page (outside the `(portal)` route group, like
+`/setup-required`) explaining what happened and surfacing the visitor's
+detected IP for troubleshooting, with a working sign-out escape hatch.
+
+Tests: 24 new pglite assertions, plus confirming the entire pre-existing
+238-assertion suite still passes unmodified — `private.has_permission()`
+is the single most-depended-on function in this schema, called from
+dozens of RLS policies and RPCs, so this batch's real risk was a subtle
+regression there, not the new feature's own logic. One was caught this
+way during development: the test helper simulating `request.headers` via
+`set_config(..., true)` (transaction-local) silently no-op'd across
+separate `db.exec()`/`db.query()` calls, masking a real bug behind
+false passes on 3 of 4 header-simulation cases — fixed to `false`
+(session-scoped), matching how `run.mjs`'s own pre-existing `as()`
+impersonation helper already sets `request.jwt.uid` for the identical
+reason.
+
+Explicitly deferred: cryptographically signing the server-relay marker
+(discussed above), a live "recent access attempts" panel on the admin
+page (the audit trail exists and is queryable, just not yet surfaced in
+this specific UI), and IPv6-specific guidance beyond what Postgres's
+native `inet`/`cidr` types already handle correctly.

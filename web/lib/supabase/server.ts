@@ -17,6 +17,16 @@ export async function createClient() {
     url,
     anonKey,
     {
+      global: {
+        // Marks every query this server makes on a signed-in user's behalf
+        // as already having passed proxy.ts's per-request network-access
+        // check for this exact request (see
+        // 20260901100000_network_access_control.sql's private.network_policy_ok()).
+        // Only this server ever sets it — a request straight from a
+        // browser to Supabase never carries it, which is what lets the
+        // database tell the two cases apart.
+        headers: { "x-halomanage-server-relay": "1" },
+      },
       cookies: {
         getAll() {
           return cookieStore.getAll();
