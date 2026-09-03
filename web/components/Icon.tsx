@@ -6,6 +6,7 @@ export type IconName =
   | "clock"
   | "dashboard"
   | "document"
+  | "edit"
   | "grid"
   | "help"
   | "leave"
@@ -23,6 +24,7 @@ export type IconName =
   | "shield"
   | "spark"
   | "team"
+  | "trash"
   | "upload"
   | "x";
 
@@ -34,6 +36,7 @@ const paths: Record<IconName, React.ReactNode> = {
   clock: <><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>,
   dashboard: <><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></>,
   document: <><path d="M6 2h8l4 4v16H6z"/><path d="M14 2v5h5M9 13h6M9 17h6"/></>,
+  edit: <><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></>,
   grid: <><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/></>,
   help: <><circle cx="12" cy="12" r="9"/><path d="M9.7 9a2.5 2.5 0 1 1 3.3 2.4c-.7.3-1 .8-1 1.6M12 17h.01"/></>,
   leave: <><path d="M4 7h16v13H4z"/><path d="M8 3v4M16 3v4M4 11h16M8 15h3"/></>,
@@ -51,6 +54,7 @@ const paths: Record<IconName, React.ReactNode> = {
   shield: <><path d="M12 2 20 5v6c0 5-3.3 9-8 11-4.7-2-8-6-8-11V5z"/><path d="m8.5 12 2.2 2.2 4.8-5"/></>,
   spark: <path d="m12 2 1.4 5.1L18 9l-4.6 1.9L12 16l-1.4-5.1L6 9l4.6-1.9zM19 16l.7 2.3L22 19l-2.3.7L19 22l-.7-2.3L16 19l2.3-.7z"/>,
   team: <><circle cx="8" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M2 20c.5-4.2 2.5-7 6-7s5.5 2.8 6 7M14 14c3.8-.5 6.5 1.8 7 6"/></>,
+  trash: <><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></>,
   upload: <><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></>,
   x: <><path d="m6 6 12 12M18 6 6 18"/></>,
 };

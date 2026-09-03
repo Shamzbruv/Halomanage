@@ -3,7 +3,11 @@ create table auth.users (
   id uuid primary key default gen_random_uuid(), email text, encrypted_password text,
   email_confirmed_at timestamptz, raw_app_meta_data jsonb default '{}'::jsonb,
   raw_user_meta_data jsonb default '{}'::jsonb, aud text, role text, instance_id uuid,
-  confirmation_token text, recovery_token text, created_at timestamptz default now(), updated_at timestamptz default now()
+  confirmation_token text, recovery_token text, created_at timestamptz default now(), updated_at timestamptz default now(),
+  -- Added for list_employee_invite_status() (20260903100000_employee_invite_status_and_cleanup.sql) —
+  -- real auth.users has both; last_sign_in_at is the same signal
+  -- invite-employee's own resend guard already checks.
+  invited_at timestamptz, last_sign_in_at timestamptz
 );
 create table auth.identities (
   id uuid primary key default gen_random_uuid(), user_id uuid references auth.users(id) on delete cascade,

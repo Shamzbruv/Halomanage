@@ -45,6 +45,7 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
     { data: orgAssignments },
     { data: customRoles },
     { data: customRolePermissions },
+    { data: inviteStatus },
   ] = await Promise.all([
     supabase.from("employees").select("*").eq("id", id).single(),
     // Query the real employee_assignments table directly rather than
@@ -69,9 +70,11 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
     supabase.from("employee_assignments").select("employee_id, supervisor_employee_id, manager_employee_id").eq("organization_id", orgId).is("end_date", null),
     supabase.from("organization_roles").select("id, name").eq("organization_id", orgId).eq("is_active", true).order("name"),
     supabase.from("role_permissions").select("custom_role_id, permission").eq("organization_id", orgId).not("custom_role_id", "is", null),
+    supabase.rpc("list_employee_invite_status", { p_organization_id: orgId }),
   ]);
 
   if (!employee) notFound();
+  const accepted = (inviteStatus ?? []).find((row: { employee_id: string; accepted: boolean }) => row.employee_id === employee.id)?.accepted ?? false;
 
   // role_assignments is select-only under RLS now (see
   // 20260828110000_lifecycle_rbac_hardening.sql) — every mutation goes
@@ -164,7 +167,7 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
           {(employee.status === "prehire" || employee.status === "leave" || employee.status === "suspended") && (
             <ActivateEmployeeButton employeeId={employee.id} />
           )}
-          <InviteButton employeeId={employee.id} alreadyInvited={!!employee.user_id} portalSlug={session.organization.slug} />
+          <InviteButton employeeId={employee.id} alreadyInvited={!!employee.user_id} accepted={accepted} portalSlug={session.organization.slug} />
           {employee.status !== "terminated" && (
             <TerminateEmployeeButton
               employeeId={employee.id}

@@ -10,6 +10,8 @@
 // employees record.
 //
 // Request body: { "employee_id": "<uuid>", "redirect_to"?: "<url>", "resend"?: boolean }
+//   or, to fix an invite sent to the wrong address:
+//               { "employee_id": "<uuid>", "correct_email": "<new address>" }
 //
 // `resend` exists because inviteUserByEmail() can only ever be called once
 // per email — Supabase Auth rejects a second call for an address that
@@ -24,6 +26,15 @@
 // it directly through Resend using the same branded template as every
 // other outbound Halomanage email, rather than depending on GoTrue's own
 // (invite-only) send path a second time.
+//
+// `correct_email` handles the narrower, different problem of the address
+// itself being wrong. A plain employees.work_email update alone would
+// orphan the situation: the pending auth account is still keyed to the
+// old address, so Resend's generateLink(email: <new address>) would find
+// no matching user. Only reachable while the linked account has never
+// signed in — once accepted, changing work_email is a plain HR-record
+// edit the client already does directly via the Data API (RLS already
+// permits it for employee.manage), with no auth.users involvement at all.
 
 import { createClient } from "npm:@supabase/supabase-js@2.112.4";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
@@ -44,7 +55,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { employee_id, redirect_to, resend } = await req.json();
+    const { employee_id, redirect_to, resend, correct_email } = await req.json();
     if (!employee_id) {
       return jsonResponse({ error: "employee_id is required" }, 400);
     }
@@ -69,13 +80,50 @@ Deno.serve(async (req) => {
     if (employeeError || !employee) {
       return jsonResponse({ error: "Not authorized to invite this employee" }, 403);
     }
-    if (!employee.work_email) {
-      return jsonResponse({ error: "Employee has no work_email on file" }, 400);
-    }
 
     // Privileged client: service_role bypasses RLS and can call Auth admin
     // APIs. Never expose this key to a browser/mobile client.
     const adminClient = createClient(supabaseUrl, serviceRoleKey);
+
+    if (correct_email) {
+      if (!employee.user_id) {
+        return jsonResponse({ error: "This employee hasn't been invited yet — just edit their email and invite them." }, 400);
+      }
+      const { data: userLookup, error: userLookupError } = await adminClient.auth.admin.getUserById(employee.user_id);
+      if (userLookupError || !userLookup?.user) {
+        return jsonResponse({ error: "Could not find this employee's account." }, 500);
+      }
+      if (userLookup.user.last_sign_in_at) {
+        return jsonResponse({ error: "This employee has already accepted their invitation and signed in — this can only fix a still-pending invite." }, 409);
+      }
+
+      const { error: deleteError } = await adminClient.auth.admin.deleteUser(employee.user_id);
+      if (deleteError) {
+        return jsonResponse({ error: `Could not remove the pending invitation: ${deleteError.message}` }, 500);
+      }
+      const { error: updateError } = await adminClient
+        .from("employees")
+        .update({ work_email: correct_email, user_id: null })
+        .eq("id", employee_id);
+      if (updateError) {
+        return jsonResponse({ error: `The old invitation was removed, but the email could not be saved: ${updateError.message}` }, 500);
+      }
+
+      const { error: auditError } = await callerClient.rpc("record_employee_email_correction", {
+        p_employee_id: employee_id,
+        p_old_email: employee.work_email,
+        p_new_email: correct_email,
+      });
+      if (auditError) {
+        console.error("record_employee_email_correction failed (non-fatal):", auditError.message);
+      }
+
+      return jsonResponse({ ok: true, corrected: true });
+    }
+
+    if (!employee.work_email) {
+      return jsonResponse({ error: "Employee has no work_email on file" }, 400);
+    }
 
     if (resend) {
       if (!employee.user_id) {

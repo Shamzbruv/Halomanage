@@ -1870,6 +1870,88 @@ async function main() {
     await db.query(`select public.set_network_enforcement_mode('${ORG3}', 'disabled')`);
   });
 
+  // ==================== INVITE STATUS & SAFE DELETION ====================
+  // Ref: 20260903100000_employee_invite_status_and_cleanup.sql
+
+  const PENDING_USER = "10000000-0000-0000-0000-0000000000f3";
+  const PENDING_EMP = "00000000-0000-0000-0000-0000000000f3";
+  const ACCEPTED_USER = "10000000-0000-0000-0000-0000000000f4";
+  const ACCEPTED_EMP = "00000000-0000-0000-0000-0000000000f4";
+  const PLACEHOLDER_EMP = "00000000-0000-0000-0000-0000000000f5";
+  const WITH_HISTORY_EMP = "00000000-0000-0000-0000-0000000000f6";
+  await db.exec(`
+    insert into auth.users (id, email, last_sign_in_at) values
+      ('${PENDING_USER}', 'pending@acme.test', null),
+      ('${ACCEPTED_USER}', 'accepted@acme.test', now());
+    insert into public.employees (id, organization_id, employee_number, first_name, last_name, work_email, status, user_id)
+    values
+      ('${PENDING_EMP}', '${ORG}', 'TEST-PENDING', 'Pending', 'Invite', 'pending@acme.test', 'prehire', '${PENDING_USER}'),
+      ('${ACCEPTED_EMP}', '${ORG}', 'TEST-ACCEPTED', 'Accepted', 'Invite', 'accepted@acme.test', 'active', '${ACCEPTED_USER}'),
+      ('${PLACEHOLDER_EMP}', '${ORG}', 'TEST-PLACEHOLDER', 'Placeholder', 'Mistake', 'placeholder@acme.test', 'prehire', null),
+      ('${WITH_HISTORY_EMP}', '${ORG}', 'TEST-HISTORY', 'Has', 'History', 'has-history@acme.test', 'prehire', null);
+    insert into public.employee_assignments (organization_id, employee_id, employment_type, start_date)
+    values ('${ORG}', '${WITH_HISTORY_EMP}', 'full_time', current_date);
+  `);
+
+  await as(DAVID_USER, async () => {
+    let threw = false;
+    try { await db.query(`select * from public.list_employee_invite_status('${ORG}')`); } catch { threw = true; }
+    ok("David (no employee.manage) cannot list invite status", threw);
+  });
+  await as(ERIN_USER, async () => {
+    const rows = await db.query(`select * from public.list_employee_invite_status('${ORG}')`);
+    const byId = new Map(rows.rows.map((r) => [r.employee_id, r]));
+    ok("a never-invited employee has no invite-status row at all", !byId.has(PLACEHOLDER_EMP));
+    ok("a linked account that has never signed in reports accepted = false", byId.get(PENDING_EMP)?.accepted === false);
+    ok("a linked account that has signed in reports accepted = true", byId.get(ACCEPTED_EMP)?.accepted === true);
+  });
+
+  await as(ERIN_USER, async () => {
+    await db.query(`select public.record_employee_email_correction('${PENDING_EMP}', 'pending@acme.test', 'corrected@acme.test')`);
+    const audit = await db.query(`select old_data, new_data from public.audit_events where action = 'EMPLOYEE_INVITE_EMAIL_CORRECTED' and entity_id = '${PENDING_EMP}'`);
+    ok("correcting a pending invite's email logs an audit event with the old and new address", audit.rows.length === 1 && audit.rows[0].new_data.work_email === "corrected@acme.test");
+  });
+  await as(DAVID_USER, async () => {
+    let threw = false;
+    try { await db.query(`select public.record_employee_email_correction('${PENDING_EMP}', 'a@acme.test', 'b@acme.test')`); } catch { threw = true; }
+    ok("David (no employee.manage) cannot record an email correction", threw);
+  });
+
+  await as(DAVID_USER, async () => {
+    let threw = false;
+    try { await db.query(`select public.delete_employee_record('${PLACEHOLDER_EMP}')`); } catch { threw = true; }
+    ok("David (no employee.manage) cannot delete an employee record", threw);
+  });
+  await as(ERIN_USER, async () => {
+    let threw = false;
+    try { await db.query(`select public.delete_employee_record('${PENDING_EMP}')`); } catch { threw = true; }
+    ok("a record with a linked account (even one that's never signed in) cannot be deleted", threw);
+
+    threw = false;
+    try { await db.query(`select public.delete_employee_record('${ACCEPTED_EMP}')`); } catch { threw = true; }
+    ok("an active, accepted employee cannot be deleted — Terminate is the only path", threw);
+
+    threw = false;
+    try { await db.query(`select public.delete_employee_record('${WITH_HISTORY_EMP}')`); } catch { threw = true; }
+    ok("a pre-hire with real history (an assignment) cannot be deleted, even with no linked account", threw);
+    const stillThere = await db.query(`select count(*) from public.employees where id = '${WITH_HISTORY_EMP}'`);
+    ok("the blocked delete did not partially remove the record", Number(stillThere.rows[0].count) === 1);
+
+    const deleted = await db.query(`select count(*) from public.employees where id = '${PLACEHOLDER_EMP}'`);
+    await db.query(`select public.delete_employee_record('${PLACEHOLDER_EMP}')`);
+    const afterDelete = await db.query(`select count(*) from public.employees where id = '${PLACEHOLDER_EMP}'`);
+    ok("a genuine placeholder (pre-hire, never invited, no history) can be deleted", Number(deleted.rows[0].count) === 1 && Number(afterDelete.rows[0].count) === 0);
+
+    const auditDeleted = await db.query(`select count(*) from public.audit_events where action = 'EMPLOYEE_RECORD_DELETED' and entity_id = '${PLACEHOLDER_EMP}'`);
+    ok("the deletion is recorded in the audit trail before the row disappears", Number(auditDeleted.rows[0].count) === 1);
+  });
+
+  await db.exec(`
+    delete from public.employee_assignments where employee_id = '${WITH_HISTORY_EMP}';
+    delete from public.employees where id in ('${PENDING_EMP}', '${ACCEPTED_EMP}', '${WITH_HISTORY_EMP}');
+    delete from auth.users where id in ('${PENDING_USER}', '${ACCEPTED_USER}');
+  `);
+
   console.log(`\n${passCount} passed, ${failCount} failed.`);
   if (failCount > 0) process.exitCode = 1;
 }

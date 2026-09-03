@@ -729,3 +729,79 @@ Explicitly deferred: cryptographically signing the server-relay marker
 page (the audit trail exists and is queryable, just not yet surfaced in
 this specific UI), and IPv6-specific guidance beyond what Postgres's
 native `inet`/`cidr` types already handle correctly.
+
+## Invite acceptance visibility, wrong-address correction, and safe deletion
+
+Added 2026-09-03, from a direct finding on the People directory:
+"Invited" only ever meant `employees.user_id` was set — an auth account
+had been *created*, not that the person had actually signed in and
+accepted it — so there was no way to tell "resend this" from "this one's
+fine" apart. Two more gaps came with it: no way to fix an invite sent to
+the wrong address short of editing the database directly, and no way to
+remove a record created by mistake, given this schema deliberately has
+no DELETE policy on `employees` at all (see `authorization.sql`'s
+comment: history/audit/payroll-import references must stay valid) —
+correct for anyone with real activity, but a dead end for a placeholder
+that was never right in the first place.
+
+**Acceptance status** (`20260903100000_employee_invite_status_and_cleanup.sql`):
+`list_employee_invite_status()` — `auth.users` isn't reachable from the
+client at all (no RLS, not exposed by PostgREST), so this has to be a
+SECURITY DEFINER RPC joining on it. It reads `last_sign_in_at` — the
+exact same signal `invite-employee`'s own resend guard already checked
+server-side ("This employee has already signed in at least once —
+there's nothing to resend.") — surfaced to the UI now instead of only
+ever being enforced silently after the fact. The People directory and
+employee detail page now show **Pending** (gold) vs. **Accepted**
+(green) instead of one generic "Invited," and the Resend button
+disappears once accepted rather than being left to fail.
+
+**Correcting a wrong address** (`invite-employee`'s new `correct_email`
+mode): a plain `work_email` update alone would orphan the situation — the
+pending auth account is still keyed to the old address, so a later
+Resend's `generateLink(email: <new address>)` would find no matching
+user. Only reachable while the linked account has never signed in: it
+deletes the stale auth user and clears `employees.user_id`, so the
+record returns to "not yet invited" at the corrected address, ready for
+a fresh Invite click. Once accepted, or if never invited at all, editing
+the email is a plain Data API update — no `auth.users` involvement,
+since RLS already permits `employee.manage` to write it directly.
+`record_employee_email_correction()` exists purely so the audit trail
+attributes the correction to the real acting admin (called from the Edge
+Function's *caller-scoped* client) rather than a null/service-role actor
+(the actual privileged work runs through the *admin* client, same
+service-role split every other Auth-admin operation in this function
+already uses).
+
+**Safe deletion** (`delete_employee_record()`): deliberately narrow —
+only a pre-hire with no linked account (never invited, or already
+unlinked via the correction above) can be hard-deleted; anyone who has
+ever been active or has any account at all goes through
+`terminate_employee()` instead, which preserves history the way this
+schema requires. Catching `foreign_key_violation` on the `DELETE` itself
+turned out not to be enough, caught by this migration's own pglite test
+rather than by inspection: most `employee_id` references in this schema
+are `ON DELETE CASCADE` (`employee_assignments`, `leave_requests`,
+`documents`, and many more) — exactly so `terminate_employee()` can
+close out history without a hard error, which is correct for a real
+termination, but means a *cascade* would silently wipe that same history
+with nothing to catch if the same path were used to erase a record
+outright. Fixed by walking `information_schema` for every foreign key in
+the `public` schema that points at `employees.id` and checking each one
+for an existing row *before* attempting the delete, rather than
+hand-maintaining a table list — a future migration that adds a new
+`employee_id` reference is covered automatically, with nobody needing to
+remember to update this function too.
+
+Tests: 18 new pglite assertions (275 total). Verified live end to end:
+the migration's RPCs, and the Edge Function redeployed via the Supabase
+CLI (`supabase functions deploy`, run directly since this project has no
+CI/CD pipeline for it) rather than assumed to auto-sync the way database
+migrations do through Supabase's GitHub integration — confirmed by
+checking the function's own `updated_at`/version before and after.
+
+Explicitly deferred: a dedicated "unlink pending invite" action separate
+from correcting the email (the only way to reach that cleanup today is
+by editing the email, which happens to always be the actual reason
+someone would want it) and bulk actions (correcting or removing more
+than one record at a time).
