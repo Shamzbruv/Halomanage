@@ -158,6 +158,7 @@ export function ChangeCompensationForm({
                   <option value="">Not set</option>
                   {payGroups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
                 </select>
+                <p className="field-help">Connects this person to a pay calendar — leaving it unset means their My Pay page can never show a next pay date, even once one exists.</p>
               </div>
               <div>
                 <label className="label" htmlFor="cc-pay-grade">Pay grade</label>

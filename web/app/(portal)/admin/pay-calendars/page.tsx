@@ -48,6 +48,13 @@ export default async function PayCalendarsPage() {
               {canManage && <GeneratePayPeriodsForm calendarId={calendar.id} />}
             </div>
 
+            {calendarPeriods.length === 0 && (
+              <div className="mt-4 rounded-xl border border-dashed border-stone-200 bg-cream-50 p-4 text-sm text-stone-500">
+                This calendar has no pay periods yet — nothing will show on anyone&apos;s pay page until some exist.
+                {canManage ? " Use “Generate periods” above to build its schedule." : " Ask an administrator to generate its schedule."}
+              </div>
+            )}
+
             {calendarPeriods.length > 0 && (
               <table className="mt-4 w-full text-sm">
                 <thead>

@@ -830,3 +830,54 @@ The delete button lives on the template's own detail page
 inline in a list.
 
 Tests: 5 new pglite assertions (280 total).
+
+## Pay calendars: diagnosing "nothing works" down to the actual cause
+
+2026-09-04. Direct report: "nothing works" in Pay calendars, "the entire
+pay system doesn't make any sense." Investigated the live database
+directly before touching anything, rather than guessing from the code
+alone — permissions, RLS, grants, and every RPC's logic all checked out
+correctly. The real cause was narrower and entirely explainable:
+
+- **Zero pay periods existed, for any calendar, ever**, on the real
+  organization. Creating a calendar and generating its first periods
+  were two separate steps — the second, a small "Generate periods" link
+  easy to miss, had never been completed for any of the org's three
+  calendars, including the one made that same day by the real admin.
+  With no periods anywhere, nothing downstream — a calendar's own table,
+  an employee's My Pay next-pay-date — ever had anything to show,
+  regardless of how correctly everything else was wired. This is what
+  "nothing works" actually was: not a bug, a workflow gap.
+- **Two of the three calendars had no audit trail at all**, unlike every
+  real action in this app and unlike the third calendar — strong
+  evidence they were leftover artifacts from this session's own earlier
+  live verification of the migration that introduced this table, not
+  data the user created. Confirmed harmless (zero periods, not the pay
+  group's active calendar) and removed with the user's explicit
+  confirmation before deleting anything.
+- **The org's one real compensation record had no pay group attached** —
+  an optional field with no explanation of what it connects to, so nothing
+  indicated that leaving it blank meant a pay date could never resolve.
+  Corrected directly (the org has exactly one pay group, so there was no
+  ambiguity about which one) and the compensation form now says what
+  that field is actually for.
+
+Fixed the workflow gap itself rather than only the immediate case:
+`NewPayCalendarForm` now generates the first batch of periods in the
+same submit as creating the calendar — still the same two RPCs
+(`create_pay_calendar` then `generate_pay_periods`), just one action
+instead of two, so a new calendar can no longer be created into an
+empty, dead-end state. If the period-generation half fails, the form
+says plainly that the calendar itself was still created and points at
+the "Generate periods" control to retry, rather than leaving that
+partial state unexplained. Any calendar that still has zero periods
+(existing ones, or a retry after a partial failure) now shows an
+explicit message on the page itself instead of silently rendering
+nothing — the prior blank space was indistinguishable from "this page is
+broken."
+
+No schema or RPC changes — every fix here is either a live-data
+correction (verified safe before touching anything, confirmed with the
+user before deleting) or a client-side workflow fix on top of already-
+correct, already-tested backend logic. No new pglite assertions for this
+reason; `npm run build`, `npm run lint`, `npx tsc --noEmit` all clean.
