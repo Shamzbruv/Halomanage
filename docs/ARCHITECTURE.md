@@ -805,3 +805,28 @@ from correcting the email (the only way to reach that cleanup today is
 by editing the email, which happens to always be the actual reason
 someone would want it) and bulk actions (correcting or removing more
 than one record at a time).
+
+## Deleting an onboarding template
+
+Added 2026-09-04. Unlike `employees` (deliberately no DELETE policy at
+all — see above), `onboarding_templates` already had one: the existing
+"admins manage onboarding templates" policy is `FOR ALL`, not just
+`SELECT`/`INSERT`/`UPDATE`, so `onboarding.manage_templates` holders
+could already delete a template directly via the Data API before this.
+The schema itself already protects real history without any extra
+code: `onboarding_runs.template_version_id` references
+`onboarding_template_versions` with `ON DELETE RESTRICT`, and versions
+cascade from templates — so deleting a template that has ever actually
+onboarded someone already failed at the database level. All
+`delete_onboarding_template()` adds is turning that raw foreign-key-
+violation into a message someone can act on, and recording the deletion
+in the audit trail the way every other destructive action here does. No
+new RLS, no new invariant — the safety was already there, just not
+reachable from the UI and not explained when it fired.
+
+The delete button lives on the template's own detail page
+(`admin/onboarding/templates/[id]`), matching where
+`TerminateEmployeeButton` sits on the employee detail page rather than
+inline in a list.
+
+Tests: 5 new pglite assertions (280 total).

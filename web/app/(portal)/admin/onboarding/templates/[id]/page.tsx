@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect, notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession, sessionCan } from "@/lib/session";
+import { DeleteOnboardingTemplateButton } from "@/components/DeleteOnboardingTemplateButton";
 import { OnboardingStepForm } from "@/components/OnboardingStepForm";
 
 export default async function OnboardingTemplatePage({ params }: { params: Promise<{ id: string }> }) {
@@ -34,10 +35,13 @@ export default async function OnboardingTemplatePage({ params }: { params: Promi
 
   return (
     <div className="space-y-6">
-      <div>
-        <Link href="/admin/onboarding" className="text-xs text-royal-700 hover:text-royal-800">← Onboarding</Link>
-        <h1 className="mt-1 font-display text-xl font-bold text-stone-900">{template.name}</h1>
-        <p className="text-sm text-stone-500">Version {version?.version_number ?? "—"} {template.is_default && "· Default template"}</p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <Link href="/admin/onboarding" className="text-xs text-royal-700 hover:text-royal-800">← Onboarding</Link>
+          <h1 className="mt-1 font-display text-xl font-bold text-stone-900">{template.name}</h1>
+          <p className="text-sm text-stone-500">Version {version?.version_number ?? "—"} {template.is_default && "· Default template"}</p>
+        </div>
+        <DeleteOnboardingTemplateButton templateId={template.id} templateName={template.name} />
       </div>
 
       <div className="card">

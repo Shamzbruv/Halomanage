@@ -1952,6 +1952,40 @@ async function main() {
     delete from auth.users where id in ('${PENDING_USER}', '${ACCEPTED_USER}');
   `);
 
+  // ==================== DELETE ONBOARDING TEMPLATE ====================
+  // Ref: 20260904100000_delete_onboarding_template.sql
+  let unusedTemplateId, usedTemplateId, usedVersionId;
+  await as(ERIN_USER, async () => {
+    const unused = await db.query(`insert into public.onboarding_templates (organization_id, name) values ('${ORG}', 'Never used') returning id`);
+    unusedTemplateId = unused.rows[0].id;
+
+    const used = await db.query(`insert into public.onboarding_templates (organization_id, name) values ('${ORG}', 'Already used') returning id`);
+    usedTemplateId = used.rows[0].id;
+    const version = await db.query(`insert into public.onboarding_template_versions (template_id, version_number, is_current) values ('${usedTemplateId}', 1, true) returning id`);
+    usedVersionId = version.rows[0].id;
+    await db.query(`insert into public.onboarding_template_steps (template_version_id, title, step_type, assignee_type, sequence, due_offset_days) values ('${usedVersionId}', 'Sign handbook', 'acknowledgement', 'employee', 1, 1)`);
+    await db.query(`select * from public.start_onboarding('${FRANK_EMP}', '${usedTemplateId}')`);
+  });
+
+  await as(DAVID_USER, async () => {
+    let threw = false;
+    try { await db.query(`select public.delete_onboarding_template('${unusedTemplateId}')`); } catch { threw = true; }
+    ok("David (no onboarding.manage_templates) cannot delete an onboarding template", threw);
+  });
+  await as(ERIN_USER, async () => {
+    await db.query(`select public.delete_onboarding_template('${unusedTemplateId}')`);
+    const gone = await db.query(`select count(*) from public.onboarding_templates where id = '${unusedTemplateId}'`);
+    ok("a template that has never been used can be deleted", Number(gone.rows[0].count) === 0);
+    const audit = await db.query(`select count(*) from public.audit_events where action = 'ONBOARDING_TEMPLATE_DELETED' and entity_id = '${unusedTemplateId}'`);
+    ok("the deletion is recorded in the audit trail", Number(audit.rows[0].count) === 1);
+
+    let threw = false;
+    try { await db.query(`select public.delete_onboarding_template('${usedTemplateId}')`); } catch { threw = true; }
+    ok("a template that has already onboarded someone cannot be deleted", threw);
+    const stillThere = await db.query(`select count(*) from public.onboarding_templates where id = '${usedTemplateId}'`);
+    ok("the blocked delete did not partially remove the template or its version/steps", Number(stillThere.rows[0].count) === 1);
+  });
+
   console.log(`\n${passCount} passed, ${failCount} failed.`);
   if (failCount > 0) process.exitCode = 1;
 }
