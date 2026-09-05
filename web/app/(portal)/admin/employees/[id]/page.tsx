@@ -11,6 +11,7 @@ import { ReportingScopeForm } from "@/components/ReportingScopeForm";
 import { RoleAssignmentForm } from "@/components/RoleAssignmentForm";
 import { TerminateEmployeeButton } from "@/components/TerminateEmployeeButton";
 import { statusBadgeClass } from "@/lib/ui";
+import { todayIn } from "@/lib/timezone";
 
 export default async function EmployeeDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -127,7 +128,7 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
     ? employees?.find((e) => e.id === currentAssignment.manager_employee_id)
     : null;
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayIn(session.organization?.timezone);
   const currentCompensation = (compensationHistory ?? []).find(
     (c) => c.start_date <= today && (!c.end_date || c.end_date >= today),
   ) ?? null;

@@ -5,6 +5,7 @@ import { Icon } from "@/components/Icon";
 import { getCurrentSession, sessionCan } from "@/lib/session";
 import { createClient } from "@/lib/supabase/server";
 import { statusBadgeClass } from "@/lib/ui";
+import { formatDateTime } from "@/lib/timezone";
 
 export default async function MigrationCenterPage() {
   const session = await getCurrentSession();
@@ -65,7 +66,7 @@ export default async function MigrationCenterPage() {
             {(batches ?? []).map((batch) => (
               <Link href={`/admin/migrations/${batch.id}`} key={batch.id}>
                 <span className={`metric-icon ${batch.status === "committed" ? "mint" : batch.error_rows ? "coral" : "sun"}`}><Icon name="document" size={17} /></span>
-                <span><strong>{batch.original_file_name}</strong><small>{batch.source_system.replace(/_/g, " ")} · {new Date(batch.uploaded_at).toLocaleString()} · {batch.total_rows} row{batch.total_rows === 1 ? "" : "s"}</small></span>
+                <span><strong>{batch.original_file_name}</strong><small>{batch.source_system.replace(/_/g, " ")} · {formatDateTime(batch.uploaded_at, session.organization?.timezone)} · {batch.total_rows} row{batch.total_rows === 1 ? "" : "s"}</small></span>
                 <span className="migration-row-summary"><small>{batch.create_rows} create · {batch.update_rows} update · {batch.error_rows} error</small><span className={`badge ${statusBadgeClass(batch.status)}`}>{batch.status.replace(/_/g, " ")}</span></span>
                 <Icon name="arrow-right" size={16} />
               </Link>

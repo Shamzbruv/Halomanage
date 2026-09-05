@@ -3,6 +3,7 @@ import { Icon } from "@/components/Icon";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession, sessionCan } from "@/lib/session";
 import { statusBadgeClass } from "@/lib/ui";
+import { formatDate as formatDateTz, todayIn } from "@/lib/timezone";
 
 type CompensationRecord = {
   id: string;
@@ -76,6 +77,11 @@ function formatMoney(value: number | string | null | undefined, currency = "USD"
   }).format(Number(value));
 }
 
+// Plain `date` columns only (start_date, period_start/end, pay_date) — the
+// noon-UTC trick avoids the day shifting when rendered. `timesheet_cutoff_at`
+// is a real timestamptz with a meaningful time-of-day, so it's rendered
+// separately below via lib/timezone's formatDate, which converts to the
+// organization's actual timezone instead of assuming noon.
 function formatDate(value: string | null | undefined) {
   if (!value) return "—";
   const date = value.length === 10 ? new Date(`${value}T12:00:00`) : new Date(value);
@@ -98,7 +104,7 @@ export default async function PayPage() {
 
   const supabase = await createClient();
   const employeeId = session.employee.id;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayIn(session.organization?.timezone);
 
   const [compensationResult, componentResult, payrollResult] = await Promise.all([
     supabase
@@ -283,7 +289,7 @@ export default async function PayPage() {
               {futurePeriods.map((period) => (
                 <tr key={period.id}>
                   <td className="py-3 font-medium text-stone-900">{formatDate(period.period_start)} – {formatDate(period.period_end)}</td>
-                  <td className="py-3 text-stone-500">{formatDate(period.timesheet_cutoff_at)}</td>
+                  <td className="py-3 text-stone-500">{period.timesheet_cutoff_at ? formatDateTz(period.timesheet_cutoff_at, session.organization?.timezone) : "—"}</td>
                   <td className="py-3 font-medium text-stone-900">{formatDate(period.pay_date)}</td>
                   <td className="py-3"><span className={`badge ${statusBadgeClass(period.status)}`}>{titleCase(period.status)}</span></td>
                 </tr>

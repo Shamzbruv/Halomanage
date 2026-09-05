@@ -4,6 +4,7 @@ import { Icon } from "@/components/Icon";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession, sessionCan } from "@/lib/session";
 import { statusBadgeClass } from "@/lib/ui";
+import { todayIn } from "@/lib/timezone";
 
 function fullName(person: { first_name?: string | null; last_name?: string | null; preferred_name?: string | null }) {
   const first = person.preferred_name || person.first_name;
@@ -63,7 +64,7 @@ export default async function TeamMemberProfilePage({ params }: { params: Promis
 
   let currentCompensation: any = null;
   if (canReadCompensation) {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayIn(session.organization?.timezone);
     const { data: comp } = await supabase
       .from("employee_compensation")
       .select("*")

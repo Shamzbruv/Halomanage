@@ -24,7 +24,7 @@ export function CreateOrganizationForm() {
   const [pendingConfirmation, setPendingConfirmation] = useState(false);
 
   async function createWorkspace() {
-    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Jamaica";
     return supabase.rpc("create_organization_workspace", {
       p_organization_name: organizationName,
       p_slug: slugify(organizationName),
@@ -40,7 +40,7 @@ export function CreateOrganizationForm() {
     setLoading(true);
     setError(null);
 
-    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Jamaica";
     const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
       email,
       password,

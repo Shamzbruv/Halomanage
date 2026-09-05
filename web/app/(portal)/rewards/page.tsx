@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession, sessionCan } from "@/lib/session";
 import { statusBadgeClass } from "@/lib/ui";
 import { RedeemRewardButton } from "@/components/rewards/RedeemRewardButton";
+import { formatDate } from "@/lib/timezone";
 
 export default async function RewardsPage() {
   const session = await getCurrentSession();
@@ -97,7 +98,7 @@ export default async function RewardsPage() {
                   <td className="py-2 font-medium text-stone-900">{r.reward_products?.name}</td>
                   <td className="py-2">{r.points_spent.toLocaleString()}</td>
                   <td className="py-2"><span className={`badge ${statusBadgeClass(r.status)}`}>{r.status.replace(/_/g, " ")}</span></td>
-                  <td className="py-2 text-xs text-stone-500">{new Date(r.created_at).toLocaleDateString()}</td>
+                  <td className="py-2 text-xs text-stone-500">{formatDate(r.created_at, session.organization?.timezone)}</td>
                 </tr>
               ))}
             </tbody>
@@ -118,7 +119,7 @@ export default async function RewardsPage() {
                   <td className="py-2"><span className="badge badge-neutral">{entry.entry_type}</span></td>
                   <td className={`py-2 font-medium ${entry.amount > 0 ? "text-emerald-700" : "text-stone-900"}`}>{entry.amount > 0 ? "+" : ""}{entry.amount.toLocaleString()}</td>
                   <td className="py-2 text-stone-600">{entry.reason ?? "—"}</td>
-                  <td className="py-2 text-xs text-stone-500">{new Date(entry.created_at).toLocaleDateString()}</td>
+                  <td className="py-2 text-xs text-stone-500">{formatDate(entry.created_at, session.organization?.timezone)}</td>
                 </tr>
               ))}
             </tbody>

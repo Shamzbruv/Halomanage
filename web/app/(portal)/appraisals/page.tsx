@@ -4,6 +4,7 @@ import { Icon } from "@/components/Icon";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession, sessionCan } from "@/lib/session";
 import { statusBadgeClass } from "@/lib/ui";
+import { formatDate } from "@/lib/timezone";
 
 export default async function AppraisalsPage() {
   const session = await getCurrentSession();
@@ -32,7 +33,7 @@ export default async function AppraisalsPage() {
           <div className="panel-heading"><div><span className="panel-icon"><Icon name="performance" /></span><div><h3>My checkpoints</h3><p>Your current and previous performance conversations.</p></div></div></div>
           <div className="checkpoint-list">
             {(own ?? []).length === 0 && <div className="list-empty">No checkpoints scheduled yet.</div>}
-            {(own ?? []).map((item) => <Link href={`/appraisals/${item.id}`} key={item.id}><span className="metric-icon mint small"><Icon name="performance" size={16} /></span><div><strong>{item.label ?? "Performance checkpoint"}</strong><small>{item.created_at ? new Date(item.created_at).toLocaleDateString("en", { month: "short", day: "numeric", year: "numeric" }) : "Checkpoint"}</small></div><span className={`badge ${statusBadgeClass(item.status)}`}>{item.status.replace(/_/g, " ")}</span></Link>)}
+            {(own ?? []).map((item) => <Link href={`/appraisals/${item.id}`} key={item.id}><span className="metric-icon mint small"><Icon name="performance" size={16} /></span><div><strong>{item.label ?? "Performance checkpoint"}</strong><small>{item.created_at ? formatDate(item.created_at, session.organization?.timezone, { month: "short", day: "numeric", year: "numeric" }) : "Checkpoint"}</small></div><span className={`badge ${statusBadgeClass(item.status)}`}>{item.status.replace(/_/g, " ")}</span></Link>)}
           </div>
         </section>
         <section className="card">

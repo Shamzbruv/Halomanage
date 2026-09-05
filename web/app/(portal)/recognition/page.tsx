@@ -3,6 +3,7 @@ import { Icon } from "@/components/Icon";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession, sessionCan } from "@/lib/session";
 import { GiveRecognitionForm } from "@/components/rewards/GiveRecognitionForm";
+import { formatDate, startOfMonthIn } from "@/lib/timezone";
 
 function fullName(person: { first_name?: string | null; last_name?: string | null } | null | undefined) {
   if (!person) return "A coworker";
@@ -18,15 +19,13 @@ export default async function RecognitionPage() {
   const supabase = await createClient();
   const employeeId = session.employee.id;
   const orgId = session.organizationId;
-  const startOfMonth = new Date();
-  startOfMonth.setDate(1);
-  startOfMonth.setHours(0, 0, 0, 0);
+  const startOfMonth = startOfMonthIn(session.organization?.timezone);
 
   const [{ data: settings }, { data: coworkers }, { data: values }, { data: givenThisMonth }, { data: feed }] = await Promise.all([
     supabase.from("organization_recognition_settings").select("monthly_point_allowance, max_points_per_recognition, default_visibility").eq("organization_id", orgId).maybeSingle(),
     supabase.from("employees").select("id, first_name, last_name").eq("organization_id", orgId).eq("status", "active").neq("id", employeeId).order("first_name"),
     supabase.from("recognition_values").select("id, name").eq("organization_id", orgId).eq("is_active", true).order("name"),
-    supabase.from("recognitions").select("points_given").eq("giver_employee_id", employeeId).gte("created_at", startOfMonth.toISOString()),
+    supabase.from("recognitions").select("points_given").eq("giver_employee_id", employeeId).gte("created_at", startOfMonth),
     supabase
       .from("recognitions")
       .select("id, message, points_given, visibility, created_at, giver:giver_employee_id(first_name, last_name), recipient:recipient_employee_id(first_name, last_name), recognition_values(name)")
@@ -82,7 +81,7 @@ export default async function RecognitionPage() {
                   <p>{item.message}</p>
                   <small>
                     {item.recognition_values?.name ? `${item.recognition_values.name} · ` : ""}
-                    {new Date(item.created_at).toLocaleDateString()}
+                    {formatDate(item.created_at, session.organization?.timezone)}
                     {item.visibility === "private" ? " · Private" : ""}
                   </small>
                 </div>

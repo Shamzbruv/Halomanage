@@ -18,7 +18,7 @@ export default async function CompleteSignupPage() {
     organizationSlug: typeof metadata.organization_slug === "string" ? metadata.organization_slug : "",
     firstName: typeof metadata.first_name === "string" ? metadata.first_name : "",
     lastName: typeof metadata.last_name === "string" ? metadata.last_name : "",
-    timezone: typeof metadata.timezone === "string" ? metadata.timezone : "UTC",
+    timezone: typeof metadata.timezone === "string" ? metadata.timezone : "America/Jamaica",
     countryCode: typeof metadata.country_code === "string" ? metadata.country_code : "",
   }} />;
 }

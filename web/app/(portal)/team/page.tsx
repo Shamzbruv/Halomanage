@@ -6,6 +6,7 @@ import { TeamRosterTable, type RosterRow } from "@/components/team/TeamRosterTab
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession, sessionCan } from "@/lib/session";
 import { statusBadgeClass } from "@/lib/ui";
+import { formatTime, todayIn } from "@/lib/timezone";
 
 function fullName(person: { first_name?: string | null; last_name?: string | null }) {
   return [person.first_name, person.last_name].filter(Boolean).join(" ") || "Team member";
@@ -21,7 +22,7 @@ export default async function TeamPage() {
 
   const supabase = await createClient();
   const organizationId = session.organizationId;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayIn(session.organization?.timezone);
   const results = await Promise.all([
     supabase.from("leave_pending_v").select("*").order("submitted_at", { ascending: true }),
     supabase.from("attendance_today_v").select("*").order("clock_in_at", { ascending: true }),
@@ -192,7 +193,7 @@ export default async function TeamPage() {
           <div className="panel-heading"><div><span className="panel-icon"><Icon name="clock" /></span><div><h3>Team attendance</h3><p>Live status for today.</p></div></div></div>
           <table className="w-full text-sm"><thead><tr className="border-b border-stone-100 text-left"><th className="pb-3">Employee</th><th className="pb-3">Clocked in</th><th className="pb-3">Status</th></tr></thead><tbody className="divide-y divide-stone-100">
             {attendanceToday.length === 0 && <tr><td colSpan={3} className="py-8 text-center text-stone-400">No one is on the clock right now.</td></tr>}
-            {(attendanceToday as any[]).map((item) => <tr key={item.employee_id}><td className="py-3 font-medium text-stone-900">{item.first_name} {item.last_name}</td><td className="py-3 text-stone-500">{new Date(item.clock_in_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</td><td className="py-3"><span className={`badge ${item.is_late ? "badge-gold" : "badge-emerald"}`}>{item.is_late ? "Late" : "On time"}</span></td></tr>)}
+            {(attendanceToday as any[]).map((item) => <tr key={item.employee_id}><td className="py-3 font-medium text-stone-900">{item.first_name} {item.last_name}</td><td className="py-3 text-stone-500">{formatTime(item.clock_in_at, session.organization?.timezone)}</td><td className="py-3"><span className={`badge ${item.is_late ? "badge-gold" : "badge-emerald"}`}>{item.is_late ? "Late" : "On time"}</span></td></tr>)}
           </tbody></table>
         </section>
       </div>

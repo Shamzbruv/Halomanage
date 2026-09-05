@@ -15,7 +15,10 @@ export function AppraisalCycleForm({
   const router = useRouter();
   const [name, setName] = useState("");
   const [templateId, setTemplateId] = useState(templates[0]?.id ?? "");
-  const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
+  // en-CA gives YYYY-MM-DD from the browser's own local date — avoids the
+  // off-by-one near midnight that toISOString() causes by converting to UTC
+  // first (see lib/timezone.ts's todayIn(), same trick, for the server side).
+  const [startDate, setStartDate] = useState(new Date().toLocaleDateString("en-CA"));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

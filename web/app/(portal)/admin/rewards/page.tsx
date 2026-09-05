@@ -7,6 +7,7 @@ import { AwardPointsForm } from "@/components/rewards/AwardPointsForm";
 import { RedemptionFulfillmentActions } from "@/components/rewards/RedemptionFulfillmentActions";
 import { RecognitionSettingsForm } from "@/components/rewards/RecognitionSettingsForm";
 import { NewRecognitionValueForm } from "@/components/rewards/NewRecognitionValueForm";
+import { formatDate } from "@/lib/timezone";
 
 // Gated behind the rewards_marketplace platform feature (see
 // 20260830110000_rewards_marketplace.sql) — an org needs it turned on by a
@@ -73,7 +74,7 @@ export default async function RewardsAdminPage() {
                   <td className="py-2">{r.reward_products?.name}</td>
                   <td className="py-2">{r.points_spent.toLocaleString()}</td>
                   <td className="py-2 text-xs text-stone-500">{r.fulfillment_type}</td>
-                  <td className="py-2 text-xs text-stone-500">{new Date(r.created_at).toLocaleDateString()}</td>
+                  <td className="py-2 text-xs text-stone-500">{formatDate(r.created_at, session.organization?.timezone)}</td>
                   <td className="py-2"><RedemptionFulfillmentActions redemptionId={r.id} /></td>
                 </tr>
               ))}

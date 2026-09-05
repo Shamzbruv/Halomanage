@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession, sessionCan } from "@/lib/session";
 import { NewPayCalendarForm } from "@/components/compensation/NewPayCalendarForm";
 import { GeneratePayPeriodsForm } from "@/components/compensation/GeneratePayPeriodsForm";
+import { formatDate } from "@/lib/timezone";
 
 export default async function PayCalendarsPage() {
   const session = await getCurrentSession();
@@ -66,9 +67,9 @@ export default async function PayCalendarsPage() {
                   {calendarPeriods.map((p) => (
                     <tr key={p.id}>
                       <td className="py-2">{p.period_start} → {p.period_end}</td>
-                      <td className="py-2 text-xs text-stone-500">{p.timesheet_cutoff_at ? new Date(p.timesheet_cutoff_at).toLocaleDateString() : "—"}</td>
-                      <td className="py-2 text-xs text-stone-500">{p.approval_deadline_at ? new Date(p.approval_deadline_at).toLocaleDateString() : "—"}</td>
-                      <td className="py-2 text-xs text-stone-500">{p.payroll_export_deadline_at ? new Date(p.payroll_export_deadline_at).toLocaleDateString() : "—"}</td>
+                      <td className="py-2 text-xs text-stone-500">{p.timesheet_cutoff_at ? formatDate(p.timesheet_cutoff_at, session.organization?.timezone) : "—"}</td>
+                      <td className="py-2 text-xs text-stone-500">{p.approval_deadline_at ? formatDate(p.approval_deadline_at, session.organization?.timezone) : "—"}</td>
+                      <td className="py-2 text-xs text-stone-500">{p.payroll_export_deadline_at ? formatDate(p.payroll_export_deadline_at, session.organization?.timezone) : "—"}</td>
                       <td className="py-2 font-medium text-stone-900">{p.pay_date}</td>
                       <td className="py-2 text-xs">{p.status}</td>
                     </tr>

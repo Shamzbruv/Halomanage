@@ -6,6 +6,7 @@ import type { IconName } from "@/components/Icon";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession, sessionCan } from "@/lib/session";
 import { statusBadgeClass } from "@/lib/ui";
+import { currentDateLabelIn, currentHourIn, currentTimeIn, formatDate, formatTime, todayIn } from "@/lib/timezone";
 import type { AttendanceSession, LeaveRequest } from "@/lib/supabase/types";
 
 type AdminEmployee = {
@@ -84,13 +85,6 @@ type AdminAction = {
 
 const DAY_MS = 86_400_000;
 
-function dateKey(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
 function dateOrdinal(value: string) {
   const [year, month, day] = value.split("-").map(Number);
   return Date.UTC(year, month - 1, day);
@@ -121,8 +115,8 @@ function initials(firstName: string, lastName: string) {
   return `${firstName?.[0] ?? ""}${lastName?.[0] ?? ""}`.toUpperCase();
 }
 
-function greeting() {
-  const hour = new Date().getHours();
+function greeting(timezone: string | null | undefined) {
+  const hour = currentHourIn(timezone);
   if (hour < 12) return "Good morning";
   if (hour < 18) return "Good afternoon";
   return "Good evening";
@@ -177,9 +171,12 @@ export default async function DashboardPage() {
   let adminActions: AdminAction[] = [];
   if (isAdmin && session.organizationId) {
     const organizationId = session.organizationId;
-    const reportDate = new Date();
-    const today = dateKey(reportDate);
-    const expiryCutoff = dateKey(new Date(reportDate.getTime() + 60 * DAY_MS));
+    // "Today" must be the organization's own calendar date, not the
+    // server's (Railway runs in UTC) — for roughly 5 hours every Jamaican
+    // evening, UTC has already rolled over to tomorrow, which would push
+    // real overdue/expiring items a day late or early.
+    const today = todayIn(session.organization?.timezone);
+    const expiryCutoff = new Date(dateOrdinal(today) + 60 * DAY_MS).toISOString().slice(0, 10);
 
     const [
       { data: attendanceToday },
@@ -274,13 +271,13 @@ export default async function DashboardPage() {
     <div className="dashboard-space">
       <section className="dashboard-welcome">
         <div>
-          <span className="dashboard-date">{new Intl.DateTimeFormat("en", { weekday: "long", month: "long", day: "numeric" }).format(new Date())}</span>
-          <h2>{greeting()}, {firstName}.</h2>
+          <span className="dashboard-date">{currentDateLabelIn(session.organization?.timezone)}</span>
+          <h2>{greeting(session.organization?.timezone)}, {firstName}.</h2>
           <p>{assignmentData?.positions?.title || "Your workspace"}{assignmentData?.org_units?.name ? ` · ${assignmentData.org_units.name}` : ""}</p>
         </div>
         <div className="dashboard-welcome-action">
           <span className={openSession ? "status-light online" : "status-light"} />
-          <div><small>{openSession ? "You’re working" : "You’re off the clock"}</small><strong>{openSession ? `Since ${new Date(openSession.clock_in_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "Ready when you are"}</strong></div>
+          <div><small>{openSession ? "You’re working" : "You’re off the clock"}</small><strong>{openSession ? `Since ${formatTime(openSession.clock_in_at, session.organization?.timezone)}` : "Ready when you are"}</strong></div>
         </div>
       </section>
 
@@ -322,7 +319,7 @@ export default async function DashboardPage() {
         <div className="dashboard-column wide">
           <div className="card dashboard-attendance">
             <div className="panel-heading"><div><span className="panel-icon"><Icon name="clock" /></span><div><h3>Today&apos;s attendance</h3><p>Your time is recorded using a trusted server timestamp.</p></div></div><span className={`badge ${openSession ? "badge-emerald" : "badge-neutral"}`}>{openSession ? "Clocked in" : "Not clocked in"}</span></div>
-            <div className="attendance-action"><div><small>{openSession ? "Session started" : "Current local time"}</small><strong>{openSession ? new Date(openSession.clock_in_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</strong></div><ClockButton openSession={(openSession as AttendanceSession) ?? null} /></div>
+            <div className="attendance-action"><div><small>{openSession ? "Session started" : "Current local time"}</small><strong>{openSession ? formatTime(openSession.clock_in_at, session.organization?.timezone) : currentTimeIn(session.organization?.timezone)}</strong></div><ClockButton openSession={(openSession as AttendanceSession) ?? null} /></div>
           </div>
 
           <div className="card">
@@ -350,7 +347,7 @@ export default async function DashboardPage() {
             <div className="panel-heading"><div><span className="panel-icon"><Icon name="spark" /></span><div><h3>Updates</h3><p>Recent activity for you.</p></div></div></div>
             <div className="notification-list">
               {(notifications ?? []).length === 0 && <div className="list-empty compact">No new updates.</div>}
-              {(notifications ?? []).map((item) => <div key={item.id} className={item.is_read ? "read" : ""}><span /><div><strong>{item.title}</strong>{item.body && <small>{item.body}</small>}<time>{new Date(item.created_at).toLocaleDateString("en", { month: "short", day: "numeric" })}</time></div></div>)}
+              {(notifications ?? []).map((item) => <div key={item.id} className={item.is_read ? "read" : ""}><span /><div><strong>{item.title}</strong>{item.body && <small>{item.body}</small>}<time>{formatDate(item.created_at, session.organization?.timezone, { month: "short", day: "numeric" })}</time></div></div>)}
             </div>
           </div>
 

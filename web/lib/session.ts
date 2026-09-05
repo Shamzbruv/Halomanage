@@ -18,6 +18,7 @@ export type CurrentSession = {
     name: string;
     slug: string;
     settings: Record<string, unknown>;
+    timezone: string;
   } | null;
   dataError: boolean;
 };
@@ -159,7 +160,7 @@ export async function getCurrentSession(): Promise<CurrentSession | null> {
   if (organizationId) {
     const result = await supabase
       .from("organizations")
-      .select("id, name, slug, settings")
+      .select("id, name, slug, settings, timezone")
       .eq("id", organizationId)
       .maybeSingle();
     if (isExpiredSessionError(result.error)) {
@@ -174,6 +175,7 @@ export async function getCurrentSession(): Promise<CurrentSession | null> {
         name: result.data.name,
         slug: String(result.data.slug),
         settings: (result.data.settings as Record<string, unknown>) ?? {},
+        timezone: result.data.timezone,
       };
     }
   }

@@ -33,7 +33,7 @@ export function CompleteWorkspaceSetup({ initial }: { initial: WorkspaceSetupDet
   const [firstName, setFirstName] = useState(initial.firstName);
   const [lastName, setLastName] = useState(initial.lastName);
   const [countryCode, setCountryCode] = useState(initial.countryCode);
-  const [timezone, setTimezone] = useState(initial.timezone || "UTC");
+  const [timezone, setTimezone] = useState(initial.timezone || "America/Jamaica");
   const [loading, setLoading] = useState(Boolean(initial.organizationName && initial.firstName && initial.lastName));
   const [showForm, setShowForm] = useState(!initial.organizationName || !initial.firstName || !initial.lastName);
   const [error, setError] = useState<string | null>(null);
@@ -45,7 +45,7 @@ export function CompleteWorkspaceSetup({ initial }: { initial: WorkspaceSetupDet
       p_slug: details.organizationSlug || slugify(details.organizationName),
       p_first_name: details.firstName,
       p_last_name: details.lastName,
-      p_timezone: details.timezone || "UTC",
+      p_timezone: details.timezone || "America/Jamaica",
       p_country_code: details.countryCode || null,
     });
 

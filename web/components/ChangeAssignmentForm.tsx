@@ -32,7 +32,10 @@ export function ChangeAssignmentForm({
     supervisor_employee_id: "",
     manager_employee_id: "",
     employment_type: "full_time",
-    start_date: new Date().toISOString().slice(0, 10),
+    // en-CA gives YYYY-MM-DD from the browser's own local date — avoids the
+    // off-by-one near midnight that toISOString() causes by converting to
+    // UTC first (see lib/timezone.ts's todayIn(), same trick, server-side).
+    start_date: new Date().toLocaleDateString("en-CA"),
     change_reason: "",
   });
   const [loading, setLoading] = useState(false);

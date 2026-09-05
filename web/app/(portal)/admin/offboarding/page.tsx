@@ -6,6 +6,7 @@ import { OffboardingTemplateForm } from "@/components/OffboardingTemplateForm";
 import { StartOffboardingForm } from "@/components/StartOffboardingForm";
 import { getCurrentSession, sessionCan } from "@/lib/session";
 import { createClient } from "@/lib/supabase/server";
+import { todayIn } from "@/lib/timezone";
 
 type OffboardingTemplate = {
   id: string;
@@ -121,7 +122,7 @@ export default async function OffboardingAdminPage() {
 
   const activeRuns = runs.filter((run) => run.status === "in_progress");
   const completedRuns = runs.filter((run) => run.status === "completed");
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayIn(session.organization?.timezone);
   const overdueTasks = tasks.filter((task) => task.status === "pending" && task.due_date && task.due_date < today).length;
   const dataError = templateResult.error || employeeResult.error || runResult.error || stepResult.error || taskResult.error;
 

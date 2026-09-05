@@ -6,6 +6,7 @@ import { Icon } from "@/components/Icon";
 import { getCurrentSession, sessionCan } from "@/lib/session";
 import { createClient } from "@/lib/supabase/server";
 import { statusBadgeClass } from "@/lib/ui";
+import { formatDateTime } from "@/lib/timezone";
 
 type ImportRow = {
   id: string;
@@ -55,7 +56,7 @@ export default async function MigrationBatchPage({ params }: { params: Promise<{
           <Link className="table-action" href="/admin/migrations">← Migration Center</Link>
           <span className="eyebrow">Employee import dry-run</span>
           <h1>{batch.original_file_name}</h1>
-          <p>{batch.source_system.replace(/_/g, " ")} export uploaded {new Date(batch.uploaded_at).toLocaleString()}.</p>
+          <p>{batch.source_system.replace(/_/g, " ")} export uploaded {formatDateTime(batch.uploaded_at, session.organization?.timezone)}.</p>
         </div>
         <span className={`badge ${statusBadgeClass(batch.status)}`}>{batch.status.replace(/_/g, " ")}</span>
       </div>

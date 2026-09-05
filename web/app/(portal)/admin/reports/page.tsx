@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession, sessionCan } from "@/lib/session";
 import { Icon } from "@/components/Icon";
+import { formatDate } from "@/lib/timezone";
 
 export default async function ReportsPage() {
   const session = await getCurrentSession();
@@ -113,7 +114,7 @@ export default async function ReportsPage() {
                 <td className="py-2">{b.batch_type === "pay_run_results" ? "Pay run" : "Comp. change"}</td>
                 <td className="py-2">{b.status}</td>
                 <td className="py-2">{b.matched_rows}/{b.total_rows}</td>
-                <td className="py-2 text-stone-500">{new Date(b.uploaded_at).toLocaleDateString()}</td>
+                <td className="py-2 text-stone-500">{formatDate(b.uploaded_at, session.organization?.timezone)}</td>
               </tr>
             ))}
           </tbody>

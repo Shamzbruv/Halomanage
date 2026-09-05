@@ -28,7 +28,7 @@ export function BootstrapOrganizationForm() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [countryCode, setCountryCode] = useState("");
-  const [timezone, setTimezone] = useState("UTC");
+  const [timezone, setTimezone] = useState("America/Jamaica");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,7 +42,7 @@ export function BootstrapOrganizationForm() {
       p_slug: slugify(organizationName),
       p_first_name: firstName,
       p_last_name: lastName,
-      p_timezone: timezone || "UTC",
+      p_timezone: timezone || "America/Jamaica",
       p_country_code: countryCode || null,
     });
 
