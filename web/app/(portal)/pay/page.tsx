@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Icon } from "@/components/Icon";
+import { HelpTip } from "@/components/HelpTip";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession, sessionCan } from "@/lib/session";
 import { statusBadgeClass } from "@/lib/ui";
@@ -180,8 +181,12 @@ export default async function PayPage() {
     <div className="space-y-6">
       <div className="page-intro">
         <span className="eyebrow">Your compensation</span>
-        <h1>My pay &amp; compensation.</h1>
-        <p>See your current gross rate, effective-dated changes, pay schedule, recurring components, and approved records imported from your payroll provider.</p>
+        <h1>My pay &amp; compensation.<HelpTip title="My pay">
+          Yes — this is your salary. It shows your current rate, when you&apos;re next paid, any allowances or bonuses on top of
+          your base rate, and every payslip from an approved pay run. Nothing here is calculated by Halomanage: figures come
+          straight from your organization&apos;s payroll provider once a pay run is approved.
+        </HelpTip></h1>
+        <p>Your salary, pay schedule, and payslips — see your current rate, effective-dated changes, recurring components, and download any approved payslip below.</p>
       </div>
 
       {loadError && (
@@ -301,7 +306,9 @@ export default async function PayPage() {
       </div>
 
       <section className="card overflow-x-auto">
-        <div className="panel-heading"><div><span className="panel-icon"><Icon name="document" /></span><div><h3>Approved pay records</h3><p>Pay-run results imported from your payroll provider. Newest pay date first.</p></div></div></div>
+        <div className="panel-heading"><div><span className="panel-icon"><Icon name="document" /></span><div><h3 className="flex items-center">Approved pay records<HelpTip title="Approved pay records">
+          One row per pay run you were paid on. Click View to open and print (or save as PDF) that pay run as a payslip.
+        </HelpTip></h3><p>Pay-run results imported from your payroll provider — your payslips. Newest pay date first.</p></div></div></div>
         <table className="w-full text-sm">
           <thead><tr className="border-b border-stone-100 text-left"><th className="pb-3">Pay date</th><th className="pb-3">Period</th><th className="pb-3 text-right">Regular</th><th className="pb-3 text-right">Overtime</th><th className="pb-3 text-right">Other earnings</th><th className="pb-3 text-right">Gross</th><th className="pb-3 text-right">Deductions</th><th className="pb-3 text-right">Net</th><th className="pb-3 text-right">Payslip</th></tr></thead>
           <tbody className="divide-y divide-stone-100">

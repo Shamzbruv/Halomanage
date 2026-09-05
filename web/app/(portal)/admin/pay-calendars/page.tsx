@@ -4,6 +4,7 @@ import { getCurrentSession, sessionCan } from "@/lib/session";
 import { NewPayCalendarForm } from "@/components/compensation/NewPayCalendarForm";
 import { GeneratePayPeriodsForm } from "@/components/compensation/GeneratePayPeriodsForm";
 import { formatDate } from "@/lib/timezone";
+import { HelpTip } from "@/components/HelpTip";
 
 export default async function PayCalendarsPage() {
   const session = await getCurrentSession();
@@ -27,7 +28,12 @@ export default async function PayCalendarsPage() {
       <div className="admin-page-head">
         <div className="page-intro">
           <span className="eyebrow">Scheduling</span>
-          <h1>Pay calendars &amp; periods.</h1>
+          <h1>Pay calendars &amp; periods.<HelpTip title="Pay calendars & periods">
+            A calendar defines a pay cadence (weekly, biweekly, semimonthly, monthly...); its periods are the actual dated
+            instances of that cadence — the specific date ranges people see on My Pay. Creating a calendar with no periods
+            generated yet is why a pay group can look &quot;empty&quot;: assign the calendar to a pay group under Compensation
+            structure, then use Generate periods below to create the actual dates. Nothing here calculates anyone&apos;s pay.
+          </HelpTip></h1>
           <p>Weekly, biweekly, semimonthly, monthly, or custom — generating periods is pure date scheduling, never a payroll calculation.</p>
         </div>
         {canManage && <NewPayCalendarForm organizationId={orgId} payGroups={payGroups ?? []} />}

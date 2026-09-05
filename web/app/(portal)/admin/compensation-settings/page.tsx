@@ -5,6 +5,7 @@ import { NewPayGroupForm } from "@/components/compensation/NewPayGroupForm";
 import { NewPayGradeForm } from "@/components/compensation/NewPayGradeForm";
 import { NewCompensationComponentForm } from "@/components/compensation/NewCompensationComponentForm";
 import { NewChangeReasonForm } from "@/components/compensation/NewChangeReasonForm";
+import { HelpTip } from "@/components/HelpTip";
 
 // Gated on compensation.manage_structure — deliberately not the same
 // permission as changing one employee's individual compensation
@@ -31,12 +32,20 @@ export default async function CompensationSettingsPage() {
     <div className="space-y-6">
       <div className="page-intro">
         <span className="eyebrow">Compensation structure</span>
-        <h1>Set up how compensation is organized.</h1>
+        <h1>Set up how compensation is organized.<HelpTip title="Compensation structure">
+          None of the four lists below set anyone&apos;s pay directly — they&apos;re the shared options a{" "}
+          <strong>Change Compensation</strong> action on an individual employee&apos;s record picks from. Define them once here, then
+          apply them per person. Halomanage never calculates tax, deductions, or net pay from any of it.
+        </HelpTip></h1>
         <p>Pay groups, grades, components, and change reasons — the building blocks Change Compensation draws from. Halomanage never calculates tax or net pay from any of this.</p>
       </div>
 
       <section className="card overflow-x-auto">
-        <div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-semibold text-stone-900">Pay groups</h2><NewPayGroupForm organizationId={orgId} /></div>
+        <div className="mb-3 flex items-center justify-between"><h2 className="flex items-center text-sm font-semibold text-stone-900">Pay groups<HelpTip title="Pay groups">
+          Links a group of employees to a shared pay calendar, so their My Pay page can show a next pay date. Employees paid on
+          the same schedule — e.g. everyone on monthly salary — usually share one pay group. Assign a person to one from their
+          Change Compensation form.
+        </HelpTip></h2><NewPayGroupForm organizationId={orgId} /></div>
         <table className="w-full text-sm">
           <thead><tr className="border-b border-stone-100 text-left text-xs uppercase text-stone-400"><th className="pb-2">Name</th><th className="pb-2">Code</th><th className="pb-2">Currency</th><th className="pb-2">Frequency</th><th className="pb-2">Active</th></tr></thead>
           <tbody className="divide-y divide-stone-100">
@@ -49,7 +58,10 @@ export default async function CompensationSettingsPage() {
       </section>
 
       <section className="card overflow-x-auto">
-        <div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-semibold text-stone-900">Pay grades</h2><NewPayGradeForm organizationId={orgId} /></div>
+        <div className="mb-3 flex items-center justify-between"><h2 className="flex items-center text-sm font-semibold text-stone-900">Pay grades<HelpTip title="Pay grades">
+          An optional salary band for a role or level — a minimum, midpoint, and maximum. It&apos;s a reference range for setting or
+          reviewing pay, not a rate itself: assigning someone a pay grade doesn&apos;t change their actual amount.
+        </HelpTip></h2><NewPayGradeForm organizationId={orgId} /></div>
         <table className="w-full text-sm">
           <thead><tr className="border-b border-stone-100 text-left text-xs uppercase text-stone-400"><th className="pb-2">Name</th><th className="pb-2">Code</th><th className="pb-2">Range</th><th className="pb-2">Active</th></tr></thead>
           <tbody className="divide-y divide-stone-100">
@@ -67,7 +79,10 @@ export default async function CompensationSettingsPage() {
       </section>
 
       <section className="card overflow-x-auto">
-        <div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-semibold text-stone-900">Compensation components</h2><NewCompensationComponentForm organizationId={orgId} /></div>
+        <div className="mb-3 flex items-center justify-between"><h2 className="flex items-center text-sm font-semibold text-stone-900">Compensation components<HelpTip title="Compensation components">
+          Recurring or one-time amounts on top of someone&apos;s base rate — allowances, premiums, bonuses, or commission. Define
+          the types your organization pays here, then assign one to a specific person from their employee record.
+        </HelpTip></h2><NewCompensationComponentForm organizationId={orgId} /></div>
         <table className="w-full text-sm">
           <thead><tr className="border-b border-stone-100 text-left text-xs uppercase text-stone-400"><th className="pb-2">Name</th><th className="pb-2">Type</th><th className="pb-2">Recurrence</th><th className="pb-2">Value</th><th className="pb-2">Payable to</th></tr></thead>
           <tbody className="divide-y divide-stone-100">
@@ -86,7 +101,10 @@ export default async function CompensationSettingsPage() {
       </section>
 
       <section className="card overflow-x-auto">
-        <div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-semibold text-stone-900">Compensation change reasons</h2><NewChangeReasonForm organizationId={orgId} /></div>
+        <div className="mb-3 flex items-center justify-between"><h2 className="flex items-center text-sm font-semibold text-stone-900">Compensation change reasons<HelpTip title="Compensation change reasons">
+          A short list of reasons — Promotion, Merit increase, Market adjustment, and so on — offered as a dropdown whenever
+          someone&apos;s compensation changes, so every entry in their pay history has a documented &quot;why,&quot; not just a new number.
+        </HelpTip></h2><NewChangeReasonForm organizationId={orgId} /></div>
         <table className="w-full text-sm">
           <thead><tr className="border-b border-stone-100 text-left text-xs uppercase text-stone-400"><th className="pb-2">Name</th><th className="pb-2">Code</th></tr></thead>
           <tbody className="divide-y divide-stone-100">
