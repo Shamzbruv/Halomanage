@@ -981,31 +981,41 @@ and an HR/admin with `payroll.read_org` viewing someone else's, so the
 page queries `current_payroll_records` by id and lets that RLS decide
 (`notFound()` otherwise), matching `team/[id]`'s existing pattern.
 
-## A "?" help affordance, and where it's applied so far
+## A "?" help affordance on every tab
 
 2026-09-05, same report as the two sections above: "Compensation
 structure still don't make any sense to me," plus "there should be a
-question mark on every tab to tell the user what they can do in there."
-Added a reusable `components/HelpTip.tsx` — a small "?" next to any
-heading that reveals plain-language guidance on click (dismisses on
-outside click or Escape, so it works the same on touch as on desktop).
+question mark on every tab to tell the user what they can do in there
+and what each things are for." Added a reusable `components/HelpTip.tsx`
+— a small "?" next to a heading that reveals plain-language guidance on
+click (dismisses on outside click or Escape, so it works the same on
+touch as on desktop).
 
-Applied as a first pass to the places already reported as confusing,
-not to every tab — that's a much larger effort across dozens of pages
-this pass doesn't attempt:
+First applied page-by-page to the two places already reported as
+confusing (Compensation structure, My pay), then centralized and
+extended to literally every tab: `PortalShell.tsx` already had one
+`pageTitles` list mapping every route pattern to the title/eyebrow shown
+in the topbar — the single place every portal page's heading already
+came from. Added a `help` string to each of its 28 entries and render
+it as a HelpTip right next to the title there, instead of wiring a
+HelpTip into every individual page. A detail route (`/admin/employees/[id]`,
+`/appraisals/[id]`, etc.) inherits its parent tab's explanation the same
+way it already inherits the title — no extra work per page. The three
+page-body HelpTips from the first pass (My pay, Compensation structure,
+Pay calendars & periods' own `<h1>`s) were removed once the topbar
+covered that same role; the section-level ones underneath (Pay groups,
+Pay grades, Compensation components, Change reasons, Approved pay
+records) stayed, since those explain a sub-concept the topbar's
+page-level summary doesn't reach.
 
-- **Compensation structure** (`admin/compensation-settings`) — one
-  HelpTip on the page `<h1>` explaining how the four lists (pay groups,
-  pay grades, compensation components, change reasons) relate to each
-  other and to an employee's actual pay, plus one per section
-  explaining that specific concept and what assigning it actually does.
-- **My pay** (`pay/page.tsx`) — directly answers the screenshotted
-  question ("Yes — this is your salary...") and points at the payslip
-  feature above; the page's own intro copy now says "salary" and
-  "payslips" in plain language instead of "current gross rate."
-- **Pay calendars & periods** — explains the calendar/period
-  distinction that was the actual root cause of the earlier "pay
-  calendars do nothing" report.
+One inherited constraint: the topbar's page title — and so this HelpTip
+— only renders at the same `≥1024px` breakpoint it already did before
+this feature existed; on narrower views the mobile topbar uses that
+space for the menu button instead. That's a pre-existing, deliberate
+choice this pass didn't alter, not a new gap.
 
-Extending this to other tabs is straightforward with the component as
-it stands; it just hasn't been done yet.
+The Platform Console (`app/platform/(console)/*`) has no equivalent
+shared title mechanism — `PlatformShell` renders `children` directly —
+so its 6 top-level pages (Dashboard, Organizations, SSO requests,
+Reward providers, Platform staff, Audit log) each got a HelpTip added
+to their own `.platform-topbar` heading individually.
