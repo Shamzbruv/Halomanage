@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { HelpTip } from "@/components/HelpTip";
 
 type OrgRow = {
   id: string;
@@ -41,7 +42,10 @@ export default async function PlatformDashboardPage() {
       <div className="platform-topbar">
         <div>
           <span>Overview</span>
-          <h1>The whole ecosystem, one screen.</h1>
+          <h1>The whole ecosystem, one screen.<HelpTip title="Platform dashboard">
+            A read-only snapshot of every tenant on the platform — organization and employee counts, pending SSO requests, and
+            the most recent platform-level actions. Manage a specific organization from the Organizations tab.
+          </HelpTip></h1>
         </div>
       </div>
 

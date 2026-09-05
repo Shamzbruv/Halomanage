@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { HelpTip } from "@/components/HelpTip";
 
 type AuditRow = {
   id: string;
@@ -28,7 +29,10 @@ export default async function PlatformAuditPage() {
       <div className="platform-topbar">
         <div>
           <span>Accountability</span>
-          <h1>Platform audit log</h1>
+          <h1>Platform audit log<HelpTip title="Platform audit log">
+            Every platform-level action taken across every organization, in order, for accountability — who did what, to
+            which organization, and when.
+          </HelpTip></h1>
         </div>
       </div>
 

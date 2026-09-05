@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { NewRewardProviderForm } from "@/components/platform/NewRewardProviderForm";
 import { ToggleProviderActiveButton } from "@/components/platform/ToggleProviderActiveButton";
+import { HelpTip } from "@/components/HelpTip";
 
 export default async function PlatformRewardProvidersPage() {
   const supabase = await createClient();
@@ -11,7 +12,11 @@ export default async function PlatformRewardProvidersPage() {
       <div className="platform-topbar">
         <div>
           <span>Rewards infrastructure</span>
-          <h1>Reward providers</h1>
+          <h1>Reward providers<HelpTip title="Reward providers">
+            The fulfillment integrations available to every organization&apos;s Rewards catalog. &quot;Manual&quot; is always
+            free and available; an automatic_api provider needs both an active row here and real API credentials configured
+            separately before any organization can use it.
+          </HelpTip></h1>
         </div>
         <NewRewardProviderForm />
       </div>

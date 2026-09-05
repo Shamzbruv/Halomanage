@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { HelpTip } from "@/components/HelpTip";
 
 type OrgRow = {
   id: string;
@@ -22,7 +23,10 @@ export default async function PlatformOrganizationsPage() {
       <div className="platform-topbar">
         <div>
           <span>Every tenant</span>
-          <h1>Organizations</h1>
+          <h1>Organizations<HelpTip title="Organizations">
+            Every organization (tenant) running on Halomanage. Open one to see its detail, its subscription status, and to act
+            on it directly.
+          </HelpTip></h1>
         </div>
       </div>
 

@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getPlatformSession } from "@/lib/platform-session";
 import { StaffRosterForm, type StaffRow } from "@/components/platform/StaffRosterForm";
+import { HelpTip } from "@/components/HelpTip";
 
 export default async function PlatformStaffPage() {
   const session = await getPlatformSession();
@@ -13,7 +14,10 @@ export default async function PlatformStaffPage() {
       <div className="platform-topbar">
         <div>
           <span>Your team</span>
-          <h1>Platform staff</h1>
+          <h1>Platform staff<HelpTip title="Platform staff">
+            Halomanage&apos;s own operator team — the people with access to this console, not any customer&apos;s employees.
+            Manage who has platform-level access and what they can do here.
+          </HelpTip></h1>
         </div>
       </div>
       <div className="platform-card">

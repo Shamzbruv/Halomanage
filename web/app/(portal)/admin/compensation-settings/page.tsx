@@ -32,11 +32,7 @@ export default async function CompensationSettingsPage() {
     <div className="space-y-6">
       <div className="page-intro">
         <span className="eyebrow">Compensation structure</span>
-        <h1>Set up how compensation is organized.<HelpTip title="Compensation structure">
-          None of the four lists below set anyone&apos;s pay directly — they&apos;re the shared options a{" "}
-          <strong>Change Compensation</strong> action on an individual employee&apos;s record picks from. Define them once here, then
-          apply them per person. Halomanage never calculates tax, deductions, or net pay from any of it.
-        </HelpTip></h1>
+        <h1>Set up how compensation is organized.</h1>
         <p>Pay groups, grades, components, and change reasons — the building blocks Change Compensation draws from. Halomanage never calculates tax or net pay from any of this.</p>
       </div>
 

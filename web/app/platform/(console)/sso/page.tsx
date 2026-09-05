@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { SsoApprovalForm, type SsoRequestRow } from "@/components/platform/SsoApprovalForm";
+import { HelpTip } from "@/components/HelpTip";
 
 export default async function PlatformSsoPage() {
   const supabase = await createClient();
@@ -11,7 +12,11 @@ export default async function PlatformSsoPage() {
       <div className="platform-topbar">
         <div>
           <span>Enterprise identity</span>
-          <h1>SSO connection requests</h1>
+          <h1>SSO connection requests<HelpTip title="SSO connection requests">
+            Requests from organizations wanting single sign-on for their email domain. Approving one here moves it from
+            &quot;requested&quot; to &quot;configuring&quot; — the organization&apos;s own admin still finishes the actual
+            identity-provider setup on their side.
+          </HelpTip></h1>
         </div>
       </div>
 

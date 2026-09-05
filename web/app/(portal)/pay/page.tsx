@@ -181,11 +181,7 @@ export default async function PayPage() {
     <div className="space-y-6">
       <div className="page-intro">
         <span className="eyebrow">Your compensation</span>
-        <h1>My pay &amp; compensation.<HelpTip title="My pay">
-          Yes — this is your salary. It shows your current rate, when you&apos;re next paid, any allowances or bonuses on top of
-          your base rate, and every payslip from an approved pay run. Nothing here is calculated by Halomanage: figures come
-          straight from your organization&apos;s payroll provider once a pay run is approved.
-        </HelpTip></h1>
+        <h1>My pay &amp; compensation.</h1>
         <p>Your salary, pay schedule, and payslips — see your current rate, effective-dated changes, recurring components, and download any approved payslip below.</p>
       </div>
 
