@@ -881,3 +881,131 @@ correction (verified safe before touching anything, confirmed with the
 user before deleting) or a client-side workflow fix on top of already-
 correct, already-tested backend logic. No new pglite assertions for this
 reason; `npm run build`, `npm run lint`, `npx tsc --noEmit` all clean.
+
+## Timezone: every clock and day boundary ran on the server's UTC clock
+
+2026-09-05. Report: the platform's times were "wayyy off" — a
+screenshot showed a Jamaican customer's dashboard reading "02:06 AM"
+in the middle of their actual afternoon. Root cause, present since the
+first Server Component that ever rendered a clock: every timestamp is
+stored as UTC (`timestamptz`), and a Next.js Server Component renders
+on Railway's own process clock — also UTC — with nothing in between
+ever converting either into the organization's actual timezone before
+display. Jamaica (`America/Jamaica`, UTC-5, no DST) is exactly 5 hours
+behind — precisely the gap reported.
+
+The bug had two distinct shapes, both traced to the same cause:
+
+- **Clock display** — `new Date().toLocaleTimeString()` /
+  `toLocaleDateString()` and manual `Intl.DateTimeFormat()` calls with
+  no `timeZone` option silently default to the process's own clock.
+  Every greeting, "Since ...", "Current local time," and rendered
+  timestamp across dashboard, time, team, pay, recognition, rewards,
+  development, appraisals, and the admin employee/migration/reports/
+  pay-calendar pages was affected.
+- **Day/month boundaries** — `new Date().toISOString().slice(0, 10)` to
+  compute "today" for effective-dated lookups (current compensation,
+  today's attendance, upcoming leave) and query filters is always
+  UTC's today, which for roughly 5 hours every Jamaican evening is
+  already tomorrow. A parallel case: computing "start of this month"
+  via `setDate(1)/setHours(0,0,0,0)` on the server's own clock (used to
+  cap recognition's monthly point allowance) flips over up to 5 hours
+  early every month, for the identical reason.
+
+Fixed by centralizing every conversion in new `web/lib/timezone.ts`,
+which always takes an explicit IANA timezone — the organization's own
+`organizations.timezone` column, threaded through `session.ts` — instead
+of trusting whatever clock the process happens to run on:
+`formatTime`/`formatDate`/`formatDateTime` render a stored instant;
+`currentHourIn`/`currentTimeIn`/`currentDateLabelIn` render "now";
+`todayIn` gives today's date (`YYYY-MM-DD`) via `en-CA` locale
+formatting, which avoids `toISOString()`'s implicit UTC assumption;
+`startOfMonthIn` gives midnight on the 1st of the month, in the org's
+zone, as a UTC instant for query boundaries — computed generically for
+any IANA zone (not just a fixed offset like Jamaica's) by reading the
+instant's wall-clock parts in that zone via `Intl.DateTimeFormat` and
+re-interpreting them as UTC to measure the actual offset.
+
+Two categories were deliberately left untouched, both already correct:
+plain `date` columns (leave request dates, pay period boundaries)
+render correctly without timezone conversion — converting them would
+shift the displayed date backward a day, trading one bug for another —
+and client components' own `new Date()` calls, which already reflect
+the visitor's real device clock (the two date-input defaults that used
+`toISOString().slice(0,10)` were switched to `toLocaleDateString("en-CA")`
+instead, for the same reason: avoid the UTC round-trip, not the
+client's own clock).
+
+Also made Jamaica — this project's actual customer base today — the
+system default going forward: `organizations.timezone`'s column
+default, every org-creation form's fallback, and `timezone.ts`'s own
+fallback, replacing scattered `"UTC"` defaults. One of those, in
+`signup/complete/page.tsx`, would have silently defeated
+`CompleteWorkspaceSetup`'s own Jamaica fallback — a truthy `"UTC"`
+string beats a `|| "America/Jamaica"` — and was fixed alongside it. A
+per-user timezone preference remains future work; this only fixes the
+organization default and every existing UTC-assuming call site.
+
+## Payslips: a standalone, printable sheet over already-approved pay records
+
+2026-09-05. The "My pay" page has always shown an "Approved pay
+records" table, but gave no way to actually produce a payslip document
+from a row in it — and a customer screenshot showed an employee asking
+whether "My pay" in the nav even meant their salary. Added a "View"
+link per row to a new standalone route, `app/payslips/[id]/page.tsx`,
+rendering one `current_payroll_records` row as a letterheaded payslip
+with a "Print / Save as PDF" button (`window.print()` — no PDF
+dependency, since a payslip is already exactly what's laid out on
+screen).
+
+Design follows the same non-negotiable rule as the rest of payroll:
+every figure comes straight from the already-approved, already-matched
+row — regular/overtime pay, allowances, bonus, tax, other deductions,
+gross, net — with no computation of its own beyond the same
+`otherEarnings`/`deductions` subtotals `pay/page.tsx` already displays.
+The row's freeform `earnings`/`deductions`/`taxes` `jsonb` columns are
+deliberately not itemized on the payslip: their internal shape isn't
+defined or enforced anywhere in the schema, and rendering a guessed
+shape risks a broken or nonsensical payslip. A future itemized
+breakdown (e.g. Jamaica's NIS/NHT/education tax as separate lines)
+needs a defined `jsonb` contract first — this is scoped out, not
+forgotten.
+
+Lives outside the `(portal)` route group, same placement as
+`network-restricted`, so it renders without the portal shell's
+sidebar/topbar as one clean printable page — `@media print` hides the
+back-link/print-button toolbar entirely. Adds no access rule of its
+own: RLS on `payroll_import_rows` already covers both an employee
+viewing their own record ("employee reads own approved pay records")
+and an HR/admin with `payroll.read_org` viewing someone else's, so the
+page queries `current_payroll_records` by id and lets that RLS decide
+(`notFound()` otherwise), matching `team/[id]`'s existing pattern.
+
+## A "?" help affordance, and where it's applied so far
+
+2026-09-05, same report as the two sections above: "Compensation
+structure still don't make any sense to me," plus "there should be a
+question mark on every tab to tell the user what they can do in there."
+Added a reusable `components/HelpTip.tsx` — a small "?" next to any
+heading that reveals plain-language guidance on click (dismisses on
+outside click or Escape, so it works the same on touch as on desktop).
+
+Applied as a first pass to the places already reported as confusing,
+not to every tab — that's a much larger effort across dozens of pages
+this pass doesn't attempt:
+
+- **Compensation structure** (`admin/compensation-settings`) — one
+  HelpTip on the page `<h1>` explaining how the four lists (pay groups,
+  pay grades, compensation components, change reasons) relate to each
+  other and to an employee's actual pay, plus one per section
+  explaining that specific concept and what assigning it actually does.
+- **My pay** (`pay/page.tsx`) — directly answers the screenshotted
+  question ("Yes — this is your salary...") and points at the payslip
+  feature above; the page's own intro copy now says "salary" and
+  "payslips" in plain language instead of "current gross rate."
+- **Pay calendars & periods** — explains the calendar/period
+  distinction that was the actual root cause of the earlier "pay
+  calendars do nothing" report.
+
+Extending this to other tabs is straightforward with the component as
+it stands; it just hasn't been done yet.
