@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Icon } from "@/components/Icon";
 import { createClient } from "@/lib/supabase/server";
@@ -302,9 +303,9 @@ export default async function PayPage() {
       <section className="card overflow-x-auto">
         <div className="panel-heading"><div><span className="panel-icon"><Icon name="document" /></span><div><h3>Approved pay records</h3><p>Pay-run results imported from your payroll provider. Newest pay date first.</p></div></div></div>
         <table className="w-full text-sm">
-          <thead><tr className="border-b border-stone-100 text-left"><th className="pb-3">Pay date</th><th className="pb-3">Period</th><th className="pb-3 text-right">Regular</th><th className="pb-3 text-right">Overtime</th><th className="pb-3 text-right">Other earnings</th><th className="pb-3 text-right">Gross</th><th className="pb-3 text-right">Deductions</th><th className="pb-3 text-right">Net</th></tr></thead>
+          <thead><tr className="border-b border-stone-100 text-left"><th className="pb-3">Pay date</th><th className="pb-3">Period</th><th className="pb-3 text-right">Regular</th><th className="pb-3 text-right">Overtime</th><th className="pb-3 text-right">Other earnings</th><th className="pb-3 text-right">Gross</th><th className="pb-3 text-right">Deductions</th><th className="pb-3 text-right">Net</th><th className="pb-3 text-right">Payslip</th></tr></thead>
           <tbody className="divide-y divide-stone-100">
-            {payrollHistory.length === 0 && <tr><td colSpan={8} className="py-8 text-center text-stone-400">No approved payroll records have been imported for you yet.</td></tr>}
+            {payrollHistory.length === 0 && <tr><td colSpan={9} className="py-8 text-center text-stone-400">No approved payroll records have been imported for you yet.</td></tr>}
             {payrollHistory.map((record) => {
               const otherEarnings = Number(record.allowances ?? 0) + Number(record.bonus ?? 0);
               const deductions = Number(record.tax ?? 0) + Number(record.other_deductions ?? 0);
@@ -318,6 +319,7 @@ export default async function PayPage() {
                   <td className="py-3 text-right font-medium text-stone-900">{formatMoney(record.gross_pay, record.currency)}</td>
                   <td className="py-3 text-right">{formatMoney(deductions, record.currency)}</td>
                   <td className="py-3 text-right font-semibold text-stone-900">{formatMoney(record.net_pay, record.currency)}</td>
+                  <td className="py-3 text-right"><Link href={`/payslips/${record.id}`} className="inline-flex items-center gap-1 text-xs font-semibold text-royal-700 hover:text-royal-800"><Icon name="document" size={14} /> View</Link></td>
                 </tr>
               );
             })}

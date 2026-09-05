@@ -1296,3 +1296,88 @@
 
 .platform-login-shell { display: flex; min-height: 100vh; align-items: center; justify-content: center; background: var(--p-bg, #0b1120); }
 .platform-login-card { width: 100%; max-width: 360px; padding: 2rem; border: 1px solid #24304a; border-radius: 16px; background: #131b2c; color: #e8edf7; }
+
+/* Payslips — a standalone, printable sheet (app/payslips/[id]/page.tsx),
+   deliberately outside the portal shell so it renders as one clean page
+   with nothing else on it. @media print hides the toolbar (back link,
+   print button) and strips the card's shadow/border so the printed/
+   saved-as-PDF output is just the payslip itself. */
+.payslip-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 2rem 1.25rem;
+  background: var(--paper);
+}
+
+.payslip-toolbar {
+  display: flex;
+  width: min(100%, 720px);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.payslip-sheet {
+  width: min(100%, 720px);
+  padding: 2rem;
+}
+
+.payslip-letterhead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 1.25rem;
+  border-bottom: 2px solid var(--line-strong);
+}
+
+.payslip-letterhead .eyebrow { display: block; margin-bottom: .2rem; }
+
+.payslip-employee-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+  padding: 1.25rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.payslip-employee-grid dt { font-size: .7rem; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-faint); }
+.payslip-employee-grid dd { margin-top: .15rem; font-weight: 600; color: var(--ink); }
+
+.payslip-columns {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.5rem;
+  padding: 1.25rem 0;
+}
+.payslip-columns h2 { margin-bottom: .6rem; font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-faint); }
+
+.payslip-table { width: 100%; font-size: .88rem; border-collapse: collapse; }
+.payslip-table td { padding: .4rem 0; border-bottom: 1px solid var(--line); color: var(--ink-soft); }
+.payslip-table td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+.payslip-total-row td { padding-top: .6rem; border-top: 2px solid var(--line-strong); border-bottom: none; color: var(--ink); font-weight: 700; }
+
+.payslip-net {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: .5rem;
+  padding: 1rem 1.25rem;
+  border-radius: 12px;
+  background: var(--forest-light);
+  color: var(--forest-dark);
+}
+.payslip-net span { font-size: .8rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+.payslip-net strong { font-size: 1.4rem; font-variant-numeric: tabular-nums; }
+
+.payslip-footer { margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+.payslip-footer p { display: flex; align-items: flex-start; gap: .4rem; margin-top: .4rem; color: var(--ink-faint); font-size: .74rem; line-height: 1.5; }
+.payslip-footer p:first-child { margin-top: 0; }
+
+@media print {
+  .no-print { display: none !important; }
+  body { background: #fff; }
+  .payslip-page { padding: 0; background: #fff; }
+  .payslip-sheet { width: 100%; padding: 0; border: none; border-radius: 0; box-shadow: none; }
+}
