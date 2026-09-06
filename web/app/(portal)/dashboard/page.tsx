@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession, sessionCan } from "@/lib/session";
 import { statusBadgeClass } from "@/lib/ui";
 import { currentDateLabelIn, currentHourIn, currentTimeIn, formatDate, formatTime, todayIn } from "@/lib/timezone";
+import { requestTypeLabel } from "@/lib/documentRequests";
 import type { AttendanceSession, LeaveRequest } from "@/lib/supabase/types";
 
 type AdminEmployee = {
@@ -71,6 +72,14 @@ type ExpiringItemRow = {
   item_id: string;
   item_name: string;
   expires_on: string;
+};
+
+type PendingDocumentRequestRow = {
+  id: string;
+  employee_id: string;
+  request_type: string;
+  request_type_other_label: string | null;
+  requested_at: string;
 };
 
 type AdminAction = {
@@ -185,6 +194,7 @@ export default async function DashboardPage() {
       { data: offboardingRuns },
       { data: expiringItems },
       { data: adminEmployees },
+      { data: pendingDocumentRequests },
     ] = await Promise.all([
       supabase.from("attendance_today_v").select("*").eq("organization_id", organizationId),
       supabase.from("leave_pending_v").select("*").eq("organization_id", organizationId).order("submitted_at", { ascending: true }),
@@ -192,6 +202,7 @@ export default async function DashboardPage() {
       supabase.from("offboarding_runs").select("id, employee_id, final_work_date, status, started_at, offboarding_tasks(id, status, due_date)").eq("organization_id", organizationId).eq("status", "in_progress"),
       supabase.from("expiring_items_v").select("*").eq("organization_id", organizationId).lte("expires_on", expiryCutoff).order("expires_on", { ascending: true }),
       supabase.from("employees").select("id, first_name, last_name, preferred_name, status, user_id").eq("organization_id", organizationId),
+      supabase.from("document_requests").select("id, employee_id, request_type, request_type_other_label, requested_at").eq("organization_id", organizationId).eq("status", "submitted").order("requested_at", { ascending: true }),
     ]);
 
     const employeesById = new Map((adminEmployees as AdminEmployee[] | null ?? []).map((employee) => [employee.id, employee]));
@@ -219,6 +230,18 @@ export default async function DashboardPage() {
         rank: index,
         title: `Approve ${request.first_name} ${request.last_name}'s leave`,
         detail: `${request.leave_type_name} · ${request.start_date} → ${request.end_date} · ${request.total_days} day(s)`,
+      });
+    });
+
+    (pendingDocumentRequests as PendingDocumentRequestRow[] | null ?? []).forEach((request, index) => {
+      actions.push({
+        key: `document-request-${request.id}`,
+        href: "/admin/documents",
+        icon: "document",
+        priority: "normal",
+        rank: index,
+        title: `${employeeName(employeesById.get(request.employee_id))} requested a ${requestTypeLabel(request.request_type, request.request_type_other_label).toLowerCase()}`,
+        detail: `Requested ${formatDate(request.requested_at, session.organization?.timezone, { month: "short", day: "numeric" })}`,
       });
     });
 

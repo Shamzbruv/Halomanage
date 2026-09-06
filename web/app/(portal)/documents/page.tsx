@@ -1,23 +1,32 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AcknowledgeDocumentButton } from "@/components/AcknowledgeDocumentButton";
+import { CancelDocumentRequestButton } from "@/components/CancelDocumentRequestButton";
 import { DocumentDownloadButton } from "@/components/DocumentDownloadButton";
 import { Icon } from "@/components/Icon";
+import { RequestDocumentForm } from "@/components/RequestDocumentForm";
 import { createClient } from "@/lib/supabase/server";
+import { requestTypeLabel } from "@/lib/documentRequests";
 import { getCurrentSession, sessionCan } from "@/lib/session";
+import { formatDate } from "@/lib/timezone";
+import { statusBadgeClass } from "@/lib/ui";
 
 export default async function DocumentsPage() {
   const session = await getCurrentSession();
   if (!session) redirect("/login");
   if (!session.employee) redirect("/signup/complete?repair=1");
   const supabase = await createClient();
-  const { data: documents } = await supabase.from("documents").select("*").order("created_at", { ascending: false });
+  const [{ data: documents }, { data: requests }] = await Promise.all([
+    supabase.from("documents").select("*").order("created_at", { ascending: false }),
+    supabase.from("document_requests").select("*").eq("employee_id", session.employee.id).order("requested_at", { ascending: false }),
+  ]);
   const versionIds = (documents ?? []).map((item) => item.current_version_id).filter(Boolean);
   const [{ data: versions }, { data: acknowledgements }] = await Promise.all([
     versionIds.length ? supabase.from("document_versions").select("id, storage_bucket, storage_path, file_name").in("id", versionIds) : Promise.resolve({ data: [] as any[] }),
     versionIds.length ? supabase.from("document_acknowledgements").select("document_version_id").eq("employee_id", session.employee.id) : Promise.resolve({ data: [] as any[] }),
   ]);
   const versionById = new Map((versions ?? []).map((version) => [version.id, version]));
+  const documentById = new Map((documents ?? []).map((item) => [item.id, item]));
   const acknowledgedIds = new Set((acknowledgements ?? []).map((item) => item.document_version_id));
   const acknowledgementCount = (documents ?? []).filter((item) => item.requires_acknowledgement && item.current_version_id && !acknowledgedIds.has(item.current_version_id)).length;
 
@@ -51,6 +60,40 @@ export default async function DocumentsPage() {
           })}
         </div>
       </section>
+
+      <div className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
+        <section className="card">
+          <h2 className="mb-1 text-sm font-semibold text-stone-900">Request a document</h2>
+          <p className="mb-4 text-xs text-stone-500">Need something HR hasn&apos;t already shared — a job letter, salary letter, or reference? Ask for it here.</p>
+          <RequestDocumentForm />
+        </section>
+
+        <section className="card">
+          <div className="panel-heading"><div><span className="panel-icon"><Icon name="document" /></span><div><h3>My requests</h3><p>Track every document you&apos;ve asked HR for.</p></div></div></div>
+          <div className="resource-list">
+            {(requests ?? []).length === 0 && <div className="list-empty">You haven&apos;t requested any documents yet.</div>}
+            {(requests ?? []).map((request) => {
+              const fulfilledDocument = request.fulfilled_document_id ? documentById.get(request.fulfilled_document_id) : null;
+              const fulfilledVersion = fulfilledDocument?.current_version_id ? versionById.get(fulfilledDocument.current_version_id) : null;
+              return (
+                <article key={request.id}>
+                  <span className="metric-icon mint small"><Icon name="document" size={16} /></span>
+                  <div>
+                    <strong>{requestTypeLabel(request.request_type, request.request_type_other_label)}</strong>
+                    <p>{request.purpose ?? "No additional context given"}</p>
+                    <small>Requested {formatDate(request.requested_at, session.organization?.timezone)}{request.status === "rejected" && request.rejection_reason ? ` · ${request.rejection_reason}` : ""}</small>
+                  </div>
+                  <span className="flex items-center gap-2">
+                    <span className={`badge ${statusBadgeClass(request.status)}`}>{request.status}</span>
+                    {request.status === "submitted" && <CancelDocumentRequestButton requestId={request.id} />}
+                    {request.status === "fulfilled" && fulfilledVersion && <DocumentDownloadButton bucket={fulfilledVersion.storage_bucket} path={fulfilledVersion.storage_path} />}
+                  </span>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      </div>
     </div>
   );
 }

@@ -1986,6 +1986,112 @@ async function main() {
     ok("the blocked delete did not partially remove the template or its version/steps", Number(stillThere.rows[0].count) === 1);
   });
 
+  // ==================== DOCUMENT REQUESTS ====================
+  // Ref: 20260906100000_document_requests.sql
+  let documentRequestId;
+  await as(DAVID_USER, async () => {
+    const submitted = await db.query(`select * from public.request_document('employment_verification', null, 'For a bank loan')`);
+    documentRequestId = submitted.rows[0].id;
+    ok("an employee can submit a document request", submitted.rows[0].status === "submitted");
+    const audit = await db.query(`select count(*) from public.audit_events where action = 'DOCUMENT_REQUEST_SUBMITTED' and entity_id = '${documentRequestId}'`);
+    ok("submitting a document request is audit-logged", Number(audit.rows[0].count) === 1);
+
+    let threw = false;
+    try { await db.query(`select public.request_document('other', null, null)`); } catch { threw = true; }
+    ok("requesting 'other' without describing it is rejected", threw);
+  });
+
+  await as(ALICE_USER, async () => {
+    const visible = await db.query(`select count(*) from public.document_requests where id = '${documentRequestId}'`);
+    ok("a different employee cannot see David's document request", Number(visible.rows[0].count) === 0);
+
+    let threw = false;
+    try { await db.query(`select public.reject_document_request('${documentRequestId}', 'no')`); } catch { threw = true; }
+    ok("a non-HR employee cannot reject someone else's document request", threw);
+  });
+
+  await as(DAVID_USER, async () => {
+    let threw = false;
+    try { await db.query(`select public.fulfill_document_request('${documentRequestId}', '${documentRequestId}')`); } catch { threw = true; }
+    ok("the requesting employee cannot fulfill their own request themselves (not HR)", threw);
+  });
+
+  let wrongEmployeeDocId, correctDocId;
+  await as(ERIN_USER, async () => {
+    const visible = await db.query(`select count(*) from public.document_requests where id = '${documentRequestId}'`);
+    ok("HR (documents.manage_org) can see the request", Number(visible.rows[0].count) === 1);
+
+    const wrongDoc = await db.query(
+      `insert into public.documents (organization_id, employee_id, category, title, visibility) values ('${ORG}', '${ALICE_EMP}', 'hr_letter', 'Wrong employee doc', 'self') returning id`,
+    );
+    wrongEmployeeDocId = wrongDoc.rows[0].id;
+    let threw = false;
+    try { await db.query(`select public.fulfill_document_request('${documentRequestId}', '${wrongEmployeeDocId}')`); } catch { threw = true; }
+    ok("fulfilling with a document belonging to a different employee is rejected", threw);
+
+    const rightDoc = await db.query(
+      `insert into public.documents (organization_id, employee_id, category, title, visibility) values ('${ORG}', '${DAVID_EMP}', 'hr_letter', 'Employment Verification — David', 'self') returning id`,
+    );
+    correctDocId = rightDoc.rows[0].id;
+    const fulfilled = await db.query(`select * from public.fulfill_document_request('${documentRequestId}', '${correctDocId}')`);
+    ok(
+      "HR can fulfill the request with the correct employee's document",
+      fulfilled.rows[0].status === "fulfilled" && fulfilled.rows[0].fulfilled_document_id === correctDocId,
+    );
+
+    let threwTwice = false;
+    try { await db.query(`select public.fulfill_document_request('${documentRequestId}', '${correctDocId}')`); } catch { threwTwice = true; }
+    ok("a fulfilled request cannot be fulfilled again", threwTwice);
+  });
+
+  await as(DAVID_USER, async () => {
+    const notified = await db.query(`select count(*) from public.notifications where recipient_user_id = '${DAVID_USER}' and type = 'document_request.fulfilled'`);
+    ok("the employee is notified once their request is fulfilled", Number(notified.rows[0].count) === 1);
+
+    let threw = false;
+    try { await db.query(`select public.cancel_document_request('${documentRequestId}')`); } catch { threw = true; }
+    ok("a fulfilled request can no longer be cancelled", threw);
+  });
+
+  let rejectedRequestId;
+  await as(DAVID_USER, async () => {
+    const submitted = await db.query(`select * from public.request_document('other', 'Tax registration letter', null)`);
+    rejectedRequestId = submitted.rows[0].id;
+  });
+  await as(ERIN_USER, async () => {
+    let threw = false;
+    try { await db.query(`select public.reject_document_request('${rejectedRequestId}', '')`); } catch { threw = true; }
+    ok("rejecting without a reason is rejected", threw);
+
+    const rejected = await db.query(`select * from public.reject_document_request('${rejectedRequestId}', 'Please provide your TRN first')`);
+    ok(
+      "HR can reject a request with a reason",
+      rejected.rows[0].status === "rejected" && rejected.rows[0].rejection_reason === "Please provide your TRN first",
+    );
+  });
+  await as(DAVID_USER, async () => {
+    const notified = await db.query(`select count(*) from public.notifications where recipient_user_id = '${DAVID_USER}' and type = 'document_request.rejected'`);
+    ok("the employee is notified once their request is rejected, with the reason", Number(notified.rows[0].count) === 1);
+  });
+
+  let cancellableRequestId;
+  await as(DAVID_USER, async () => {
+    const submitted = await db.query(`select * from public.request_document('reference_letter', null, null)`);
+    cancellableRequestId = submitted.rows[0].id;
+    const cancelled = await db.query(`select * from public.cancel_document_request('${cancellableRequestId}')`);
+    ok("an employee can cancel their own still-pending request", cancelled.rows[0].status === "cancelled");
+  });
+  await as(ALICE_USER, async () => {
+    let threw = false;
+    try { await db.query(`select public.cancel_document_request('${cancellableRequestId}')`); } catch { threw = true; }
+    ok("a different employee cannot cancel someone else's request", threw);
+  });
+
+  await as(ORG2_ADMIN_USER, async () => {
+    const visible = await db.query(`select count(*) from public.document_requests where id = '${documentRequestId}'`);
+    ok("another organization's admin cannot see this org's document request", Number(visible.rows[0].count) === 0);
+  });
+
   console.log(`\n${passCount} passed, ${failCount} failed.`);
   if (failCount > 0) process.exitCode = 1;
 }
