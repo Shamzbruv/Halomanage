@@ -1019,3 +1019,45 @@ shared title mechanism — `PlatformShell` renders `children` directly —
 so its 6 top-level pages (Dashboard, Organizations, SSO requests,
 Reward providers, Platform staff, Audit log) each got a HelpTip added
 to their own `.platform-topbar` heading individually.
+
+## Employee document requests (job letters, verification letters, etc.)
+
+2026-09-06. User request: "a section where the employee can request
+documents from the company, like job letters etc." — HR could already
+proactively upload a document for an employee (`admin/documents`), but
+an employee had no way to ask for one HR hadn't already shared.
+
+New `document_requests` table (20260906100000_document_requests.sql)
+tracks only the *request* lifecycle — type, purpose, status — never the
+file. Fulfilling a request creates a real row in the existing
+`documents`/`document_versions` tables (`category = 'hr_letter'`,
+`visibility = 'self'`, `employee_id` = the requester), via the same
+three-write sequence `DocumentUploadForm` already uses. That's a
+deliberate reuse, not a parallel system: the resulting letter shows up
+on the employee's own Documents page and downloads through the
+existing `DocumentDownloadButton`, with no new storage bucket.
+`fulfill_document_request()` verifies the uploaded document actually
+belongs to the request's employee and organization before linking it —
+otherwise a fulfilled request could point at the wrong person's file.
+
+Reuses the existing `documents.manage_org`/`documents.manage_team`
+permissions rather than adding a new one — whoever can already manage
+the document library is who fulfills requests for it. All writes go
+through four SECURITY DEFINER RPCs (`request_document`,
+`cancel_document_request`, `fulfill_document_request`,
+`reject_document_request`), the same pattern as `leave_requests`. The
+employee is notified in-app once their request is decided (fulfilled
+or rejected, with the reason) — but there's deliberately no "new
+request submitted" notification to HR: unlike leave, a document
+request has no single assigned approver, so it surfaces as a live
+query instead — the `admin/documents` queue, and a new entry per
+pending request in the dashboard's admin-actions feed.
+
+18 new pglite assertions (298 total) cover submission, the `other`
+type requiring a description, cross-employee RLS isolation, a non-HR
+employee unable to reject someone else's request, an employee unable
+to fulfill their own request, fulfilling with another employee's
+document being rejected, double-decision guards, reason-required
+rejection, cancellation (and that a decided request can no longer be
+cancelled by anyone), decision notifications, and cross-organization
+isolation.
