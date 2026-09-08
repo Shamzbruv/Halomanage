@@ -3,13 +3,18 @@ import { redirect, notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession, sessionCan } from "@/lib/session";
 import { ActivateEmployeeButton } from "@/components/ActivateEmployeeButton";
+import { AddCertificationForm } from "@/components/AddCertificationForm";
+import { AssignAssetForm } from "@/components/AssignAssetForm";
+import { AssignTrainingForm } from "@/components/AssignTrainingForm";
 import { ChangeAssignmentForm } from "@/components/ChangeAssignmentForm";
 import { ChangeCompensationForm } from "@/components/ChangeCompensationForm";
 import { GrantLeaveBalanceForm } from "@/components/GrantLeaveBalanceForm";
 import { InviteButton } from "@/components/InviteButton";
 import { ReportingScopeForm } from "@/components/ReportingScopeForm";
+import { ReturnAssetButton } from "@/components/ReturnAssetButton";
 import { RoleAssignmentForm } from "@/components/RoleAssignmentForm";
 import { TerminateEmployeeButton } from "@/components/TerminateEmployeeButton";
+import { TrainingStatusSelect } from "@/components/TrainingStatusSelect";
 import { statusBadgeClass } from "@/lib/ui";
 import { todayIn } from "@/lib/timezone";
 
@@ -25,6 +30,11 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
   // this employee's assignment/role/leave normally, just without this section.
   const canReadCompensation = sessionCan(session, "compensation.read_org");
   const canManageCompensation = sessionCan(session, "compensation.manage") || sessionCan(session, "compensation.approve");
+  // training.manage covers both employee_training and certifications RLS
+  // (see 20260818001400_training_assets.sql) — there is no separate
+  // certifications permission, so one flag gates both sections below.
+  const canManageTraining = sessionCan(session, "training.manage");
+  const canManageAssets = sessionCan(session, "assets.manage");
 
   const supabase = await createClient();
   const orgId = session.organizationId;
@@ -47,6 +57,12 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
     { data: customRoles },
     { data: customRolePermissions },
     { data: inviteStatus },
+    { data: trainingCourses },
+    { data: employeeTraining },
+    { data: certifications },
+    { data: orgAssets },
+    { data: assetAssignments },
+    { data: openAssetAssignments },
   ] = await Promise.all([
     supabase.from("employees").select("*").eq("id", id).single(),
     // Query the real employee_assignments table directly rather than
@@ -72,7 +88,19 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
     supabase.from("organization_roles").select("id, name").eq("organization_id", orgId).eq("is_active", true).order("name"),
     supabase.from("role_permissions").select("custom_role_id, permission").eq("organization_id", orgId).not("custom_role_id", "is", null),
     supabase.rpc("list_employee_invite_status", { p_organization_id: orgId }),
+    supabase.from("training_courses").select("id, name, validity_months").eq("organization_id", orgId).eq("is_active", true).order("name"),
+    supabase.from("employee_training").select("*, training_courses(name, description, is_required)").eq("employee_id", id).order("created_at", { ascending: false }),
+    supabase.from("certifications").select("*").eq("employee_id", id).order("expires_on", { ascending: true }),
+    supabase.from("assets").select("id, name, serial_number").eq("organization_id", orgId).eq("is_active", true).order("name"),
+    supabase.from("employee_asset_assignments").select("*, assets(name, category, serial_number)").eq("employee_id", id).is("returned_at", null).order("assigned_at", { ascending: false }),
+    // Org-wide open assignments (not just this employee's) so the assign
+    // form can exclude any asset another employee already has — the
+    // database's partial unique index would reject it anyway, this just
+    // keeps it off the picker before someone hits that error.
+    supabase.from("employee_asset_assignments").select("asset_id").eq("organization_id", orgId).is("returned_at", null),
   ]);
+  const assignedAssetIdsOrgWide = new Set((openAssetAssignments ?? []).map((a) => a.asset_id));
+  const availableAssets = (orgAssets ?? []).filter((a) => !assignedAssetIdsOrgWide.has(a.id));
 
   if (!employee) notFound();
   const accepted = (inviteStatus ?? []).find((row: { employee_id: string; accepted: boolean }) => row.employee_id === employee.id)?.accepted ?? false;
@@ -325,6 +353,64 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
         </ul>
         <GrantLeaveBalanceForm organizationId={orgId} employeeId={employee.id} leaveTypes={leaveTypes ?? []} />
       </div>
+
+      {canManageTraining && (
+        <div className="card">
+          <h2 className="mb-3 text-sm font-semibold text-stone-900">Learning</h2>
+          <ul className="mb-4 space-y-2 text-sm">
+            {(employeeTraining ?? []).length === 0 && <li className="text-stone-400">No training assigned yet.</li>}
+            {(employeeTraining ?? []).map((t: any) => (
+              <li key={t.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-cream-100 px-3 py-2">
+                <div>
+                  <span className="font-medium text-stone-900">{t.training_courses?.name ?? "Training course"}</span>
+                  {t.training_courses?.is_required && <span className="ml-2 text-xs text-stone-500">Required</span>}
+                  {t.expires_on && <span className="ml-2 text-xs text-stone-500">Expires {t.expires_on}</span>}
+                </div>
+                <TrainingStatusSelect id={t.id} status={t.status} />
+              </li>
+            ))}
+          </ul>
+          <AssignTrainingForm organizationId={orgId} employeeId={employee.id} courses={trainingCourses ?? []} />
+
+          <h3 className="mb-2 mt-5 text-xs font-semibold uppercase text-stone-400">Certifications</h3>
+          <ul className="mb-2 space-y-2 text-sm">
+            {(certifications ?? []).length === 0 && <li className="text-stone-400">No certifications recorded.</li>}
+            {(certifications ?? []).map((c) => (
+              <li key={c.id} className="rounded-lg bg-cream-100 px-3 py-2">
+                <span className="font-medium text-stone-900">{c.name}</span>
+                <span className="ml-2 text-xs text-stone-500">
+                  {c.issuing_body ?? "Issuing body not recorded"}
+                  {c.issued_on ? ` · Issued ${c.issued_on}` : ""}
+                  {c.expires_on ? ` · Expires ${c.expires_on}` : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <AddCertificationForm organizationId={orgId} employeeId={employee.id} />
+        </div>
+      )}
+
+      {canManageAssets && (
+        <div className="card">
+          <h2 className="mb-3 text-sm font-semibold text-stone-900">Assets</h2>
+          <ul className="mb-4 space-y-2 text-sm">
+            {(assetAssignments ?? []).length === 0 && <li className="text-stone-400">No equipment currently assigned.</li>}
+            {(assetAssignments ?? []).map((a: any) => (
+              <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-cream-100 px-3 py-2">
+                <div>
+                  <span className="font-medium text-stone-900">{a.assets?.name ?? "Company asset"}</span>
+                  <span className="ml-2 text-xs text-stone-500">
+                    {a.assets?.category?.replace(/_/g, " ")}
+                    {a.assets?.serial_number ? ` · ${a.assets.serial_number}` : ""} · Assigned {String(a.assigned_at).slice(0, 10)}
+                  </span>
+                </div>
+                <ReturnAssetButton assignmentId={a.id} />
+              </li>
+            ))}
+          </ul>
+          <AssignAssetForm organizationId={orgId} employeeId={employee.id} availableAssets={availableAssets} />
+        </div>
+      )}
     </div>
   );
 }

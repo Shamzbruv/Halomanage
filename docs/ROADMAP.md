@@ -1,6 +1,10 @@
 # Halomanage — Build Status and Roadmap
 
-Living handoff document. Last updated: 2026-08-24.
+Living handoff document. Last updated: 2026-09-08. This document itself had
+drifted well behind `docs/ARCHITECTURE.md` (which had ~15 dated sections
+past this file's last update) — see ARCHITECTURE.md for the authoritative,
+dated history; this file is being brought back in line with it below rather
+than rewritten wholesale.
 
 ## Current product state
 
@@ -95,18 +99,31 @@ code-only session.
 
 ## Remaining product work
 
-The current application is a strong, coherent MVP, not the end of the complete blueprint. The most
-valuable next tranche is:
+The current application is a strong, coherent MVP, not the end of the complete blueprint. Items 1-3
+below (offboarding, training/certifications/assets admin UI, custom roles, network access control,
+peer recognition, invite-status visibility, payslips, timezone correctness, per-tab help) shipped
+between this list's last update and 2026-09-08 — see `docs/ARCHITECTURE.md`'s dated sections for what
+actually happened in each pass. What's left, re-numbered:
 
-1. Offboarding checklist screens and access-revocation scheduling.
-2. Admin authoring/assignment screens for training, certifications, and equipment/assets (employee
-   visibility is now delivered).
-3. Per-row pay-import reconciliation and mapping UI.
-4. Notification preferences and production email/SMS provider integration.
-5. Reusable employer-configurable workflow routing beyond the current leave-specific chain.
-6. Manager org-subtree visibility and per-user permission grants (HR Admin/System Admin/Pay Importer).
-7. Scheduled accrual, expiry, appraisal, probation, and escalation jobs.
-8. Employee-relations cases, announcements, surveys, recognition, integrations, and mobile/PWA work
-   in the later phases defined by `PRODUCT_BLUEPRINT.md`.
+1. Per-row pay-import reconciliation and mapping UI.
+2. Production email/SMS provider integration and delivery (the in-app half of notification
+   preferences — muting what reaches the notification bell — now has a UI at `/profile`; the
+   `send-notifications` Edge Function and its provider secrets are still deployment work, and once
+   live, delivery should also honor these preferences' `email`/`sms` channel rows, not only `in_app`).
+3. Reusable employer-configurable workflow routing beyond the current leave-specific chain.
+4. Manager org-subtree visibility and per-user permission grants (HR Admin/System Admin/Pay Importer
+   — largely superseded by custom organization roles, see ARCHITECTURE.md 2026-08-31, but org-subtree
+   visibility beyond direct reports is still unbuilt).
+5. Scheduled accrual, expiry, appraisal, probation, and escalation jobs.
+6. Employee-relations cases, announcements, surveys, integrations, and mobile/PWA work in the later
+   phases defined by `PRODUCT_BLUEPRINT.md` (recognition itself shipped — see ARCHITECTURE.md
+   2026-08-30).
+7. Per-item admin-nav filtering was closed 2026-09-08 (ARCHITECTURE.md); still open from that same
+   custom-roles pass: a confirmation step before an admin removes their own last permission to reach
+   the page they're standing on, and letting a custom role's assignment carry a management-scope tier
+   distinction the way built-in Supervisor/Manager/Admin do.
+8. A Payroll Provider Mappings admin page over the existing `payroll_column_maps` table, and
+   compensation reporting (hourly-vs-salaried mix, compa-ratio, range penetration, FTE cost) — both
+   noted as deferred in the Compensation & Pay Administration section of ARCHITECTURE.md.
 
 Recruitment/ATS and payroll calculation remain intentionally out of the first release.

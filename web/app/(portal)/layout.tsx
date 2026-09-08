@@ -2,9 +2,39 @@ import { redirect } from "next/navigation";
 import { PortalShell } from "@/components/PortalShell";
 import { getCurrentSession, sessionCan } from "@/lib/session";
 import { createClient } from "@/lib/supabase/server";
+import type { AppPermission } from "@/lib/supabase/types";
 import { Brand } from "@/components/Brand";
 import { Icon } from "@/components/Icon";
 import { SignOutButton } from "@/components/SignOutButton";
+
+// One href → required-permission map, kept in sync with each admin page's
+// own route guard (grep `sessionCan(session,` under app/(portal)/admin/*)
+// so this list can never disagree with what a page actually enforces.
+// Previously canSeeAdmin alone decided whether the whole "Manage" section
+// rendered, and every item inside it always rendered once that was true —
+// a custom role scoped to, say, only roles.manage saw links to every other
+// admin page too, each one a dead end that silently bounced to /dashboard.
+// Documented as a known "cosmetic rough edge" in ARCHITECTURE.md; fixing it
+// here so a narrowly-scoped role's nav matches what it can actually open.
+const ADMIN_PAGE_PERMISSIONS: Record<string, AppPermission[]> = {
+  "/admin/setup": ["organization.manage"],
+  "/admin/employees": ["employee.manage"],
+  "/admin/migrations": ["employee.manage"],
+  "/admin/organization": ["organization.manage"],
+  "/admin/leave-types": ["leave.manage_policies"],
+  "/admin/onboarding": ["onboarding.manage_templates"],
+  "/admin/offboarding": ["employee.manage"],
+  "/admin/appraisals": ["appraisal.manage_cycles"],
+  "/admin/documents": ["documents.manage_org"],
+  "/admin/development": ["training.manage", "assets.manage"],
+  "/admin/payroll": ["payroll.import"],
+  "/admin/compensation-settings": ["compensation.manage_structure"],
+  "/admin/pay-calendars": ["pay_calendar.read", "pay_calendar.manage"],
+  "/admin/rewards": ["rewards.manage_catalog", "rewards.award_points", "rewards.fulfill"],
+  "/admin/reports": ["reports.org"],
+  "/admin/roles": ["roles.manage"],
+  "/admin/security": ["organization.manage"],
+};
 
 export default async function PortalLayout({ children }: { children: React.ReactNode }) {
   const session = await getCurrentSession();
@@ -64,6 +94,8 @@ export default async function PortalLayout({ children }: { children: React.React
     "onboarding.manage_templates",
     "appraisal.manage_cycles",
     "documents.manage_org",
+    "training.manage",
+    "assets.manage",
     "payroll.import",
     "compensation.manage_structure",
     "pay_calendar.manage",
@@ -74,6 +106,12 @@ export default async function PortalLayout({ children }: { children: React.React
     "reports.org",
     "roles.manage",
   ].some((permission) => sessionCan(session, permission as Parameters<typeof sessionCan>[1]));
+  // The per-item counterpart to canSeeAdmin above: which of those hrefs this
+  // session can actually open, not just whether the section header should
+  // render at all.
+  const visibleAdminHrefs = Object.entries(ADMIN_PAGE_PERMISSIONS)
+    .filter(([, permissions]) => permissions.some((permission) => sessionCan(session, permission)))
+    .map(([href]) => href);
   const name = session.employee
     ? `${session.employee.preferred_name || session.employee.first_name} ${session.employee.last_name}`
     : session.email?.split("@")[0] || "Team member";
@@ -96,6 +134,7 @@ export default async function PortalLayout({ children }: { children: React.React
       name={name}
       organizationName={session.organization.name}
       roleLabels={session.roleLabels}
+      visibleAdminHrefs={visibleAdminHrefs}
     >
       {children}
     </PortalShell>

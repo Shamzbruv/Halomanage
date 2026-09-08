@@ -4,6 +4,7 @@ import { getCurrentSession } from "@/lib/session";
 import { ProfileForm } from "@/components/ProfileForm";
 import { PrivateInfoForm } from "@/components/PrivateInfoForm";
 import { AvatarUpload } from "@/components/AvatarUpload";
+import { NotificationPreferencesForm } from "@/components/NotificationPreferencesForm";
 
 export default async function ProfilePage() {
   const session = await getCurrentSession();
@@ -21,6 +22,14 @@ export default async function ProfilePage() {
     ? await supabase.storage.from("employee-avatars").createSignedUrl(session.employee.avatar_url, 3600)
     : null;
   const employeeName = `${session.employee.preferred_name || session.employee.first_name} ${session.employee.last_name}`;
+
+  const { data: disabledPreferences } = await supabase
+    .from("notification_preferences")
+    .select("notification_type")
+    .eq("user_id", session.userId)
+    .eq("organization_id", session.organizationId!)
+    .eq("channel", "in_app")
+    .eq("enabled", false);
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
@@ -55,6 +64,18 @@ export default async function ProfilePage() {
           Only visible to you and HR — never to your supervisor or manager by default.
         </p>
         <PrivateInfoForm organizationId={session.organizationId!} employeeId={session.employee.id} initial={privateInfo ?? {}} />
+      </div>
+
+      <div className="card">
+        <h2 className="mb-1 text-sm font-semibold text-stone-900">Notifications</h2>
+        <p className="mb-4 text-xs text-stone-500">
+          Choose what shows up in your notification bell. Turning one off doesn&apos;t undo anything already sent.
+        </p>
+        <NotificationPreferencesForm
+          userId={session.userId}
+          organizationId={session.organizationId!}
+          disabledTypes={(disabledPreferences ?? []).map((p) => p.notification_type)}
+        />
       </div>
     </div>
   );

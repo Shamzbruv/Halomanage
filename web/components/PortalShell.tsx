@@ -45,6 +45,7 @@ const adminItems: NavItem[] = [
   { href: "/admin/offboarding", label: "Employee exits", icon: "people" },
   { href: "/admin/appraisals", label: "Performance setup", icon: "performance" },
   { href: "/admin/documents", label: "Document library", icon: "document" },
+  { href: "/admin/development", label: "Learning & assets", icon: "spark" },
   { href: "/admin/payroll", label: "Pay records", icon: "payroll" },
   { href: "/admin/compensation-settings", label: "Compensation structure", icon: "payroll" },
   { href: "/admin/pay-calendars", label: "Pay calendars", icon: "calendar" },
@@ -60,7 +61,7 @@ const adminItems: NavItem[] = [
 // rather than something bolted onto each page individually.
 const pageTitles: Array<{ pattern: RegExp; title: string; eyebrow: string; help: string }> = [
   { pattern: /^\/dashboard/, title: "Overview", eyebrow: "Your workspace", help: "Your at-a-glance snapshot — pending approvals, today's attendance, and quick actions relevant to your role. It's a summary, not a to-do list you have to clear." },
-  { pattern: /^\/profile/, title: "My profile", eyebrow: "Personal workspace", help: "Your own employee record — the fields you're allowed to edit yourself, like contact details and your photo. Employment details such as position, pay, and status are set by HR and shown here read-only." },
+  { pattern: /^\/profile/, title: "My profile", eyebrow: "Personal workspace", help: "Your own employee record — the fields you're allowed to edit yourself, like contact details, your photo, and which notifications show up in your bell. Employment details such as position, pay, and status are set by HR and shown here read-only." },
   { pattern: /^\/time/, title: "Time & attendance", eyebrow: "Personal workspace", help: "Clock in and out, see your assigned work schedule, and review your attendance history. Spotted a mistake in a past record? Request a correction instead of it being silently overwritten." },
   { pattern: /^\/leave/, title: "Leave", eyebrow: "Personal workspace", help: "Check your available leave balance by type, submit a new request, and track every request through approval." },
   { pattern: /^\/pay/, title: "My pay", eyebrow: "Personal workspace", help: "Yes — this is your salary. See your current rate, next pay date, any allowances or bonuses on top of your base rate, and download a payslip for any approved pay run." },
@@ -80,6 +81,7 @@ const pageTitles: Array<{ pattern: RegExp; title: string; eyebrow: string; help:
   { pattern: /^\/admin\/offboarding/, title: "Offboarding", eyebrow: "Administration", help: "The exit counterpart to onboarding — build offboarding templates and start a tracked exit workflow when someone leaves." },
   { pattern: /^\/admin\/appraisals/, title: "Performance setup", eyebrow: "Administration", help: "Design checkpoint templates — probation, quarterly, annual, or anything else — and launch review cycles that assign one to your team." },
   { pattern: /^\/admin\/documents/, title: "Document library", eyebrow: "Administration", help: "Upload and manage the files your organization shares with employees, and fulfill or decline document requests — job letters and similar things employees have asked for that you haven't already shared." },
+  { pattern: /^\/admin\/development/, title: "Learning & assets", eyebrow: "Administration", help: "Build the catalog of training courses and equipment your organization offers, then assign a course, a certification, or a piece of equipment to a specific person from their own People record." },
   { pattern: /^\/admin\/payroll/, title: "Pay records", eyebrow: "Administration", help: "Import pay-run results your payroll provider already calculated, reconcile them against your employees, and approve the batch. Halomanage never calculates payroll itself." },
   { pattern: /^\/admin\/compensation-settings/, title: "Compensation structure", eyebrow: "Administration", help: "Define the shared pay groups, grades, components, and change reasons that an individual employee's Change Compensation action picks from. Nothing here sets anyone's pay directly." },
   { pattern: /^\/admin\/pay-calendars/, title: "Pay calendars", eyebrow: "Administration", help: "Define pay schedules — weekly, biweekly, monthly, or custom — and generate the actual dated pay periods employees see on My Pay. A calendar with no periods generated yet is why a pay group can look empty." },
@@ -132,7 +134,7 @@ function Navigation({ groups, pathname, onNavigate }: { groups: NavGroup[]; path
   );
 }
 
-export function PortalShell({ children, avatarUrl, canSeeAdmin, canSeeTeam, email, name, organizationName, roleLabels }: {
+export function PortalShell({ children, avatarUrl, canSeeAdmin, canSeeTeam, email, name, organizationName, roleLabels, visibleAdminHrefs }: {
   children: React.ReactNode;
   avatarUrl: string | null;
   canSeeAdmin: boolean;
@@ -141,6 +143,11 @@ export function PortalShell({ children, avatarUrl, canSeeAdmin, canSeeTeam, emai
   name: string;
   organizationName: string;
   roleLabels: string[];
+  // Which admin hrefs this session's actual permissions let it open —
+  // narrower than "should the Manage section render at all" (canSeeAdmin).
+  // Without this, a custom role scoped to one admin page saw links to
+  // every admin page, each one a dead end back to /dashboard.
+  visibleAdminHrefs: string[];
 }) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -148,7 +155,10 @@ export function PortalShell({ children, avatarUrl, canSeeAdmin, canSeeTeam, emai
   const mobileDrawerRef = useRef<HTMLElement>(null);
   const groups = [...personalItems];
   if (canSeeTeam) groups.push({ label: "Team", items: [{ href: "/team", label: "Team hub", icon: "team" }] });
-  if (canSeeAdmin) groups.push({ label: "Manage", items: adminItems });
+  if (canSeeAdmin) {
+    const items = adminItems.filter((item) => visibleAdminHrefs.includes(item.href));
+    if (items.length > 0) groups.push({ label: "Manage", items });
+  }
 
   const page = pageTitles.find((candidate) => candidate.pattern.test(pathname)) ?? { title: "Halomanage", eyebrow: "Workspace", help: null };
 

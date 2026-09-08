@@ -1061,3 +1061,86 @@ document being rejected, double-decision guards, reason-required
 rejection, cancellation (and that a decided request can no longer be
 cancelled by anyone), decision notifications, and cross-organization
 isolation.
+
+## Full audit: admin nav dead links, and two features with a database but no UI
+
+2026-09-08. Direct request: "a full on audit on everything ... all the
+things HR and employees or even admin would have an issue with." No
+schema or RLS changes this pass — everything found was either a frontend
+gap or a missing UI over already-correct backend from an earlier design
+pass. `npm run build`, `tsc --noEmit`, and ESLint are all clean; the full
+298-assertion pglite suite passes unmodified (nothing here touched the
+database).
+
+**Admin nav showed dead links to a narrowly-scoped custom role.**
+Documented as a known "cosmetic rough edge" in the custom-organization-
+roles section above and left deferred at the time — fixed now.
+`canSeeAdmin` decided whether the whole "Manage" section rendered, but
+every item inside `adminItems` always rendered once that was true; a
+custom role holding only, say, `roles.manage` still saw all sixteen admin
+links, fifteen of which silently bounced it to `/dashboard`. `(portal)/
+layout.tsx` now also computes `visibleAdminHrefs` from the same
+href→permission map every admin page's own route guard already enforces
+(one map, kept in sync by construction — grep `sessionCan(session,` under
+`admin/*/page.tsx` to verify it if a new admin page is added), and
+`PortalShell` filters `adminItems` against it.
+
+**Training, certifications, and equipment/assets had a real schema, real
+RLS, and real permissions (`training.manage`, `assets.manage`) since the
+very first migration (`20260818001400_training_assets.sql`) — and zero
+admin UI, ever.** The employee-facing `(portal)/development` page has
+always rendered "When HR assigns training, its status and completion
+details will appear here," but there was no "here" for HR to act from;
+this is ROADMAP.md's long-standing item 2. Fixed with the same
+catalog/assignment split the compensation module already established
+(shared structure vs. one person's change):
+
+- `/admin/development` (new admin page, gated on `training.manage` and/or
+  `assets.manage`) — the shared catalog: create training courses
+  (required flag, renewal cadence) and equipment/assets (category, serial
+  number), each with an active/inactive toggle (`ToggleActiveButton`,
+  reusing the `is_active`-flag pattern `leave_types` and the reward
+  catalog already use — no delete policy needed, and a deactivated course/
+  asset stays valid on any record that already references it).
+- `admin/employees/[id]` gained three sections, gated the same way the
+  existing Compensation section already gates itself: **Learning**
+  (assign a course, an HR-side status control since `employee_training`
+  has no employee-facing update policy — this is HR recording what
+  actually happened, not a self-report) and **Certifications** (name,
+  issuing body, dates — `training.manage` covers both tables' RLS, so one
+  flag gates both sections), and **Assets** (assign one of the org's
+  currently-unassigned active assets, or mark an open assignment
+  returned). The asset picker is pre-filtered to org-wide-unassigned
+  stock — `employee_asset_assignments` enforces at most one open
+  assignment per asset with a partial unique index at the database
+  level; the picker just keeps someone from hitting that error instead of
+  preventing anything new.
+- All of it is plain RLS-scoped inserts/updates from client components
+  (`supabase.from(...).insert/update`), the same pattern `LeaveTypeForm`/
+  `GrantLeaveBalanceForm`/`NewRewardVendorForm` already use for
+  comparably simple admin CRUD — no new RPCs, since the existing `FOR ALL`
+  policies gated on `training.manage`/`assets.manage` already permit
+  exactly this from the Data API directly.
+- The employee-facing Certifications panel's "Manage employee records"
+  link was gated on `employee.manage` but the section it points at is
+  actually gated on `training.manage` — fixed to check the permission
+  that's actually required, so the link doesn't appear for someone who'd
+  click through to a page with no Certifications section to use.
+
+**Notification preferences had a table and an RLS policy
+(`20260818001300_notifications.sql`) letting a user manage their own
+row, but no UI anywhere ever wrote to it.** `private.create_notification()`
+is the only reader, and only checks the `in_app` channel — email/SMS/push
+delivery isn't live yet (provider secrets are still deployment work per
+the checklist above), so this controls what reaches the notification
+bell, not a promise about email you aren't receiving anyway. Added a
+"Notifications" card on `/profile` (`NotificationPreferencesForm`) with
+four friendly toggles grouped from the eleven raw `notification_type`
+strings in use across the app (Leave requests & decisions, Onboarding
+tasks, Rewards & recognition, Document requests) — turning one off
+upserts `enabled: false` rows for every underlying type it covers;
+turning it back on deletes them, returning to the table's own
+opt-out-by-absence default rather than writing a redundant `enabled:
+true` row.
+
+No new pglite assertions — nothing here changed the database.
