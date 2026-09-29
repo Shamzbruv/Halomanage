@@ -147,15 +147,22 @@ export default async function DashboardPage() {
     { data: onboardingTasks },
     { data: reviews },
     { data: assignment },
+    { data: myOnboarding },
   ] = await Promise.all([
     supabase.from("attendance_sessions").select("*").eq("employee_id", employeeId).is("clock_out_at", null).maybeSingle(),
     supabase.from("leave_balance_v").select("balance, leave_type_id, leave_type_name").eq("employee_id", employeeId),
     supabase.from("leave_requests").select("*, leave_types(name)").eq("employee_id", employeeId).order("submitted_at", { ascending: false }).limit(4),
     supabase.from("notifications").select("id, title, body, link_url, is_read, created_at").eq("recipient_user_id", session.userId).order("created_at", { ascending: false }).limit(5),
-    supabase.from("onboarding_tasks").select("id, title, due_date, status").neq("status", "completed").order("due_date", { ascending: true }).limit(4),
+    supabase.from("onboarding_tasks").select("id, title, due_date, status").eq("assigned_to_user_id", session.userId).not("status", "in", "(completed,skipped)").order("due_date", { ascending: true }).limit(4),
     supabase.from("appraisal_reviewers").select("id, role, appraisal_instance_id").eq("reviewer_user_id", session.userId).eq("status", "pending").limit(4),
-    supabase.from("employee_assignments").select("positions(title), org_units(name)").eq("employee_id", employeeId).is("end_date", null).maybeSingle(),
+    supabase.from("employee_assignments").select("positions(title), org_units(name), supervisor_employee_id, manager_employee_id").eq("employee_id", employeeId).is("end_date", null).maybeSingle(),
+    supabase.from("onboarding_progress_v").select("run_id, total_tasks, completed_tasks").eq("employee_id", employeeId).eq("status", "in_progress").limit(1).maybeSingle(),
   ]);
+  // "Welcome, John" — the first sign-in shows the record HR already built.
+  const leaderId = (assignment as any)?.manager_employee_id ?? (assignment as any)?.supervisor_employee_id ?? null;
+  const { data: leader } = myOnboarding && leaderId
+    ? await supabase.from("employees").select("first_name, last_name").eq("id", leaderId).maybeSingle()
+    : { data: null };
 
   const firstName = session.employee.preferred_name || session.employee.first_name;
   const unreadCount = (notifications ?? []).filter((item) => !item.is_read).length;
@@ -303,6 +310,23 @@ export default async function DashboardPage() {
           <div><small>{openSession ? "You’re working" : "You’re off the clock"}</small><strong>{openSession ? `Since ${formatTime(openSession.clock_in_at, session.organization?.timezone)}` : "Ready when you are"}</strong></div>
         </div>
       </section>
+
+      {myOnboarding && (
+        <section className="card welcome-onboarding">
+          <div className="panel-heading"><div><span className="panel-icon"><Icon name="onboarding" /></span><div><h3>Welcome, {firstName}.</h3><p>Here&apos;s what HR has already set up for you.</p></div></div></div>
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-5">
+            <div><dt className="text-xs uppercase text-stone-400">Employee number</dt><dd className="font-mono">{session.employee.employee_number}</dd></div>
+            <div><dt className="text-xs uppercase text-stone-400">Position</dt><dd>{assignmentData?.positions?.title ?? "—"}</dd></div>
+            <div><dt className="text-xs uppercase text-stone-400">Department</dt><dd>{assignmentData?.org_units?.name ?? "—"}</dd></div>
+            <div><dt className="text-xs uppercase text-stone-400">Reports to</dt><dd>{leader ? `${leader.first_name} ${leader.last_name}` : "—"}</dd></div>
+            <div><dt className="text-xs uppercase text-stone-400">Start date</dt><dd>{session.employee.hire_date ?? "—"}</dd></div>
+          </dl>
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-stone-700"><strong>Your onboarding:</strong> {myOnboarding.completed_tasks} of {myOnboarding.total_tasks} steps completed</p>
+            <Link className="btn-primary" href="/onboarding">Continue onboarding</Link>
+          </div>
+        </section>
+      )}
 
       {sessionCan(session, "organization.manage") && session.organization && (
         <section className="workspace-launch-strip">

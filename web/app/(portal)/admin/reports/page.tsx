@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { OnboardingReport } from "@/components/reports/OnboardingReport";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession, sessionCan } from "@/lib/session";
 import { Icon } from "@/components/Icon";
@@ -120,6 +121,8 @@ export default async function ReportsPage() {
           </tbody>
         </table>
       </div>
+
+      <OnboardingReport organizationId={orgId} />
     </div>
   );
 }

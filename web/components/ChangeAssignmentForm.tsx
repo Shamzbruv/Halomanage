@@ -16,26 +16,42 @@ export function ChangeAssignmentForm({
   positions,
   locations,
   employees,
+  initial,
+  defaultStartDate,
+  submitLabel = "Save assignment",
 }: {
   employeeId: string;
   orgUnits: Option[];
   positions: Option[];
   locations: Option[];
   employees: Option[];
+  // Prefill from the current assignment so a small change (new manager)
+  // doesn't silently blank every other field in the new history row.
+  initial?: {
+    org_unit_id: string | null;
+    position_id: string | null;
+    location_id: string | null;
+    supervisor_employee_id: string | null;
+    manager_employee_id: string | null;
+    employment_type: string | null;
+  } | null;
+  // A pre-hire's first assignment should take effect on their hire date.
+  defaultStartDate?: string | null;
+  submitLabel?: string;
 }) {
   const supabase = createClient();
   const router = useRouter();
   const [form, setForm] = useState({
-    org_unit_id: "",
-    position_id: "",
-    location_id: "",
-    supervisor_employee_id: "",
-    manager_employee_id: "",
-    employment_type: "full_time",
+    org_unit_id: initial?.org_unit_id ?? "",
+    position_id: initial?.position_id ?? "",
+    location_id: initial?.location_id ?? "",
+    supervisor_employee_id: initial?.supervisor_employee_id ?? "",
+    manager_employee_id: initial?.manager_employee_id ?? "",
+    employment_type: initial?.employment_type ?? "full_time",
     // en-CA gives YYYY-MM-DD from the browser's own local date — avoids the
     // off-by-one near midnight that toISOString() causes by converting to
     // UTC first (see lib/timezone.ts's todayIn(), same trick, server-side).
-    start_date: new Date().toLocaleDateString("en-CA"),
+    start_date: defaultStartDate ?? new Date().toLocaleDateString("en-CA"),
     change_reason: "",
   });
   const [loading, setLoading] = useState(false);
@@ -71,31 +87,31 @@ export function ChangeAssignmentForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid gap-3 sm:grid-cols-2">
         <div>
           <label className="label">Department / team</label>
-          <select className="input" value={form.org_unit_id} onChange={(e) => set("org_unit_id", e.target.value)}>
+          <select id="department" className="input" value={form.org_unit_id} onChange={(e) => set("org_unit_id", e.target.value)}>
             <option value="">—</option>
             {orgUnits.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
           </select>
         </div>
         <div>
           <label className="label">Position</label>
-          <select className="input" value={form.position_id} onChange={(e) => set("position_id", e.target.value)}>
+          <select id="position" className="input" value={form.position_id} onChange={(e) => set("position_id", e.target.value)}>
             <option value="">—</option>
             {positions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
           </select>
         </div>
         <div>
           <label className="label">Location</label>
-          <select className="input" value={form.location_id} onChange={(e) => set("location_id", e.target.value)}>
+          <select id="location" className="input" value={form.location_id} onChange={(e) => set("location_id", e.target.value)}>
             <option value="">—</option>
             {locations.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
           </select>
         </div>
         <div>
           <label className="label">Employment type</label>
-          <select className="input" value={form.employment_type} onChange={(e) => set("employment_type", e.target.value)}>
+          <select id="employment_type" className="input" value={form.employment_type} onChange={(e) => set("employment_type", e.target.value)}>
             <option value="full_time">Full-time</option>
             <option value="part_time">Part-time</option>
             <option value="contract">Contract</option>
@@ -105,7 +121,7 @@ export function ChangeAssignmentForm({
         </div>
         <div>
           <label className="label">Supervisor</label>
-          <select className="input" value={form.supervisor_employee_id} onChange={(e) => set("supervisor_employee_id", e.target.value)}>
+          <select id="reporting_line" className="input" value={form.supervisor_employee_id} onChange={(e) => set("supervisor_employee_id", e.target.value)}>
             <option value="">None</option>
             {employees.filter((e) => e.id !== employeeId).map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
           </select>
@@ -128,7 +144,7 @@ export function ChangeAssignmentForm({
       </div>
       {error && <p className="alert-error">{error}</p>}
       <button type="submit" disabled={loading} className="btn-primary">
-        {loading ? "Saving…" : "Save assignment"}
+        {loading ? "Saving…" : submitLabel}
       </button>
     </form>
   );

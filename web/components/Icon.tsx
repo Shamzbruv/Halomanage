@@ -3,6 +3,8 @@ export type IconName =
   | "calendar"
   | "check"
   | "chevron-down"
+  | "chevron-left"
+  | "chevron-right"
   | "clock"
   | "dashboard"
   | "document"
@@ -34,6 +36,8 @@ const paths: Record<IconName, React.ReactNode> = {
   calendar: <><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></>,
   check: <path d="m5 12 4 4L19 6"/>,
   "chevron-down": <path d="m6 9 6 6 6-6"/>,
+  "chevron-left": <path d="m15 6-6 6 6 6"/>,
+  "chevron-right": <path d="m9 6 6 6-6 6"/>,
   clock: <><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>,
   dashboard: <><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></>,
   document: <><path d="M6 2h8l4 4v16H6z"/><path d="M14 2v5h5M9 13h6M9 17h6"/></>,

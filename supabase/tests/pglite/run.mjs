@@ -2092,6 +2092,121 @@ async function main() {
     ok("another organization's admin cannot see this org's document request", Number(visible.rows[0].count) === 0);
   });
 
+
+  // ============== EMPLOYEE SETUP & INVITATION READINESS ==============
+  // Ref: 20260910100000_employee_setup_and_invitation_readiness.sql and
+  // 20260910110000_onboarding_template_editing.sql.
+  const SETUP_USER = "d0000000-0000-0000-0000-000000000001";
+  const fmtDate = (d) => (d instanceof Date ? d.toISOString().slice(0, 10) : String(d).slice(0, 10));
+  let setupEmpId;
+  await as(ERIN_USER, async () => {
+    await db.query(`select public.update_employee_record_settings('${ORG}', '{"mode":"automatic","prefix":"EMP-","padding":4,"next_sequence":900,"allow_manual_override":true}'::jsonb, null)`);
+    const a = await db.query(`select * from public.create_employee_record('${ORG}', 'Setup', 'Person', 'setup.person@acme.test')`);
+    const b = await db.query(`select * from public.create_employee_record('${ORG}', 'Second', 'Person')`);
+    setupEmpId = a.rows[0].id;
+    ok("create_employee_record generates the next number from the organization's format", a.rows[0].employee_number === "EMP-0900");
+    ok("consecutive creates receive consecutive numbers", b.rows[0].employee_number === "EMP-0901");
+    ok("new employees start as pre-hires", a.rows[0].status === "prehire");
+
+    const legacy = await db.query(`select * from public.create_employee_record('${ORG}', 'Migrated', 'Person', null, '004928')`);
+    ok("an existing employee number from a previous system is preserved exactly", legacy.rows[0].employee_number === "004928");
+    let threw = false;
+    try { await db.query(`select * from public.create_employee_record('${ORG}', 'Dup', 'Person', null, '004928')`); } catch { threw = true; }
+    ok("a duplicate existing employee number is rejected", threw);
+
+    await db.query(`select * from public.create_employee_record('${ORG}', 'Squatter', 'Person', null, 'EMP-0902')`);
+    const skipped = await db.query(`select * from public.create_employee_record('${ORG}', 'After', 'Squatter')`);
+    ok("allocation skips a number that was already entered manually", skipped.rows[0].employee_number === "EMP-0903");
+
+    const r = await db.query(`select public.get_employee_setup_readiness('${setupEmpId}') as r`);
+    const readiness = r.rows[0].r;
+    const codes = readiness.blockers.map((b) => b.code);
+    ok("a fresh record is not ready to invite", readiness.ready === false);
+    ok("readiness names the missing employment, access and onboarding items", ["hire_date", "position", "department", "location", "portal_access", "onboarding_plan"].every((c) => codes.includes(c)));
+  });
+  await as(DAVID_USER, async () => {
+    let threw = false;
+    try { await db.query(`select * from public.create_employee_record('${ORG}', 'Nope', 'Nope')`); } catch { threw = true; }
+    ok("David (no employee.manage) cannot create employee records", threw);
+    threw = false;
+    try { await db.query(`select public.get_employee_setup_readiness('${setupEmpId}')`); } catch { threw = true; }
+    ok("David cannot read another employee's setup readiness", threw);
+    threw = false;
+    try { await db.query(`select * from public.prepare_employee_access('${setupEmpId}', 'admin', null)`); } catch { threw = true; }
+    ok("David cannot prepare elevated access for a pre-hire", threw);
+  });
+
+  let standardTemplateId;
+  await as(ERIN_USER, async () => {
+    const unit = await db.query(`insert into public.org_units (organization_id, name) values ('${ORG}', 'Setup Dept') returning id`);
+    const pos = await db.query(`insert into public.positions (organization_id, title) values ('${ORG}', 'Setup Officer') returning id`);
+    const loc = await db.query(`insert into public.locations (organization_id, name) values ('${ORG}', 'Setup HQ') returning id`);
+    const hire = "2026-10-05";
+    await db.query(`update public.employees set hire_date = '${hire}' where id = '${setupEmpId}'`);
+    await db.query(`select * from public.change_employee_assignment('${setupEmpId}', '${unit.rows[0].id}', '${pos.rows[0].id}', null, '${BOB_EMP}', null, 'full_time', '${hire}', 'Setup')`);
+    await db.query(`select * from public.change_employee_assignment('${setupEmpId}', '${unit.rows[0].id}', '${pos.rows[0].id}', '${loc.rows[0].id}', '${BOB_EMP}', null, 'full_time', '${hire}', 'Setup fix')`);
+    const rows = await db.query(`select count(*) from public.employee_assignments where employee_id = '${setupEmpId}'`);
+    ok("correcting a pre-hire's assignment does not create history rows", Number(rows.rows[0].count) === 1);
+
+    await db.query(`select * from public.prepare_employee_access('${setupEmpId}', 'supervisor', null)`);
+    const tmpl = await db.query(`select id from public.onboarding_templates where organization_id = '${ORG}' and name = 'HaloManage Standard Onboarding'`);
+    ok("organizations have the HaloManage Standard Onboarding template", tmpl.rows.length === 1);
+    standardTemplateId = tmpl.rows[0]?.id;
+    const rec = await db.query(`select public.recommend_onboarding_template('${setupEmpId}') as r`);
+    ok("an onboarding template is recommended for the employee", !!rec.rows[0].r?.template_id);
+    await db.query(`select * from public.set_employee_onboarding_plan('${setupEmpId}', '${standardTemplateId}', false)`);
+
+    const r = await db.query(`select public.get_employee_setup_readiness('${setupEmpId}') as r`);
+    ok("once employment, access and onboarding are set, the employee is ready to invite", r.rows[0].r.ready === true && r.rows[0].r.percent === 100);
+
+    await db.query(`insert into public.employee_identifiers (organization_id, employee_id, identifier_type, identifier_value) values ('${ORG}', '${setupEmpId}', 'trn', '123-456-789')`);
+    let dupThrew = false;
+    try { await db.query(`insert into public.employee_identifiers (organization_id, employee_id, identifier_type, identifier_value) values ('${ORG}', '${ALICE_EMP}', 'trn', '123456789')`); } catch { dupThrew = true; }
+    ok("the same TRN cannot be recorded for two people, regardless of formatting", dupThrew);
+  });
+  const trnAudit = await db.query(`select new_data from public.audit_events where action = 'EMPLOYEE_IDENTIFIER_ADDED' and entity_id = '${setupEmpId}'`);
+  ok("identifier audit events store a masked value, never the full TRN", trnAudit.rows.length === 1 && trnAudit.rows[0].new_data.value === "•••789" && !JSON.stringify(trnAudit.rows[0].new_data).includes("123-456"));
+  await as(BOB_USER, async () => {
+    const seen = await db.query(`select count(*) from public.employee_identifiers where employee_id = '${setupEmpId}'`);
+    ok("a supervisor cannot read their report's government IDs", Number(seen.rows[0].count) === 0);
+  });
+
+  // The invitation path: the service-role link applies the prepared role
+  // and starts the prepared onboarding in one transaction.
+  await db.exec(`insert into auth.users (id, email, invited_at) values ('${SETUP_USER}', 'setup.person@acme.test', now())`);
+  await db.query(`select public.link_invited_employee_account('${setupEmpId}', '${SETUP_USER}', '${ERIN_USER}')`);
+  const linkedRole = await db.query(`select role from public.role_assignments where user_id = '${SETUP_USER}' and organization_id = '${ORG}'`);
+  ok("the invitation applies the prepared role instead of a default", linkedRole.rows.length === 1 && linkedRole.rows[0].role === "supervisor");
+  const linkedRun = await db.query(`
+    select r.id,
+      (select count(*) from public.onboarding_tasks t where t.run_id = r.id and t.assignee_type = 'employee' and t.assigned_to_user_id = '${SETUP_USER}') as mine,
+      (select count(*) from public.onboarding_tasks t where t.run_id = r.id and t.assignee_type = 'employee' and t.assigned_to_user_id is null) as unassigned,
+      (select due_date from public.onboarding_tasks t where t.run_id = r.id and t.title = 'Verify identification documents') as preboard_due,
+      (select due_date from public.onboarding_tasks t where t.run_id = r.id and t.title = 'Week-one check-in') as week_one_due
+    from public.onboarding_runs r where r.employee_id = '${setupEmpId}' and r.status = 'in_progress'`);
+  ok("the prepared onboarding plan starts when the account is linked", linkedRun.rows.length === 1);
+  ok("every employee task is assigned to the new account", Number(linkedRun.rows[0]?.mine) > 0 && Number(linkedRun.rows[0]?.unassigned) === 0);
+  ok("hire-date-anchored tasks support negative offsets", fmtDate(linkedRun.rows[0]?.preboard_due) === "2026-09-30");
+  ok("hire-date-anchored tasks are dated from the start date", fmtDate(linkedRun.rows[0]?.week_one_due) === "2026-10-12");
+  await as(ERIN_USER, async () => {
+    await db.query(`update public.employees set hire_date = '2026-10-12' where id = '${setupEmpId}'`);
+  });
+  const moved = await db.query(`select due_date from public.onboarding_tasks where employee_id = '${setupEmpId}' and title = 'Week-one check-in'`);
+  ok("moving the hire date moves open onboarding due dates", fmtDate(moved.rows[0]?.due_date) === "2026-10-19");
+
+  await as(ERIN_USER, async () => {
+    const before = await db.query(`select version_number from public.onboarding_template_versions where template_id = '${standardTemplateId}' and is_current`);
+    const firstStep = await db.query(`select s.id from public.onboarding_template_steps s join public.onboarding_template_versions v on v.id = s.template_version_id where v.template_id = '${standardTemplateId}' and v.is_current order by s.sequence limit 1`);
+    await db.query(`select * from public.save_onboarding_template_step('${standardTemplateId}', '${firstStep.rows[0].id}', 'Verify ID and TRN', null, 'document_review', 'hr', 'hire_date', -5, true, 'preboarding', '{}')`);
+    const after = await db.query(`select version_number from public.onboarding_template_versions where template_id = '${standardTemplateId}' and is_current`);
+    ok("editing a template version that has been used creates a new version", after.rows[0].version_number === before.rows[0].version_number + 1);
+    const oldTask = await db.query(`select title from public.onboarding_tasks where employee_id = '${setupEmpId}' and sequence = 1`);
+    ok("an existing onboarding record keeps its original step", oldTask.rows[0].title === "Verify identification documents");
+    const history = await db.query(`select action from public.list_employee_history('${setupEmpId}')`);
+    const actions = history.rows.map((row) => row.action);
+    ok("the HR timeline shows creation, access preparation and invitation", ["EMPLOYEE_CREATED", "EMPLOYEE_ACCESS_PREPARED", "EMPLOYEE_INVITED"].every((a) => actions.includes(a)));
+  });
+
   console.log(`\n${passCount} passed, ${failCount} failed.`);
   if (failCount > 0) process.exitCode = 1;
 }

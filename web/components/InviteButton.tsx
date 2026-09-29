@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -14,6 +15,7 @@ export function InviteButton({
   alreadyInvited,
   accepted,
   portalSlug,
+  setup,
 }: {
   employeeId: string;
   alreadyInvited: boolean;
@@ -23,6 +25,11 @@ export function InviteButton({
   // "they actually signed in and accepted it."
   accepted: boolean;
   portalSlug: string;
+  // From get_employee_setup_readiness()/list_employee_setup_summary(). When
+  // present and not ready, the Invite action becomes a link into the setup
+  // wizard — the invite-employee Edge Function rejects an incomplete
+  // employee anyway (409), this just avoids offering a button that fails.
+  setup?: { ready: boolean; percent: number };
 }) {
   const supabase = createClient();
   const router = useRouter();
@@ -84,10 +91,18 @@ export function InviteButton({
     );
   }
 
+  if (setup && !setup.ready) {
+    return (
+      <Link href={`/admin/employees/${employeeId}/setup`} className="btn-secondary w-fit px-3 py-1 text-xs" title="Finish HR setup before inviting">
+        Finish setup · {setup.percent}%
+      </Link>
+    );
+  }
+
   return (
     <div className="flex max-w-[220px] flex-col gap-1">
       <button className="btn-secondary w-fit px-3 py-1 text-xs" disabled={loading} onClick={() => invoke(false)}>
-        {loading ? "Inviting…" : "Invite"}
+        {loading ? "Inviting…" : setup ? "Send invitation" : "Invite"}
       </button>
       {error && <span className="text-xs leading-snug text-ruby-600">{error}</span>}
     </div>

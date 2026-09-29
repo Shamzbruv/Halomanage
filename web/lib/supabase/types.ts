@@ -23,6 +23,7 @@ export type AppPermission =
   | "leave.manage_policies"
   | "onboarding.complete_self"
   | "onboarding.manage_team"
+  | "onboarding.read_team"
   | "onboarding.manage_templates"
   | "appraisal.complete_self"
   | "appraisal.review_direct_reports"

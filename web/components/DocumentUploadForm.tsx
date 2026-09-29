@@ -13,16 +13,20 @@ import { createClient } from "@/lib/supabase/client";
 export function DocumentUploadForm({
   organizationId,
   employees,
+  fixedEmployeeId,
 }: {
   organizationId: string;
   employees: { id: string; label: string }[];
+  // Set from an employee's own HR record: the document always belongs to
+  // that person, so the employee picker is hidden.
+  fixedEmployeeId?: string;
 }) {
   const supabase = createClient();
   const router = useRouter();
   const [title, setTitle] = useState("");
-  const [category, setCategory] = useState("policy");
-  const [employeeId, setEmployeeId] = useState("");
-  const [visibility, setVisibility] = useState("org");
+  const [category, setCategory] = useState(fixedEmployeeId ? "contract" : "policy");
+  const [employeeId, setEmployeeId] = useState(fixedEmployeeId ?? "");
+  const [visibility, setVisibility] = useState(fixedEmployeeId ? "self" : "org");
   const [requiresAck, setRequiresAck] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
@@ -112,13 +116,13 @@ export function DocumentUploadForm({
             <option value="other">Other</option>
           </select>
         </div>
-        <div>
+        {!fixedEmployeeId && <div>
           <label className="label">Employee (leave blank for org-wide)</label>
           <select className="input" value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>
             <option value="">Org-wide (everyone)</option>
             {employees.map((e) => <option key={e.id} value={e.id}>{e.label}</option>)}
           </select>
-        </div>
+        </div>}
         {employeeId && (
           <div>
             <label className="label">Visibility</label>

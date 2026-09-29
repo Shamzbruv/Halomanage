@@ -1144,3 +1144,112 @@ opt-out-by-absence default rather than writing a redundant `enabled:
 true` row.
 
 No new pglite assertions — nothing here changed the database.
+
+## Employee setup before invitation (HR professional feedback)
+
+2026-09-29. Implements the HR-professional feedback blueprint: **an employee
+account is the last step of HR setup, not the first.** The lifecycle is now
+Create/Import → HR completes the record → HR prepares access and onboarding
+→ the database says it's ready → invitation → access → permanent onboarding
+record. Nothing existing was replaced — `employees.user_id` stays nullable
+before invitation, `employee_private` stays the protected PII layer,
+assignments stay effective-dated, onboarding stays versioned, the audit
+trail is unchanged — this pass exposes, connects, automates and enforces it.
+Migrations: `20260910090000_onboarding_read_team_permission_enum.sql`,
+`20260910100000_employee_setup_and_invitation_readiness.sql`,
+`20260910110000_onboarding_template_editing.sql`. PGlite suite: 325/325
+(new assertions under "EMPLOYEE SETUP & INVITATION READINESS").
+
+**Employee numbers.** `organization_employee_number_settings` (mode
+automatic/manual, prefix, padding, next sequence, whether HR may keep a
+legacy number). `create_employee_record()` is now the only manual-create
+path: it locks the org's settings row, allocates the next number (skipping
+any number already taken) or preserves a supplied existing number exactly,
+creates the pre-hire and its `employee_access_setup` row, and audits
+`EMPLOYEE_CREATED` + `EMPLOYEE_NUMBER_ASSIGNED`. Numbers are never computed
+in the browser. Existing orgs were seeded to continue after their highest
+`EMP-n`. The Migration Center is unchanged apart from wording ("Existing
+employee number — HaloManage keeps it"). Settings UI: `/admin/employees/settings`.
+
+**Readiness is one database function.** `get_employee_setup_readiness()`
+(wrapper over `private.employee_setup_readiness()`) returns `ready`,
+`percent`, `blockers`, `warnings`, every checklist `item` (code, section,
+required, complete), account state (not invited / invited / active, from
+`auth.users`) and the prepared access/onboarding. Always required: number,
+legal name, work email, hire date, employment type, department, position,
+location, confirmed portal access. Configurable per org
+(`employee_setup_preferences`): reporting line and onboarding plan (default
+on), DOB, TRN, personal email/phone, home address, emergency contact
+(default off). No React component recomputes any of this.
+`list_employee_setup_summary()` gives the People directory one row per
+employee.
+
+**Enforced in the backend.** `invite-employee` now calls readiness with the
+caller's client before `inviteUserByEmail()` and returns **409 "Employee
+setup is incomplete"** with the blockers. The UI's "Finish setup · n%" link
+is a convenience, not the gate.
+
+**Prepared access and onboarding.** `role_assignments` needs an Auth user,
+so `prepare_employee_access()` stores HR's decision in
+`employee_access_setup` (anything above Employee requires `roles.manage` —
+otherwise `employee.manage` alone could stage an Admin).
+`set_employee_onboarding_plan()` stores the chosen template.
+`link_invited_employee_account(employee, user, invited_by)` — same
+service-role-only transaction as before — now applies the prepared role
+(falling back to Employee if none or retired), starts the prepared
+onboarding via `private.instantiate_onboarding_run()` so employee tasks get
+a real assignee, and audits who invited. HR can also start preboarding
+early; triggers on `employees.user_id` and reporting-line changes
+(`private.resolve_onboarding_assignees()`) backfill employee, supervisor
+and manager tasks whenever the account or leader appears.
+
+**Protected identifiers and contacts.** `employee_identifiers` (TRN, NIS,
+national ID, passport, driver's licence, other; verified_at/by stamped by
+trigger; TRN/NIS unique per org ignoring formatting) and
+`employee_emergency_contacts` (several, one primary; backfilled from
+`employee_private`). Same audience as `employee_private` — never
+supervisors by default. Audit triggers record *that* protected data
+changed: identifiers as `•••789`, personal info as field names only. A
+trigger makes DOB/national_id/bank/notes HR-controlled even though RLS lets
+employees write their own `employee_private` row.
+
+**Onboarding.** Steps gained `due_anchor` (run start, hire date, invitation
+date, probation end) with negative offsets, and `phase` (preboarding →
+probation); tasks copy both and `private.recompute_onboarding_due_dates()`
+moves open tasks when hire/probation dates change. `skip_onboarding_task()`
+(reason required), `cancel_onboarding_run()` (record kept), and
+`attach_onboarding_task_document()` (evidence lives in the document system,
+referenced from `onboarding_task_documents`; notes in `completion_data`).
+`onboarding.read_team` lets supervisors/managers monitor their scope
+without `manage_team`. `recommend_onboarding_template()` scores
+`applies_to` (department/position/location/employment type); HR sees it as
+"Recommended by HaloManage" and chooses. Every org gets an editable 25-step
+**HaloManage Standard Onboarding** (default for new orgs; added as
+non-default for existing ones). Template edits go through
+`save/delete/move_onboarding_template_step()`, which fork a new version
+once the current one has been used — historical runs keep their version.
+Plus `duplicate_onboarding_template()` / `set_default_onboarding_template()`.
+
+**Assignment corrections.** `change_employee_assignment()` now corrects a
+pre-hire's current row (or a same-start-date re-save) in place, audited as
+`EMPLOYEE_ASSIGNMENT_CORRECTED`, instead of manufacturing history per typo;
+every other change still closes and opens rows.
+
+**Frontend.** `/admin/employees/[id]` is a tabbed HR record (Overview with
+setup status, Employment, Personal, Government IDs, Emergency contacts,
+Access, Onboarding, Documents, Learning & assets, Leave, Compensation,
+History via `list_employee_history()`). `/admin/employees/[id]/setup` is
+the Prepare & Invite wizard (Identity → Personal & IDs → Employment →
+Access → Onboarding → Review & invite), built from the same
+`components/employee/*` cards; blockers deep-link to the field. People
+gained Setup/Account/Onboarding columns, lifecycle filters and search.
+`/admin/onboarding` is a dashboard (Active/Completed/Cancelled/All) over
+permanent records at `/admin/onboarding/runs/[id]`. Reports gained an
+onboarding section with drill-down. The dashboard greets a new hire with
+the record HR built. The desktop sidebar collapses (icons + tooltips;
+preference in `localStorage` key `halomanage.sidebar.collapsed`).
+
+**Deliberately unchanged / deferred.** Linking an invited account still
+activates the employee immediately (existing behaviour). "Request change"
+approval for employee-edited fields, a nationality field, and per-step
+onboarding forms (`form_schema`) are not built.

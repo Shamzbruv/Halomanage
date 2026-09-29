@@ -27,7 +27,7 @@ export const PERMISSION_GROUPS: { domain: string; label: string; permissions: Ap
   {
     domain: "onboarding",
     label: "Onboarding",
-    permissions: ["onboarding.complete_self", "onboarding.manage_team", "onboarding.manage_templates"],
+    permissions: ["onboarding.complete_self", "onboarding.read_team", "onboarding.manage_team", "onboarding.manage_templates"],
   },
   {
     domain: "appraisal",

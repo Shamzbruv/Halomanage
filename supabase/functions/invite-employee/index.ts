@@ -195,6 +195,26 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: "Employee already has an account" }, 409);
     }
 
+    // HR must finish the employee's setup before access is issued. This is
+    // the enforcement point — the UI's disabled button is only a
+    // convenience, and this function can be called directly.
+    // get_employee_setup_readiness() is the single source of truth (see
+    // 20260910100000_employee_setup_and_invitation_readiness.sql).
+    const { data: readiness, error: readinessError } = await callerClient
+      .rpc("get_employee_setup_readiness", { p_employee_id: employee_id });
+    if (readinessError || !readiness) {
+      return jsonResponse({ error: "Could not check this employee's setup before inviting them." }, 500);
+    }
+    if (!readiness.ready) {
+      const blockers = (readiness.blockers ?? []) as Array<{ code: string; label: string; message: string; section: string }>;
+      return jsonResponse({
+        error: `Employee setup is incomplete: ${blockers.map((b) => b.label).join(", ")}.`,
+        blockers,
+      }, 409);
+    }
+
+    const { data: caller } = await callerClient.auth.getUser();
+
     const { data: organization } = await adminClient
       .from("organizations")
       .select("slug")
@@ -215,9 +235,12 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: inviteError?.message ?? "Failed to send invitation" }, 500);
     }
 
+    // Links the account and, in the same transaction, applies the role HR
+    // prepared and starts the prepared onboarding plan.
     const { error: linkError } = await adminClient.rpc("link_invited_employee_account", {
       p_employee_id: employee.id,
       p_user_id: invite.user.id,
+      p_invited_by: caller?.user?.id ?? null,
     });
 
     if (linkError) {

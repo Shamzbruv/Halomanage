@@ -1,6 +1,6 @@
 # Halomanage — Build Status and Roadmap
 
-Living handoff document. Last updated: 2026-09-08. This document itself had
+Living handoff document. Last updated: 2026-09-29. This document itself had
 drifted well behind `docs/ARCHITECTURE.md` (which had ~15 dated sections
 past this file's last update) — see ARCHITECTURE.md for the authoritative,
 dated history; this file is being brought back in line with it below rather
@@ -72,7 +72,8 @@ an external payroll or accounting system.
 - `web`: TypeScript passes with `tsc --noEmit`.
 - `web`: Next.js 16.3.2 production build passes for all routes.
 - `web`: `npm audit` reports 0 vulnerabilities.
-- `supabase/tests/pglite`: 75/75 database assertions pass, including starter workspace contents,
+- `supabase/tests/pglite`: 325/325 database assertions pass (2026-09-29), including employee-setup
+  readiness, prepared access/onboarding at invitation, and versioned template editing; also including starter workspace contents,
   portal lookup/customization, partial-membership repair, invitation permission separation,
   transactional linking, cross-organization provisioning, and duplicate-provisioning rejection.
 - Browser visual QA passes for the landing page and organization employee portal at 1440px and
@@ -96,6 +97,13 @@ code-only session.
    employee portal → employee creation/invite → branded employee sign-in → shift clock and correction
    → leave/onboarding/appraisal/document/learning flow → external pay-record import.
 7. Run Supabase security and performance advisors after the migration is deployed.
+
+## 2026-09-29 — Employee setup before invitation
+
+HR builds the complete record, prepares access and onboarding, and the invitation is the final,
+database-enforced step. See ARCHITECTURE.md "Employee setup before invitation". Deploy order matters:
+apply migrations `20260910090000`–`20260910110000` first, then redeploy `invite-employee` (it now calls
+`get_employee_setup_readiness()` and passes `p_invited_by`); the other way round breaks invitations.
 
 ## Remaining product work
 

@@ -91,6 +91,8 @@ const pageTitles: Array<{ pattern: RegExp; title: string; eyebrow: string; help:
   { pattern: /^\/admin\/security/, title: "Identity & access", eyebrow: "Administration", help: "Configure single sign-on for your organization's email domain and restrict sign-in to approved networks." },
 ];
 
+const SIDEBAR_STORAGE_KEY = "halomanage.sidebar.collapsed";
+
 function initials(name: string) {
   return name.split(" ").filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
 }
@@ -108,7 +110,9 @@ function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-function Navigation({ groups, pathname, onNavigate }: { groups: NavGroup[]; pathname: string; onNavigate?: () => void }) {
+// When the desktop sidebar is collapsed the labels are visually hidden, so
+// each link carries its own aria-label and a title tooltip instead.
+function Navigation({ groups, pathname, onNavigate, collapsed = false }: { groups: NavGroup[]; pathname: string; onNavigate?: () => void; collapsed?: boolean }) {
   return (
     <nav className="portal-nav" aria-label="Primary navigation">
       {groups.map((group) => (
@@ -118,10 +122,12 @@ function Navigation({ groups, pathname, onNavigate }: { groups: NavGroup[]; path
             {group.items.map((item) => (
               <Link
                 aria-current={isActive(pathname, item.href) ? "page" : undefined}
+                aria-label={collapsed ? item.label : undefined}
                 className={isActive(pathname, item.href) ? "active" : ""}
                 href={item.href}
                 key={item.href}
                 onClick={onNavigate}
+                title={collapsed ? item.label : undefined}
               >
                 <Icon name={item.icon} size={19} />
                 <span>{item.label}</span>
@@ -151,6 +157,10 @@ export function PortalShell({ children, avatarUrl, canSeeAdmin, canSeeTeam, emai
 }) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  // Desktop-only UI preference. Per-browser localStorage is deliberate: it
+  // is a convenience, not account data, and storage can be unavailable
+  // (private windows, blocked site data) — hence the try/catch.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
   const mobileDrawerRef = useRef<HTMLElement>(null);
   const groups = [...personalItems];
@@ -161,6 +171,30 @@ export function PortalShell({ children, avatarUrl, canSeeAdmin, canSeeTeam, emai
   }
 
   const page = pageTitles.find((candidate) => candidate.pattern.test(pathname)) ?? { title: "Halomanage", eyebrow: "Workspace", help: null };
+
+  useEffect(() => {
+    try {
+      // Read after mount, not in useState's initializer: the server render
+      // has no localStorage, and initializing differently on the client
+      // would cause a hydration mismatch.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSidebarCollapsed(window.localStorage.getItem(SIDEBAR_STORAGE_KEY) === "1");
+    } catch {
+      // Storage unavailable — stay expanded.
+    }
+  }, []);
+
+  function toggleSidebar() {
+    setSidebarCollapsed((current) => {
+      const next = !current;
+      try {
+        window.localStorage.setItem(SIDEBAR_STORAGE_KEY, next ? "1" : "0");
+      } catch {
+        // Preference just won't persist.
+      }
+      return next;
+    });
+  }
 
   useEffect(() => {
     if (!mobileOpen) return;
@@ -202,15 +236,27 @@ export function PortalShell({ children, avatarUrl, canSeeAdmin, canSeeTeam, emai
   }, [mobileOpen]);
 
   return (
-    <div className="portal-shell">
+    <div className={`portal-shell${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
       <aside className="portal-sidebar">
-        <div className="portal-brand-row"><Brand href="/dashboard" inverse /></div>
-        <div className="portal-organization">
+        <div className="portal-brand-row">
+          <Brand href="/dashboard" inverse compact={sidebarCollapsed} />
+          <button
+            type="button"
+            className="sidebar-collapse-button"
+            aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-expanded={!sidebarCollapsed}
+            title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            onClick={toggleSidebar}
+          >
+            <Icon name={sidebarCollapsed ? "chevron-right" : "chevron-left"} size={17} />
+          </button>
+        </div>
+        <div className="portal-organization" title={sidebarCollapsed ? organizationName : undefined}>
           <span className="organization-avatar">{initials(organizationName) || "HM"}</span>
           <span><small>Organization</small><strong>{organizationName}</strong></span>
         </div>
-        <Navigation groups={groups} pathname={pathname} />
-        <div className="portal-account">
+        <Navigation groups={groups} pathname={pathname} collapsed={sidebarCollapsed} />
+        <div className="portal-account" title={sidebarCollapsed ? name : undefined}>
           <UserAvatar name={name} avatarUrl={avatarUrl} />
           <span className="portal-account-copy"><strong>{name}</strong><small>{roleLabels.length > 0 ? roleLabels.join(" · ") : email}</small></span>
           <SignOutButton compact />

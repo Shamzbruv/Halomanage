@@ -9,23 +9,70 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession, sessionCan } from "@/lib/session";
 import { statusBadgeClass } from "@/lib/ui";
 
-export default async function EmployeesAdminPage() {
+type Summary = {
+  employee_id: string;
+  ready: boolean;
+  percent: number;
+  blocker_count: number;
+  account_state: "not_invited" | "invited" | "active";
+  onboarding_status: string | null;
+  onboarding_completed: number;
+  onboarding_total: number;
+};
+
+const FILTERS = [
+  { key: "all", label: "All" },
+  { key: "prehire", label: "Pre-hires" },
+  { key: "incomplete", label: "Setup incomplete" },
+  { key: "ready", label: "Ready to invite" },
+  { key: "pending", label: "Invitation pending" },
+  { key: "active", label: "Active" },
+  { key: "onboarding", label: "Onboarding" },
+  { key: "leave", label: "On leave" },
+  { key: "terminated", label: "Terminated" },
+] as const;
+type FilterKey = (typeof FILTERS)[number]["key"];
+
+type Row = { id: string; status: string; user_id: string | null };
+
+function matches(filter: FilterKey, employee: Row, summary: Summary | undefined) {
+  switch (filter) {
+    case "prehire": return employee.status === "prehire";
+    case "incomplete": return !employee.user_id && employee.status !== "terminated" && !summary?.ready;
+    case "ready": return !employee.user_id && employee.status !== "terminated" && !!summary?.ready;
+    case "pending": return summary?.account_state === "invited";
+    case "active": return employee.status === "active";
+    case "onboarding": return summary?.onboarding_status === "in_progress";
+    case "leave": return employee.status === "leave";
+    case "terminated": return employee.status === "terminated";
+    default: return true;
+  }
+}
+
+export default async function EmployeesAdminPage({ searchParams }: { searchParams: Promise<{ filter?: string; q?: string }> }) {
+  const { filter: requestedFilter, q } = await searchParams;
   const session = await getCurrentSession();
   if (!session) redirect("/login");
   if (!sessionCan(session, "employee.manage")) redirect("/dashboard");
   if (!session.organizationId || !session.organization) redirect("/dashboard");
   const portalSlug = session.organization.slug;
+  const filter: FilterKey = (FILTERS.find((f) => f.key === requestedFilter)?.key ?? "all") as FilterKey;
   const supabase = await createClient();
-  const [{ data: employees }, { data: inviteStatus }] = await Promise.all([
-    supabase.from("employees").select("id, employee_number, first_name, last_name, work_email, status, user_id, avatar_url").eq("organization_id", session.organizationId).order("last_name"),
-    supabase.rpc("list_employee_invite_status", { p_organization_id: session.organizationId }),
+  const [{ data: employees }, { data: summaries }, { data: assignments }] = await Promise.all([
+    supabase.from("employees").select("id, employee_number, first_name, last_name, preferred_name, work_email, status, user_id, avatar_url").eq("organization_id", session.organizationId).order("last_name"),
+    supabase.rpc("list_employee_setup_summary", { p_organization_id: session.organizationId }),
+    supabase.from("employee_assignments").select("employee_id, org_units(name), positions(title)").eq("organization_id", session.organizationId).is("end_date", null),
   ]);
-  const acceptedByEmployeeId = new Map((inviteStatus ?? []).map((row: { employee_id: string; accepted: boolean }) => [row.employee_id, row.accepted]));
-  const active = (employees ?? []).filter((employee) => employee.status === "active").length;
-  const prehire = (employees ?? []).filter((employee) => employee.status === "prehire").length;
-  const invited = (employees ?? []).filter((employee) => employee.user_id).length;
+  const summaryById = new Map(((summaries ?? []) as Summary[]).map((s) => [s.employee_id, s]));
+  const assignmentById = new Map((assignments ?? []).map((a: any) => [a.employee_id, a]));
+  const all = employees ?? [];
+  const counts = Object.fromEntries(FILTERS.map((f) => [f.key, all.filter((e) => matches(f.key, e, summaryById.get(e.id))).length])) as Record<FilterKey, number>;
+  const needle = (q ?? "").trim().toLowerCase();
+  const visible = all
+    .filter((e) => matches(filter, e, summaryById.get(e.id)))
+    .filter((e) => !needle || `${e.first_name} ${e.last_name} ${e.preferred_name ?? ""} ${e.employee_number} ${e.work_email ?? ""}`.toLowerCase().includes(needle));
 
-  const avatarPaths = (employees ?? []).map((employee) => employee.avatar_url).filter((path): path is string => !!path);
+  const avatarPaths = visible.map((employee) => employee.avatar_url).filter((path): path is string => !!path);
   const avatarUrlByPath = new Map<string, string>();
   if (avatarPaths.length > 0) {
     const { data: signed } = await supabase.storage.from("employee-avatars").createSignedUrls(avatarPaths, 3600);
@@ -36,27 +83,63 @@ export default async function EmployeesAdminPage() {
 
   return (
     <div className="space-y-6">
-      <div className="admin-page-head"><div className="page-intro"><span className="eyebrow">Employee directory</span><h1>Every person, one reliable record.</h1><p>Create hires, connect their account, and keep assignments and lifecycle details together.</p></div><NewEmployeeForm organizationId={session.organizationId} /></div>
+      <div className="admin-page-head">
+        <div className="page-intro"><span className="eyebrow">People</span><h1>Every person, one reliable record.</h1><p>Build the complete HR record first — employment, access and onboarding — then send the invitation as the final step.</p></div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Link href="/admin/employees/settings" className="btn-secondary"><Icon name="settings" size={16} /> Record settings</Link>
+          <NewEmployeeForm organizationId={session.organizationId} />
+        </div>
+      </div>
       <div className="dashboard-metrics">
-        <div className="metric-card"><span className="metric-icon mint"><Icon name="people" /></span><div><small>Total people</small><strong>{(employees ?? []).length}</strong><em>{active} active</em></div></div>
-        <div className="metric-card"><span className="metric-icon sun"><Icon name="onboarding" /></span><div><small>Pre-hires</small><strong>{prehire}</strong><em>ready to onboard</em></div></div>
-        <div className="metric-card"><span className="metric-icon coral"><Icon name="profile" /></span><div><small>Portal accounts</small><strong>{invited}</strong><em>connected employees</em></div></div>
+        <div className="metric-card"><span className="metric-icon mint"><Icon name="people" /></span><div><small>Total people</small><strong>{all.length}</strong><em>{counts.active} active</em></div></div>
+        <div className="metric-card"><span className="metric-icon sun"><Icon name="onboarding" /></span><div><small>Pre-hires</small><strong>{counts.prehire}</strong><em>{counts.ready} ready to invite</em></div></div>
+        <div className="metric-card"><span className="metric-icon coral"><Icon name="profile" /></span><div><small>Invitations pending</small><strong>{counts.pending}</strong><em>{counts.onboarding} onboarding</em></div></div>
       </div>
       <section className="card overflow-x-auto">
-        <div className="panel-heading"><div><span className="panel-icon"><Icon name="people" /></span><div><h3>People directory</h3><p>Select an employee to manage assignments, balances, and access.</p></div></div></div>
-        <table className="w-full text-sm"><thead><tr className="border-b border-stone-100 text-left"><th className="pb-3">Employee</th><th className="pb-3">Employee #</th><th className="pb-3">Status</th><th className="pb-3">Account</th><th className="pb-3">Actions</th></tr></thead><tbody className="divide-y divide-stone-100">
-          {(employees ?? []).length === 0 && <tr><td colSpan={5} className="py-10 text-center text-stone-400">No employee records yet.</td></tr>}
-          {(employees ?? []).map((employee) => {
+        <div className="panel-heading"><div><span className="panel-icon"><Icon name="people" /></span><div><h3>People directory</h3><p>Select an employee to open their complete HR record.</p></div></div></div>
+        <div className="directory-toolbar">
+          <nav className="filter-chips" aria-label="Filter employees">
+            {FILTERS.map((f) => (
+              <Link key={f.key} href={`/admin/employees${f.key === "all" ? "" : `?filter=${f.key}`}`} aria-current={filter === f.key ? "page" : undefined} className={filter === f.key ? "active" : ""}>
+                {f.label} <span>{counts[f.key]}</span>
+              </Link>
+            ))}
+          </nav>
+          <form className="directory-search" role="search">
+            {filter !== "all" && <input type="hidden" name="filter" value={filter} />}
+            <label className="sr-only" htmlFor="people-search">Search people</label>
+            <input id="people-search" name="q" className="input" placeholder="Search name, number or email" defaultValue={q ?? ""} />
+          </form>
+        </div>
+        <table className="w-full text-sm"><thead><tr className="border-b border-stone-100 text-left"><th className="pb-3">Employee</th><th className="pb-3">Employee #</th><th className="pb-3">Department / position</th><th className="pb-3">Status</th><th className="pb-3">Setup</th><th className="pb-3">Account</th><th className="pb-3">Onboarding</th><th className="pb-3">Actions</th></tr></thead><tbody className="divide-y divide-stone-100">
+          {visible.length === 0 && <tr><td colSpan={8} className="py-10 text-center text-stone-400">{all.length === 0 ? "No employee records yet." : "No one matches this view."}</td></tr>}
+          {visible.map((employee) => {
             const avatarUrl = employee.avatar_url ? avatarUrlByPath.get(employee.avatar_url) ?? null : null;
-            const fullName = `${employee.first_name} ${employee.last_name}`;
-            const hasPendingInvite = !!employee.user_id && !acceptedByEmployeeId.get(employee.id);
+            const fullName = `${employee.preferred_name || employee.first_name} ${employee.last_name}`;
+            const summary = summaryById.get(employee.id);
+            const assignment = assignmentById.get(employee.id);
+            const hasPendingInvite = summary?.account_state === "invited";
             const canDelete = employee.status === "prehire" && !employee.user_id;
             return (
               <tr key={employee.id}>
                 <td className="py-3"><Link href={`/admin/employees/${employee.id}`} className="employee-cell"><span className="user-avatar small">{avatarUrl ? <img src={avatarUrl} alt="" /> : `${employee.first_name[0]}${employee.last_name[0]}`}</span><span><strong>{fullName}</strong><small>{employee.work_email ?? "No email on file"}</small></span></Link></td>
                 <td className="py-3 font-mono text-xs text-stone-500">{employee.employee_number}</td>
+                <td className="py-3 text-xs text-stone-600">{assignment?.org_units?.name ?? "—"}<br /><span className="text-stone-400">{assignment?.positions?.title ?? "No position"}</span></td>
                 <td className="py-3"><span className={`badge ${statusBadgeClass(employee.status)}`}>{employee.status}</span></td>
-                <td className="py-3"><InviteButton employeeId={employee.id} alreadyInvited={!!employee.user_id} accepted={!!acceptedByEmployeeId.get(employee.id)} portalSlug={portalSlug} /></td>
+                <td className="py-3">
+                  {summary ? (
+                    <div className="setup-mini" title={summary.ready ? "Setup complete" : `${summary.blocker_count} item(s) remaining`}>
+                      <span className="setup-progress small"><span style={{ width: `${summary.percent}%` }} /></span>
+                      <small>{summary.percent}%</small>
+                    </div>
+                  ) : "—"}
+                </td>
+                <td className="py-3"><InviteButton employeeId={employee.id} alreadyInvited={!!employee.user_id} accepted={summary?.account_state === "active"} portalSlug={portalSlug} setup={summary && !employee.user_id ? { ready: summary.ready, percent: summary.percent } : undefined} /></td>
+                <td className="py-3 text-xs text-stone-600">
+                  {summary?.onboarding_status
+                    ? <>{summary.onboarding_completed}/{summary.onboarding_total} tasks<br /><span className="text-stone-400">{summary.onboarding_status.replace("_", " ")}</span></>
+                    : <span className="text-stone-400">Not started</span>}
+                </td>
                 <td className="py-3">
                   <div className="flex items-center gap-1">
                     <EditEmployeeEmailButton employeeId={employee.id} employeeName={fullName} currentEmail={employee.work_email} hasPendingInvite={hasPendingInvite} />

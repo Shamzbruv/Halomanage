@@ -8,7 +8,7 @@ import { resolveFunctionErrorMessage } from "@/lib/supabase/functions";
 
 const fields = [
   ["", "Ignore this column"],
-  ["employee_number", "Employee number *"],
+  ["employee_number", "Existing employee number *"],
   ["first_name", "First name *"],
   ["last_name", "Last name *"],
   ["preferred_name", "Preferred name"],
@@ -74,7 +74,7 @@ export function EmployeeImportMappingForm({
   return (
     <form className="card migration-mapping-card" onSubmit={handleSubmit}>
       <div className="panel-heading">
-        <div><span className="panel-icon"><Icon name="settings" /></span><div><h3>Column mapping</h3><p>Confirm what each source column means before importing.</p></div></div>
+        <div><span className="panel-icon"><Icon name="settings" /></span><div><h3>Column mapping</h3><p>Confirm what each source column means before importing. If you are migrating from another HR or payroll system, map your existing employee/staff number to <strong>Existing employee number</strong> — HaloManage keeps it exactly as it is and never regenerates it.</p></div></div>
       </div>
       <div className="mapping-grid">
         {headers.map((header) => (
@@ -91,7 +91,7 @@ export function EmployeeImportMappingForm({
         <label><span className="label">When an employee already exists</span><select className="input" value={duplicateStrategy} onChange={(event) => setDuplicateStrategy(event.target.value)}><option value="update">Update their employee record</option><option value="skip">Skip and preserve their record</option></select></label>
         <button className="btn-primary" disabled={loading || missing.length > 0} type="submit">{loading ? "Revalidating…" : "Save mapping & revalidate"}</button>
       </div>
-      {missing.length > 0 && <p className="alert-warning">Map Employee number, First name, and Last name to continue.</p>}
+      {missing.length > 0 && <p className="alert-warning">Map Existing employee number, First name, and Last name to continue.</p>}
       {error && <p className="alert-error" role="alert">{error}</p>}
       {message && <p className="portal-card-status" role="status"><Icon name="check" size={15} /> {message}</p>}
     </form>

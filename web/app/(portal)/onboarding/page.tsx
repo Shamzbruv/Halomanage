@@ -11,7 +11,22 @@ export default async function OnboardingPage() {
   if (!session.employee) redirect("/signup/complete?repair=1");
 
   const supabase = await createClient();
-  const { data: tasks } = await supabase.from("onboarding_tasks").select("*").order("run_id").order("sequence");
+  // Only this person's own plan and steps assigned to them. RLS would also
+  // return team members' tasks to supervisors (onboarding.read_team /
+  // manage_team) — those belong on the run record, not "my onboarding".
+  const { data: runStatuses } = await supabase.from("onboarding_runs").select("id, status").eq("employee_id", session.employee.id);
+  const cancelledRuns = new Set((runStatuses ?? []).filter((r) => r.status === "cancelled").map((r) => r.id));
+  const { data: allTasks } = await supabase
+    .from("onboarding_tasks")
+    .select("*")
+    .or(`employee_id.eq.${session.employee.id},assigned_to_user_id.eq.${session.userId}`)
+    .order("run_id")
+    .order("sequence");
+  // Preboarding steps owned by HR/IT aren't the new hire's to see as to-dos.
+  const tasks = (allTasks ?? []).filter((task) =>
+    !cancelledRuns.has(task.run_id)
+    && (task.assigned_to_user_id === session.userId || (task.employee_id === session.employee!.id && task.phase !== "preboarding")),
+  );
   const runs = new Map<string, any[]>();
   for (const task of tasks ?? []) {
     if (!runs.has(task.run_id)) runs.set(task.run_id, []);
@@ -46,7 +61,7 @@ export default async function OnboardingPage() {
                         <li key={task.id} className={done ? "done" : ""}>
                           <span className="task-marker">{done ? <Icon name="check" size={15} /> : task.sequence}</span>
                           <div><strong>{task.title}</strong>{task.description && <p>{task.description}</p>}<small>{task.step_type.replace(/_/g, " ")}{task.due_date ? ` · Due ${task.due_date}` : ""}</small></div>
-                          <div>{done ? <span className="badge badge-emerald">Done</span> : <CompleteOnboardingTaskButton taskId={task.id} />}</div>
+                          <div>{done ? <span className="badge badge-emerald">Done</span> : task.assigned_to_user_id === session.userId ? <CompleteOnboardingTaskButton taskId={task.id} /> : <span className="badge badge-neutral">With your {task.assignee_type === "hr" ? "HR team" : task.assignee_type}</span>}</div>
                         </li>
                       );
                     })}

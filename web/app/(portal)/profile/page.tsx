@@ -2,7 +2,9 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession } from "@/lib/session";
 import { ProfileForm } from "@/components/ProfileForm";
-import { PrivateInfoForm } from "@/components/PrivateInfoForm";
+import { EmergencyContactsEditor } from "@/components/EmergencyContactsEditor";
+import { EmployeePersonalInfoForm } from "@/components/EmployeePersonalInfoForm";
+import { identifierTypeLabel, maskIdentifier } from "@/lib/employeeSetup";
 import { AvatarUpload } from "@/components/AvatarUpload";
 import { NotificationPreferencesForm } from "@/components/NotificationPreferencesForm";
 
@@ -12,11 +14,11 @@ export default async function ProfilePage() {
   if (!session.employee) redirect("/signup/complete?repair=1");
 
   const supabase = await createClient();
-  const { data: privateInfo } = await supabase
-    .from("employee_private")
-    .select("*")
-    .eq("employee_id", session.employee.id)
-    .maybeSingle();
+  const [{ data: privateInfo }, { data: contacts }, { data: identifiers }] = await Promise.all([
+    supabase.from("employee_private").select("*").eq("employee_id", session.employee.id).maybeSingle(),
+    supabase.from("employee_emergency_contacts").select("id, full_name, relationship, phone, alternate_phone, email, is_primary").eq("employee_id", session.employee.id).order("is_primary", { ascending: false }).order("created_at"),
+    supabase.from("employee_identifiers").select("id, identifier_type, label, identifier_value, verified_at").eq("employee_id", session.employee.id).order("identifier_type"),
+  ]);
 
   const avatarResult = session.employee.avatar_url
     ? await supabase.storage.from("employee-avatars").createSignedUrl(session.employee.avatar_url, 3600)
@@ -63,8 +65,29 @@ export default async function ProfilePage() {
         <p className="mb-4 text-xs text-stone-500">
           Only visible to you and HR — never to your supervisor or manager by default.
         </p>
-        <PrivateInfoForm organizationId={session.organizationId!} employeeId={session.employee.id} initial={privateInfo ?? {}} />
+        <EmployeePersonalInfoForm mode="self" organizationId={session.organizationId!} employeeId={session.employee.id} initial={privateInfo} />
       </div>
+
+      <div className="card">
+        <h2 className="mb-1 text-sm font-semibold text-stone-900">Emergency contacts</h2>
+        <p className="mb-4 text-xs text-stone-500">Who HR should contact if something happens to you at work. Keep at least one up to date.</p>
+        <EmergencyContactsEditor organizationId={session.organizationId!} employeeId={session.employee.id} contacts={contacts ?? []} />
+      </div>
+
+      {(identifiers ?? []).length > 0 && (
+        <div className="card">
+          <h2 className="mb-1 text-sm font-semibold text-stone-900">Government IDs on file</h2>
+          <p className="mb-4 text-xs text-stone-500">Recorded and verified by HR. If something is wrong, contact HR — these can&apos;t be edited here.</p>
+          <ul className="divide-y divide-stone-100 text-sm">
+            {(identifiers ?? []).map((identifier) => (
+              <li key={identifier.id} className="flex items-center justify-between py-2">
+                <span>{identifierTypeLabel(identifier.identifier_type, identifier.label)} <span className="ml-2 font-mono text-xs text-stone-500">{maskIdentifier(identifier.identifier_value)}</span></span>
+                {identifier.verified_at ? <span className="badge badge-emerald">Verified</span> : <span className="badge badge-neutral">Not verified</span>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="card">
         <h2 className="mb-1 text-sm font-semibold text-stone-900">Notifications</h2>
