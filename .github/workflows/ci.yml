@@ -1,0 +1,56 @@
+# Halomanage CI — every push and pull request proves the database
+# migrations, RLS and RPCs (PGlite suite), lint, types, and the production
+# build before anything is trusted. Railway deploys from main on its own;
+# this is the independent check that the deploy is worth having.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  database:
+    name: Database (migrations + RLS tests)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: supabase/tests/pglite
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: supabase/tests/pglite/package-lock.json
+      - run: npm ci
+      - run: npm test
+
+  web:
+    name: Web (lint, types, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    env:
+      # Placeholders: the build must not need real credentials (pages that
+      # touch Supabase render dynamically at request time).
+      NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
+      NEXT_PUBLIC_SITE_URL: https://www.myhalomanage.com
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build

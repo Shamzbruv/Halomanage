@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { formatDate } from "@/lib/timezone";
 
 const BUILT_IN_ROLES = [
   { value: "employee", label: "Employee", help: "Their own record, time, leave, onboarding, and documents." },
@@ -23,12 +24,14 @@ export function EmployeeAccessSetup({
   pendingCustomRoleId,
   configuredAt,
   customRoles,
+  timezone,
 }: {
   employeeId: string;
   pendingRole: string | null;
   pendingCustomRoleId: string | null;
   configuredAt: string | null;
   customRoles: { id: string; name: string }[];
+  timezone: string | undefined;
 }) {
   const supabase = createClient();
   const router = useRouter();
@@ -76,7 +79,7 @@ export function EmployeeAccessSetup({
         <p className="field-help">{selectedBuiltIn?.help ?? "A custom role your organization defined under Roles & permissions."}</p>
       </div>
       {configuredAt
-        ? <p className="text-xs text-emerald-700">Access confirmed {configuredAt.slice(0, 10)} — applied automatically when the invitation is accepted.</p>
+        ? <p className="text-xs text-emerald-700">Access confirmed {formatDate(configuredAt, timezone, { dateStyle: "medium" })} — applied automatically when the invitation is accepted.</p>
         : <p className="text-xs text-amber-700">Not confirmed yet. Save to confirm this employee&apos;s access level — required before inviting.</p>}
       {error && <p role="alert" className="alert-error">{error}</p>}
       {saved && !error && <p role="status" className="text-xs text-emerald-700">Access saved.</p>}

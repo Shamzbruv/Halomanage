@@ -2,6 +2,7 @@ import Link from "next/link";
 import { OnboardingTemplateRecommendation, type OnboardingRecommendation } from "@/components/OnboardingTemplateRecommendation";
 import { createClient } from "@/lib/supabase/server";
 import { statusBadgeClass } from "@/lib/ui";
+import { dateIn } from "@/lib/timezone";
 import type { SetupReadiness } from "@/lib/employeeSetup";
 import type { EmployeeRecord } from "@/components/employee/types";
 
@@ -34,7 +35,7 @@ export async function OnboardingPlanCard({ employee, organizationId, readiness }
 
 // Every onboarding this person has ever had — in progress, completed and
 // cancelled. Runs are never deleted; each links to its permanent record.
-export async function OnboardingHistoryCard({ employeeId }: { employeeId: string }) {
+export async function OnboardingHistoryCard({ employeeId, timezone }: { employeeId: string; timezone: string | undefined }) {
   const supabase = await createClient();
   const [{ data: runs }, { data: progress }] = await Promise.all([
     supabase.from("onboarding_runs").select("id, status, started_at, completed_at, cancelled_at, onboarding_template_versions(version_number, onboarding_templates(name))").eq("employee_id", employeeId).order("started_at", { ascending: false }),
@@ -55,8 +56,8 @@ export async function OnboardingHistoryCard({ employeeId }: { employeeId: string
               <tr key={run.id}>
                 <td className="py-2"><Link className="font-medium text-royal-700 hover:underline" href={`/admin/onboarding/runs/${run.id}`}>{run.onboarding_template_versions?.onboarding_templates?.name ?? "Onboarding"}</Link></td>
                 <td className="py-2">v{run.onboarding_template_versions?.version_number ?? "?"}</td>
-                <td className="py-2">{String(run.started_at).slice(0, 10)}</td>
-                <td className="py-2">{run.completed_at ? String(run.completed_at).slice(0, 10) : run.cancelled_at ? String(run.cancelled_at).slice(0, 10) : "—"}</td>
+                <td className="py-2">{dateIn(run.started_at, timezone)}</td>
+                <td className="py-2">{run.completed_at ? dateIn(run.completed_at, timezone) : run.cancelled_at ? dateIn(run.cancelled_at, timezone) : "—"}</td>
                 <td className="py-2">{p ? `${p.completed_tasks}/${p.total_tasks}` : "—"}{p?.overdue_tasks > 0 && <span className="badge badge-ruby ml-2">{p.overdue_tasks} overdue</span>}</td>
                 <td className="py-2"><span className={`badge ${statusBadgeClass(run.status)}`}>{run.status.replace("_", " ")}</span></td>
               </tr>

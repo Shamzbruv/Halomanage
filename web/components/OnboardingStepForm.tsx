@@ -15,6 +15,7 @@ export type TemplateStep = {
   due_offset_days: number;
   required: boolean;
   phase: string | null;
+  assignee_employee_id?: string | null;
   dependency_step_ids: string[];
 };
 
@@ -34,11 +35,15 @@ export function OnboardingStepForm({
   existingSteps,
   step,
   onDone,
+  people = [],
 }: {
   templateId: string;
   existingSteps: { id: string; title: string }[];
   step?: TemplateStep;
   onDone?: () => void;
+  // For HR/IT steps: an optional named owner, overriding the
+  // organization's default owner for that kind of step.
+  people?: { id: string; label: string }[];
 }) {
   const supabase = createClient();
   const router = useRouter();
@@ -51,7 +56,9 @@ export function OnboardingStepForm({
     due_offset_days: String(step?.due_offset_days ?? 0),
     required: step?.required ?? true,
     phase: step?.phase ?? "",
+    assignee_employee_id: step?.assignee_employee_id ?? "",
   });
+  const namedOwnerAllowed = form.assignee_type === "hr" || form.assignee_type === "it";
   const [dependsOn, setDependsOn] = useState<string[]>(step?.dependency_step_ids ?? []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -72,6 +79,7 @@ export function OnboardingStepForm({
       p_required: form.required,
       p_phase: form.phase || null,
       p_dependency_step_ids: dependsOn,
+      p_assignee_employee_id: namedOwnerAllowed ? form.assignee_employee_id || null : null,
     });
     if (rpcError) {
       setError(rpcError.message);
@@ -119,6 +127,15 @@ export function OnboardingStepForm({
             {ASSIGNEES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
         </div>
+        {namedOwnerAllowed && people.length > 0 && (
+          <div>
+            <label className="label">Specific person (optional)</label>
+            <select className="input" value={form.assignee_employee_id} onChange={(e) => setForm({ ...form, assignee_employee_id: e.target.value })}>
+              <option value="">Organization&apos;s {form.assignee_type.toUpperCase()} owner</option>
+              {people.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+            </select>
+          </div>
+        )}
         <label className="flex items-center gap-2 self-end pb-2 text-sm text-stone-600">
           <input type="checkbox" checked={form.required} onChange={(e) => setForm({ ...form, required: e.target.checked })} /> Required to finish onboarding
         </label>

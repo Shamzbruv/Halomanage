@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { addDaysToDate, dateIn, todayIn } from "@/lib/timezone";
 
 type Person = { id: string; first_name: string; last_name: string };
 
@@ -15,11 +16,11 @@ function PeopleList({ people, hrefFor }: { people: Person[]; hrefFor: (p: Person
 
 // Onboarding reporting (blueprint §25). Every figure can be expanded to the
 // employees behind it. All reads go through the caller's RLS.
-export async function OnboardingReport({ organizationId }: { organizationId: string }) {
+export async function OnboardingReport({ organizationId, timezone }: { organizationId: string; timezone: string | undefined }) {
   const supabase = await createClient();
-  const today = new Date().toLocaleDateString("en-CA");
-  // eslint-disable-next-line react-hooks/purity
-  const in30 = new Date(Date.now() + 30 * 86400000).toLocaleDateString("en-CA");
+  // "Today" is the organization's calendar day, not the server's UTC one.
+  const today = todayIn(timezone);
+  const in30 = addDaysToDate(today, 30);
 
   const [{ data: runs }, { data: tasks }, { data: employees }, { data: assignments }] = await Promise.all([
     supabase.from("onboarding_runs").select("id, employee_id, status, started_at, completed_at").eq("organization_id", organizationId),
@@ -46,7 +47,7 @@ export async function OnboardingReport({ organizationId }: { organizationId: str
   const lateByTitle = new Map<string, number>();
   for (const t of tasks ?? []) {
     const late = t.due_date && ((isOpen(t) && t.due_date < today && runById.get(t.run_id)?.status === "in_progress")
-      || (t.status === "completed" && t.completed_at && String(t.completed_at).slice(0, 10) > t.due_date));
+      || (t.status === "completed" && t.completed_at && dateIn(t.completed_at, timezone) > t.due_date));
     if (late) lateByTitle.set(t.title, (lateByTitle.get(t.title) ?? 0) + 1);
   }
   const mostLate = [...lateByTitle.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);

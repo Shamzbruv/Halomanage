@@ -14,8 +14,19 @@ export default async function OnboardingPage() {
   // Only this person's own plan and steps assigned to them. RLS would also
   // return team members' tasks to supervisors (onboarding.read_team /
   // manage_team) — those belong on the run record, not "my onboarding".
-  const { data: runStatuses } = await supabase.from("onboarding_runs").select("id, status").eq("employee_id", session.employee.id);
-  const cancelledRuns = new Set((runStatuses ?? []).filter((r) => r.status === "cancelled").map((r) => r.id));
+  // Steps can be assigned to me for someone else's onboarding (HR/IT steps,
+  // or as their supervisor). I may not be able to read that person's record
+  // or run, so list_my_onboarding_subjects() supplies just the run status
+  // and their name.
+  const [{ data: runStatuses }, { data: subjects }] = await Promise.all([
+    supabase.from("onboarding_runs").select("id, status").eq("employee_id", session.employee.id),
+    supabase.rpc("list_my_onboarding_subjects"),
+  ]);
+  const subjectByRun = new Map(((subjects ?? []) as { run_id: string; run_status: string; display_name: string; employee_number: string }[]).map((s) => [s.run_id, s]));
+  const cancelledRuns = new Set([
+    ...(runStatuses ?? []).filter((r) => r.status === "cancelled").map((r) => r.id),
+    ...[...subjectByRun.values()].filter((s) => s.run_status === "cancelled").map((s) => s.run_id),
+  ]);
   const { data: allTasks } = await supabase
     .from("onboarding_tasks")
     .select("*")
@@ -53,7 +64,7 @@ export default async function OnboardingPage() {
               const runCompleted = runTasks.filter((task) => task.status === "completed" || task.status === "skipped").length;
               return (
                 <section key={runId} className="card">
-                  <div className="panel-heading"><div><span className="panel-icon"><Icon name="onboarding" /></span><div><h3>{runTasks[0].employee_id === session.employee!.id ? "Your onboarding plan" : "Tasks assigned to you"}</h3><p>{runCompleted} of {runTasks.length} steps completed.</p></div></div><span className="badge badge-neutral">{runTasks.length - runCompleted} remaining</span></div>
+                  <div className="panel-heading"><div><span className="panel-icon"><Icon name="onboarding" /></span><div><h3>{runTasks[0].employee_id === session.employee!.id ? "Your onboarding plan" : subjectByRun.get(runId) ? `Onboarding for ${subjectByRun.get(runId)!.display_name} (${subjectByRun.get(runId)!.employee_number}) — your steps` : "Steps assigned to you"}</h3><p>{runCompleted} of {runTasks.length} steps completed.</p></div></div><span className="badge badge-neutral">{runTasks.length - runCompleted} remaining</span></div>
                   <ol className="onboarding-task-list">
                     {runTasks.map((task) => {
                       const done = task.status === "completed" || task.status === "skipped";

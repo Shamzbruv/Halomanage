@@ -138,6 +138,15 @@ export default async function TeamPage() {
     };
   });
 
+  // Onboarding in progress for people in scope — RLS (onboarding.read_team /
+  // manage_team + management scope) decides which runs come back. Each
+  // person's full history, completed and cancelled runs included, is on
+  // their Team profile.
+  const canSeeOnboarding = sessionCan(session, "onboarding.read_team") || sessionCan(session, "onboarding.manage_team");
+  const { data: teamOnboarding } = canSeeOnboarding
+    ? await supabase.from("onboarding_progress_v").select("run_id, employee_id, total_tasks, completed_tasks, overdue_tasks").eq("status", "in_progress").neq("employee_id", viewerEmployeeId)
+    : { data: [] as any[] };
+
   return (
     <div className="space-y-6">
       <div className="page-intro">
@@ -177,6 +186,26 @@ export default async function TeamPage() {
         </div>
         <TeamRosterTable rows={rosterRows} />
       </section>
+
+      {canSeeOnboarding && (
+        <section className="card overflow-x-auto">
+          <div className="panel-heading"><div><span className="panel-icon"><Icon name="onboarding" /></span><div><h3>Team onboarding</h3><p>New starters in your scope who are still onboarding. Open a team member to see their full onboarding history.</p></div></div></div>
+          <table className="w-full text-sm"><thead><tr className="border-b border-stone-100 text-left"><th className="pb-3">Employee</th><th className="pb-3">Progress</th><th className="pb-3">Overdue</th><th className="pb-3" /></tr></thead><tbody className="divide-y divide-stone-100">
+            {(teamOnboarding ?? []).length === 0 && <tr><td colSpan={4} className="py-8 text-center text-stone-400">No one in your team is onboarding right now.</td></tr>}
+            {(teamOnboarding as any[] ?? []).map((run) => {
+              const person: any = personById.get(run.employee_id);
+              return (
+                <tr key={run.run_id}>
+                  <td className="py-3 font-medium text-stone-900"><Link className="hover:underline" href={`/team/${run.employee_id}`}>{person ? fullName(person) : "Team member"}</Link></td>
+                  <td className="py-3 text-stone-600">{run.completed_tasks}/{run.total_tasks} steps</td>
+                  <td className="py-3">{run.overdue_tasks > 0 ? <span className="badge badge-ruby">{run.overdue_tasks} overdue</span> : "—"}</td>
+                  <td className="py-3 text-right"><Link className="btn-secondary px-3 py-1 text-xs" href={`/admin/onboarding/runs/${run.run_id}`}>View record</Link></td>
+                </tr>
+              );
+            })}
+          </tbody></table>
+        </section>
+      )}
 
       <div className="grid gap-6 xl:grid-cols-2">
         <section className="card">

@@ -83,12 +83,12 @@ export default async function EmployeeSetupPage({
           {step === "personal" && (
             <>
               <PersonalInfoCard employee={employee} />
-              <IdentifiersCard employee={employee} />
+              <IdentifiersCard timezone={session.organization.timezone} employee={employee} />
               <EmergencyContactsCard employee={employee} />
             </>
           )}
           {step === "employment" && <EmploymentCard employee={employee} organizationId={session.organizationId} showHistory={false} />}
-          {step === "access" && <AccessCard employee={employee} organizationId={session.organizationId} viewerUserId={session.userId} readiness={readiness} />}
+          {step === "access" && <AccessCard timezone={session.organization.timezone} employee={employee} organizationId={session.organizationId} viewerUserId={session.userId} readiness={readiness} />}
           {step === "onboarding" && <OnboardingPlanCard employee={employee} organizationId={session.organizationId} readiness={readiness} />}
           {step === "review" && (
             <section className="card">
@@ -134,7 +134,7 @@ export default async function EmployeeSetupPage({
           </div>
         </div>
         <div>
-          <EmployeeSetupReadiness employeeId={employee.id} readiness={readiness} />
+          <EmployeeSetupReadiness timezone={session.organization.timezone} employeeId={employee.id} readiness={readiness} />
         </div>
       </div>
     </div>

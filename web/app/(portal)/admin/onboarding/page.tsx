@@ -2,9 +2,11 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession, sessionCan } from "@/lib/session";
+import { OnboardingResponsibilitiesForm } from "@/components/OnboardingResponsibilitiesForm";
 import { OnboardingTemplateForm } from "@/components/OnboardingTemplateForm";
 import { StartOnboardingForm } from "@/components/StartOnboardingForm";
 import { statusBadgeClass } from "@/lib/ui";
+import { dateIn } from "@/lib/timezone";
 
 const VIEWS = [
   { key: "in_progress", label: "Active" },
@@ -27,14 +29,17 @@ export default async function OnboardingAdminPage({ searchParams }: { searchPara
   const supabase = await createClient();
   const orgId = session.organizationId;
 
-  const [{ data: templates }, { data: employees }, { data: runs }, { data: progress }] = await Promise.all([
+  const [{ data: templates }, { data: employees }, { data: runs }, { data: progress }, { data: responsibilities }] = await Promise.all([
     supabase.from("onboarding_templates").select("id, name, is_default, is_active").eq("organization_id", orgId).order("name"),
     supabase.from("employees").select("id, first_name, last_name, employee_number, status").eq("organization_id", orgId).order("last_name"),
     supabase.from("onboarding_runs").select("id, employee_id, status, started_at, completed_at, cancelled_at, onboarding_template_versions(version_number, onboarding_templates(name))").eq("organization_id", orgId).order("started_at", { ascending: false }),
     // Aggregate view without FK relationships for PostgREST embedding —
     // fetched flat and joined in memory.
     supabase.from("onboarding_progress_v").select("*").eq("organization_id", orgId),
+    supabase.from("onboarding_responsibilities").select("assignee_type, employee_id").eq("organization_id", orgId),
   ]);
+  const activePeople = (employees ?? []).filter((e) => e.status !== "terminated").map((e) => ({ id: e.id, label: `${e.first_name} ${e.last_name}` }));
+  const responsibleByType = Object.fromEntries((responsibilities ?? []).map((r) => [r.assignee_type, r.employee_id]));
 
   const employeeById = new Map((employees ?? []).map((e) => [e.id, e]));
   const progressByRun = new Map((progress ?? []).map((p: any) => [p.run_id, p]));
@@ -72,7 +77,7 @@ export default async function OnboardingAdminPage({ searchParams }: { searchPara
                     <span className="ml-2 font-mono text-xs text-stone-400">{employee?.employee_number}</span>
                   </td>
                   <td className="py-2">{run.onboarding_template_versions?.onboarding_templates?.name ?? "—"} <span className="text-xs text-stone-400">v{run.onboarding_template_versions?.version_number}</span></td>
-                  <td className="py-2">{String(run.started_at).slice(0, 10)}</td>
+                  <td className="py-2">{dateIn(run.started_at, session.organization?.timezone)}</td>
                   <td className="py-2">{p ? `${p.completed_tasks}/${p.total_tasks} (${p.percent_complete ?? 0}%)` : "—"}</td>
                   <td className="py-2">{p?.overdue_tasks > 0 ? <span className="badge badge-ruby">{p.overdue_tasks} overdue</span> : "—"}</td>
                   <td className="py-2"><span className={`badge ${statusBadgeClass(run.status)}`}>{run.status.replace("_", " ")}</span></td>
@@ -82,6 +87,12 @@ export default async function OnboardingAdminPage({ searchParams }: { searchPara
           </tbody>
         </table>
       </section>
+
+      <div className="card">
+        <h2 className="mb-1 text-sm font-semibold text-stone-900">Who handles HR and IT steps</h2>
+        <p className="mb-3 text-xs text-stone-500">These steps go to this person&apos;s dashboard and onboarding list automatically. A template step can name a different person, and you can reassign any single step from its onboarding record.</p>
+        <OnboardingResponsibilitiesForm organizationId={orgId} people={activePeople} current={responsibleByType} />
+      </div>
 
       <div className="card">
         <h2 className="mb-3 text-sm font-semibold text-stone-900">Start onboarding</h2>

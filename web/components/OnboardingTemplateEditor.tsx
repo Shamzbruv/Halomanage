@@ -8,7 +8,8 @@ import { ONBOARDING_PHASE_LABELS, describeDueOffset } from "@/lib/employeeSetup"
 
 const ASSIGNEE_LABELS: Record<string, string> = { employee: "Employee", supervisor: "Supervisor", manager: "Manager", hr: "HR", it: "IT" };
 
-export function OnboardingStepList({ templateId, steps }: { templateId: string; steps: TemplateStep[] }) {
+export function OnboardingStepList({ templateId, steps, people = [] }: { templateId: string; steps: TemplateStep[]; people?: { id: string; label: string }[] }) {
+  const personById = new Map(people.map((p) => [p.id, p.label]));
   const supabase = createClient();
   const router = useRouter();
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -47,7 +48,7 @@ export function OnboardingStepList({ templateId, steps }: { templateId: string; 
               {showPhase && <h3 className="mb-1 mt-4 text-xs font-semibold uppercase text-stone-400">{s.phase ? ONBOARDING_PHASE_LABELS[s.phase] ?? s.phase : "Other steps"}</h3>}
               {editingId === s.id ? (
                 <div className="rounded-lg border border-stone-200 p-3">
-                  <OnboardingStepForm templateId={templateId} step={s} existingSteps={steps.map((x) => ({ id: x.id, title: x.title }))} onDone={() => setEditingId(null)} />
+                  <OnboardingStepForm templateId={templateId} step={s} existingSteps={steps.map((x) => ({ id: x.id, title: x.title }))} onDone={() => setEditingId(null)} people={people} />
                 </div>
               ) : (
                 <div className="flex flex-wrap items-start justify-between gap-3 rounded-lg bg-cream-100 px-3 py-2 text-sm">
@@ -55,7 +56,8 @@ export function OnboardingStepList({ templateId, steps }: { templateId: string; 
                     <span className="font-medium text-stone-900">{index + 1}. {s.title}</span>
                     {!s.required && <span className="badge badge-neutral ml-2">Optional</span>}
                     <p className="text-xs text-stone-500">
-                      {s.step_type.replace(/_/g, " ")} · {ASSIGNEE_LABELS[s.assignee_type] ?? s.assignee_type} · {describeDueOffset(s.due_anchor, s.due_offset_days)}
+                      {s.step_type.replace(/_/g, " ")} · {ASSIGNEE_LABELS[s.assignee_type] ?? s.assignee_type}
+                      {s.assignee_employee_id && personById.get(s.assignee_employee_id) ? ` (${personById.get(s.assignee_employee_id)})` : ""} · {describeDueOffset(s.due_anchor, s.due_offset_days)}
                     </p>
                     {s.dependency_step_ids?.length > 0 && (
                       <p className="text-xs text-stone-400">After: {s.dependency_step_ids.map((d) => titleById.get(d)).filter(Boolean).join(", ")}</p>

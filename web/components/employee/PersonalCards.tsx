@@ -20,7 +20,7 @@ export async function PersonalInfoCard({ employee }: { employee: EmployeeRecord 
   );
 }
 
-export async function IdentifiersCard({ employee }: { employee: EmployeeRecord }) {
+export async function IdentifiersCard({ employee, timezone }: { employee: EmployeeRecord; timezone: string | undefined }) {
   const supabase = await createClient();
   const { data: identifiers } = await supabase
     .from("employee_identifiers")
@@ -31,7 +31,7 @@ export async function IdentifiersCard({ employee }: { employee: EmployeeRecord }
     <section className="card">
       <h2 className="mb-1 text-sm font-semibold text-stone-900">Government &amp; compliance IDs</h2>
       <p className="mb-4 text-xs text-stone-500">TRN, NIS, national ID, passport and any other identifier your organization records. Numbers are masked by default and never copied in full into the audit trail.</p>
-      <EmployeeIdentifiersForm organizationId={employee.organization_id} employeeId={employee.id} identifiers={identifiers ?? []} />
+      <EmployeeIdentifiersForm organizationId={employee.organization_id} employeeId={employee.id} identifiers={identifiers ?? []} timezone={timezone} />
     </section>
   );
 }

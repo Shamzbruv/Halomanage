@@ -48,6 +48,7 @@ export default async function EmployeeDetailPage({
   if (!sessionCan(session, "employee.manage")) redirect("/dashboard");
   if (!session.organizationId || !session.organization) redirect("/dashboard");
   const orgId = session.organizationId;
+  const tz = session.organization.timezone;
   const canReadCompensation = sessionCan(session, "compensation.read_org");
   const canManageCompensation = sessionCan(session, "compensation.manage") || sessionCan(session, "compensation.approve");
 
@@ -113,9 +114,9 @@ export default async function EmployeeDetailPage({
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="space-y-6 lg:col-span-2">
             <OverviewSummary employee={employee} readiness={readiness} />
-            <OnboardingHistoryCard employeeId={employee.id} />
+            <OnboardingHistoryCard timezone={tz} employeeId={employee.id} />
           </div>
-          <div>{readiness && <EmployeeSetupReadiness employeeId={employee.id} readiness={readiness} />}</div>
+          <div>{readiness && <EmployeeSetupReadiness timezone={tz} employeeId={employee.id} readiness={readiness} />}</div>
         </div>
       )}
       {tab === "employment" && (
@@ -125,24 +126,24 @@ export default async function EmployeeDetailPage({
         </div>
       )}
       {tab === "personal" && <PersonalInfoCard employee={employee} />}
-      {tab === "ids" && <IdentifiersCard employee={employee} />}
+      {tab === "ids" && <IdentifiersCard timezone={tz} employee={employee} />}
       {tab === "emergency" && <EmergencyContactsCard employee={employee} />}
-      {tab === "access" && <AccessCard employee={employee} organizationId={orgId} viewerUserId={session.userId} readiness={readiness} />}
+      {tab === "access" && <AccessCard timezone={tz} employee={employee} organizationId={orgId} viewerUserId={session.userId} readiness={readiness} />}
       {tab === "onboarding" && (
         <div className="space-y-6">
           <OnboardingPlanCard employee={employee} organizationId={orgId} readiness={readiness} />
-          <OnboardingHistoryCard employeeId={employee.id} />
+          <OnboardingHistoryCard timezone={tz} employeeId={employee.id} />
         </div>
       )}
-      {tab === "documents" && <div className="space-y-6"><DocumentsCard employee={employee} /></div>}
+      {tab === "documents" && <div className="space-y-6"><DocumentsCard timezone={tz} employee={employee} /></div>}
       {tab === "learning" && (
         <div className="space-y-6">
-          <LearningAndAssetsCard employee={employee} canManageTraining={sessionCan(session, "training.manage")} canManageAssets={sessionCan(session, "assets.manage")} />
+          <LearningAndAssetsCard timezone={tz} employee={employee} canManageTraining={sessionCan(session, "training.manage")} canManageAssets={sessionCan(session, "assets.manage")} />
         </div>
       )}
       {tab === "leave" && <LeaveCard employee={employee} />}
       {tab === "compensation" && canReadCompensation && <CompensationCard employee={employee} canManage={canManageCompensation} timezone={session.organization.timezone} />}
-      {tab === "history" && <HistoryCard employeeId={employee.id} />}
+      {tab === "history" && <HistoryCard timezone={tz} employeeId={employee.id} />}
     </div>
   );
 }

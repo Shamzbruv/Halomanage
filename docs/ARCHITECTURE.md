@@ -1253,3 +1253,45 @@ preference in `localStorage` key `halomanage.sidebar.collapsed`).
 activates the employee immediately (existing behaviour). "Request change"
 approval for employee-edited fields, a nationality field, and per-step
 onboarding forms (`form_schema`) are not built.
+
+## Onboarding follow-ups: timezone, HR/IT owners, manager access, CI
+
+2026-10-02. Review findings on the employee-setup release, fixed in
+`20261002100000_onboarding_followups.sql` plus frontend changes. PGlite:
+334/334.
+
+**Timezone regression.** The new onboarding code had slipped back to
+server/UTC dates — the exact Jamaica five-hour problem fixed on
+2026-09-05. Frontend: every timestamp in the new pages now goes through
+`web/lib/timezone.ts` (`formatDateTime` gained an optional format
+argument; new `dateIn()` for a timestamp's org-local calendar date and
+`addDaysToDate()` for date-string arithmetic) and every "today" is
+`todayIn()`. Components that render dates take a `timezone` prop from
+`session.organization.timezone`. Database: new `private.org_today(org)` /
+`private.org_local_date(org, ts)`; run-start and invitation-date anchors,
+the overdue count in `onboarding_progress_v`, and the invitation's
+fallback hire date all use the organization's calendar day instead of
+Postgres `current_date` (UTC on Supabase).
+
+**HR and IT steps have a real owner.** Resolution order:
+the template step's named person (`onboarding_template_steps.assignee_employee_id`,
+HR/IT steps only) → the organization's owner for that kind of step
+(`onboarding_responsibilities`, set from /admin/onboarding via
+`set_onboarding_responsible()`, which also hands over open unowned steps)
+→ unassigned (any onboarding manager can still complete it). Tasks now
+record `assignee_employee_id` (so a person without an account yet still
+owns the task and receives it when their account links) and
+`assignment_locked`, set by `reassign_onboarding_task()` from a run record
+so automatic re-resolution leaves a hand-picked owner alone. Assigned
+steps appear on the owner's dashboard and /onboarding list, which uses
+`list_my_onboarding_subjects()` to name whose onboarding it is (and skip
+cancelled runs) without granting read access to that person's record.
+
+**Managers can find onboarding.** /team gains a "Team onboarding" section
+(in-progress runs in scope) and /team/[id] an Onboarding history table;
+both link to the permanent run record, which already admitted
+`onboarding.read_team`. Its back link now returns managers to the Team
+profile instead of the HR-only /admin/onboarding.
+
+**CI.** `.github/workflows/ci.yml` runs the PGlite suite, ESLint,
+TypeScript and the production build on every push and pull request.

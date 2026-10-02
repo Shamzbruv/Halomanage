@@ -122,7 +122,7 @@ export default async function ReportsPage() {
         </table>
       </div>
 
-      <OnboardingReport organizationId={orgId} />
+      <OnboardingReport timezone={session.organization?.timezone} organizationId={orgId} />
     </div>
   );
 }

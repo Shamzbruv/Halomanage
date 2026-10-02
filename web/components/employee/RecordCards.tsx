@@ -9,7 +9,7 @@ import { ReturnAssetButton } from "@/components/ReturnAssetButton";
 import { TrainingStatusSelect } from "@/components/TrainingStatusSelect";
 import { historyLabel } from "@/lib/employeeSetup";
 import { createClient } from "@/lib/supabase/server";
-import { todayIn } from "@/lib/timezone";
+import { dateIn, formatDateTime, todayIn } from "@/lib/timezone";
 import type { EmployeeRecord } from "@/components/employee/types";
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -17,7 +17,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   hr_letter: "HR letter", medical: "Medical", appraisal: "Appraisal", payroll: "Payroll", other: "Other",
 };
 
-export async function DocumentsCard({ employee }: { employee: EmployeeRecord }) {
+export async function DocumentsCard({ employee, timezone }: { employee: EmployeeRecord; timezone: string | undefined }) {
   const supabase = await createClient();
   const { data: documents } = await supabase
     .from("documents")
@@ -52,8 +52,8 @@ export async function DocumentsCard({ employee }: { employee: EmployeeRecord }) 
                 <tr key={doc.id}>
                   <td className="py-2"><span className="font-medium text-stone-900">{doc.title}</span>{doc.visibility === "hr_only" && <span className="badge badge-neutral ml-2">HR only</span>}{doc.expires_on && <span className="ml-2 text-xs text-stone-500">Expires {doc.expires_on}</span>}</td>
                   <td className="py-2">{CATEGORY_LABELS[doc.category] ?? doc.category}</td>
-                  <td className="py-2">{String(doc.created_at).slice(0, 10)}</td>
-                  <td className="py-2">{doc.requires_acknowledgement ? acknowledged ? <span className="badge badge-emerald">Acknowledged {String(acknowledged).slice(0, 10)}</span> : <span className="badge badge-gold">Pending</span> : "—"}</td>
+                  <td className="py-2">{dateIn(doc.created_at, timezone)}</td>
+                  <td className="py-2">{doc.requires_acknowledgement ? acknowledged ? <span className="badge badge-emerald">Acknowledged {dateIn(acknowledged, timezone)}</span> : <span className="badge badge-gold">Pending</span> : "—"}</td>
                   <td className="py-2 text-right">{version && <DocumentDownloadButton bucket={version.storage_bucket} path={version.storage_path} />}</td>
                 </tr>
               );
@@ -70,7 +70,7 @@ export async function DocumentsCard({ employee }: { employee: EmployeeRecord }) 
   );
 }
 
-export async function LearningAndAssetsCard({ employee, canManageTraining, canManageAssets }: { employee: EmployeeRecord; canManageTraining: boolean; canManageAssets: boolean }) {
+export async function LearningAndAssetsCard({ employee, canManageTraining, canManageAssets, timezone }: { employee: EmployeeRecord; canManageTraining: boolean; canManageAssets: boolean; timezone: string | undefined }) {
   const supabase = await createClient();
   const orgId = employee.organization_id;
   const [
@@ -142,7 +142,7 @@ export async function LearningAndAssetsCard({ employee, canManageTraining, canMa
                   <span className="font-medium text-stone-900">{a.assets?.name ?? "Company asset"}</span>
                   <span className="ml-2 text-xs text-stone-500">
                     {a.assets?.category?.replace(/_/g, " ")}
-                    {a.assets?.serial_number ? ` · ${a.assets.serial_number}` : ""} · Assigned {String(a.assigned_at).slice(0, 10)}
+                    {a.assets?.serial_number ? ` · ${a.assets.serial_number}` : ""} · Assigned {dateIn(a.assigned_at, timezone)}
                   </span>
                 </div>
                 <ReturnAssetButton assignmentId={a.id} />
@@ -257,7 +257,7 @@ function describeDetails(action: string, details: Record<string, unknown>): stri
   return parts.length ? parts.join(" · ") : null;
 }
 
-export async function HistoryCard({ employeeId }: { employeeId: string }) {
+export async function HistoryCard({ employeeId, timezone }: { employeeId: string; timezone: string | undefined }) {
   const supabase = await createClient();
   const { data: events, error } = await supabase.rpc("list_employee_history", { p_employee_id: employeeId });
   return (
@@ -271,7 +271,7 @@ export async function HistoryCard({ employeeId }: { employeeId: string }) {
           const detail = describeDetails(event.action, event.details ?? {});
           return (
             <li key={event.id}>
-              <time dateTime={event.created_at}>{new Date(event.created_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</time>
+              <time dateTime={event.created_at}>{formatDateTime(event.created_at, timezone, { dateStyle: "medium", timeStyle: "short" })}</time>
               <div>
                 <strong>{historyLabel(event.action)}</strong>
                 {detail && <p>{detail}</p>}

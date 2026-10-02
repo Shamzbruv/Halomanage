@@ -32,8 +32,8 @@ export function formatDate(value: string | Date, timezone: string | null | undef
   return new Date(value).toLocaleDateString("en", { ...options, timeZone: orgTimezone(timezone) });
 }
 
-export function formatDateTime(value: string | Date, timezone: string | null | undefined): string {
-  return new Date(value).toLocaleString("en", { timeZone: orgTimezone(timezone) });
+export function formatDateTime(value: string | Date, timezone: string | null | undefined, options: Intl.DateTimeFormatOptions = {}): string {
+  return new Date(value).toLocaleString("en", { ...options, timeZone: orgTimezone(timezone) });
 }
 
 // Current hour-of-day (0-23) in the organization's timezone — for the
@@ -62,6 +62,20 @@ export function currentDateLabelIn(timezone: string | null | undefined): string 
 // YYYY-MM-DD without the ISO string's UTC assumption.
 export function todayIn(timezone: string | null | undefined): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: orgTimezone(timezone) });
+}
+
+// The calendar date (YYYY-MM-DD) a stored timestamp falls on *in the
+// organization's timezone*. `String(timestamp).slice(0, 10)` reads the UTC
+// date instead — for a Jamaica org, anything after 7pm lands on tomorrow.
+export function dateIn(value: string | Date, timezone: string | null | undefined): string {
+  return new Date(value).toLocaleDateString("en-CA", { timeZone: orgTimezone(timezone) });
+}
+
+// Calendar arithmetic on a YYYY-MM-DD string (no timezone involved: the
+// date is already a local calendar date, so it's shifted as a UTC date).
+export function addDaysToDate(date: string, days: number): string {
+  const [year, month, day] = date.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
 }
 
 // How far `timeZone`'s wall clock reads ahead of UTC at `instant`, in

@@ -4,10 +4,11 @@ import { RoleAssignmentForm } from "@/components/RoleAssignmentForm";
 import { accountLabel, type SetupReadiness } from "@/lib/employeeSetup";
 import { permissionLabel } from "@/lib/permissions";
 import { createClient } from "@/lib/supabase/server";
+import { formatDateTime } from "@/lib/timezone";
 import type { EmployeeRecord } from "@/components/employee/types";
 
-function formatDate(value: string | null | undefined) {
-  return value ? new Date(value).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "—";
+function formatWhen(value: string | null | undefined, timezone: string | undefined) {
+  return value ? formatDateTime(value, timezone, { dateStyle: "medium", timeStyle: "short" }) : "—";
 }
 
 // Before an account exists: prepare the role the invitation will apply.
@@ -18,11 +19,13 @@ export async function AccessCard({
   organizationId,
   viewerUserId,
   readiness,
+  timezone,
 }: {
   employee: EmployeeRecord;
   organizationId: string;
   viewerUserId: string;
   readiness: SetupReadiness | null;
+  timezone: string | undefined;
 }) {
   const supabase = await createClient();
   const [{ data: customRoles }, { data: customRolePermissions }] = await Promise.all([
@@ -34,9 +37,9 @@ export async function AccessCard({
   const accountPanel = (
     <dl className="mb-5 grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-4">
       <div><dt className="text-xs uppercase text-stone-400">Account</dt><dd>{accountLabel(account)}</dd></div>
-      <div><dt className="text-xs uppercase text-stone-400">Invitation sent</dt><dd>{formatDate(account?.invited_at)}</dd></div>
-      <div><dt className="text-xs uppercase text-stone-400">Last sign-in</dt><dd>{formatDate(account?.last_sign_in_at)}</dd></div>
-      <div><dt className="text-xs uppercase text-stone-400">Access applied</dt><dd>{formatDate(readiness?.access.applied_at)}</dd></div>
+      <div><dt className="text-xs uppercase text-stone-400">Invitation sent</dt><dd>{formatWhen(account?.invited_at, timezone)}</dd></div>
+      <div><dt className="text-xs uppercase text-stone-400">Last sign-in</dt><dd>{formatWhen(account?.last_sign_in_at, timezone)}</dd></div>
+      <div><dt className="text-xs uppercase text-stone-400">Access applied</dt><dd>{formatWhen(readiness?.access.applied_at, timezone)}</dd></div>
     </dl>
   );
 
@@ -63,6 +66,7 @@ export async function AccessCard({
           pendingRole={readiness?.access.pending_role ?? null}
           pendingCustomRoleId={readiness?.access.pending_custom_role_id ?? null}
           configuredAt={readiness?.access.configured_at ?? null}
+          timezone={timezone}
           customRoles={customRoles ?? []}
         />
         {pendingPermissions.length > 0 && (

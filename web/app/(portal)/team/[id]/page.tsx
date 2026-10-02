@@ -4,7 +4,7 @@ import { Icon } from "@/components/Icon";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession, sessionCan } from "@/lib/session";
 import { statusBadgeClass } from "@/lib/ui";
-import { todayIn } from "@/lib/timezone";
+import { dateIn, todayIn } from "@/lib/timezone";
 
 function fullName(person: { first_name?: string | null; last_name?: string | null; preferred_name?: string | null }) {
   const first = person.preferred_name || person.first_name;
@@ -39,12 +39,23 @@ export default async function TeamMemberProfilePage({ params }: { params: Promis
   const canReadCompensation = sessionCan(session, "compensation.read_team") || sessionCan(session, "compensation.read_org");
   const canManage = sessionCan(session, "employee.manage");
 
-  const [{ data: employee }, { data: assignment }, { data: balances }, { data: scheduleAssignment }] = await Promise.all([
+  // Onboarding records are visible through onboarding.read_team /
+  // manage_team RLS (management scope only) — a manager can monitor their
+  // people's onboarding here without HR's employee.manage.
+  const canSeeOnboarding = sessionCan(session, "onboarding.read_team") || sessionCan(session, "onboarding.manage_team") || canManage;
+  const [{ data: employee }, { data: assignment }, { data: balances }, { data: scheduleAssignment }, { data: onboardingRuns }, { data: onboardingProgress }] = await Promise.all([
     supabase.from("employees").select("*").eq("id", id).maybeSingle(),
     supabase.from("employee_assignments").select("*, org_units(name), positions(title), locations(name)").eq("employee_id", id).is("end_date", null).maybeSingle(),
     supabase.from("leave_balance_v").select("balance, leave_type_name").eq("employee_id", id),
     supabase.from("schedule_assignments").select("schedule_id, work_schedules(name)").eq("employee_id", id).is("end_date", null).maybeSingle(),
+    canSeeOnboarding
+      ? supabase.from("onboarding_runs").select("id, status, started_at, completed_at, cancelled_at, onboarding_template_versions(version_number, onboarding_templates(name))").eq("employee_id", id).order("started_at", { ascending: false })
+      : Promise.resolve({ data: [] as any[] }),
+    canSeeOnboarding
+      ? supabase.from("onboarding_progress_v").select("run_id, total_tasks, completed_tasks, overdue_tasks").eq("employee_id", id)
+      : Promise.resolve({ data: [] as any[] }),
   ]);
+  const progressByRun = new Map((onboardingProgress ?? []).map((p: any) => [p.run_id, p]));
 
   if (!employee) notFound();
 
@@ -168,6 +179,33 @@ export default async function TeamMemberProfilePage({ params }: { params: Promis
           ))}
         </ul>
       </div>
+
+      {canSeeOnboarding && (
+        <div className="card overflow-x-auto">
+          <h2 className="mb-1 text-sm font-semibold text-stone-900">Onboarding</h2>
+          <p className="mb-3 text-xs text-stone-500">Every onboarding {fullName(employee)} has had, including completed and cancelled ones. Open one to see each step, who completed it, and when.</p>
+          {(onboardingRuns ?? []).length === 0 ? (
+            <p className="text-sm text-stone-400">No onboarding on record.</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead><tr className="border-b border-stone-100 text-left text-xs uppercase text-stone-400"><th className="pb-2">Plan</th><th className="pb-2">Started</th><th className="pb-2">Progress</th><th className="pb-2">Status</th></tr></thead>
+              <tbody className="divide-y divide-stone-100">
+                {(onboardingRuns ?? []).map((run: any) => {
+                  const p = progressByRun.get(run.id);
+                  return (
+                    <tr key={run.id}>
+                      <td className="py-2"><Link className="font-medium text-royal-700 hover:underline" href={`/admin/onboarding/runs/${run.id}`}>{run.onboarding_template_versions?.onboarding_templates?.name ?? "Onboarding"}</Link> <span className="text-xs text-stone-400">v{run.onboarding_template_versions?.version_number}</span></td>
+                      <td className="py-2">{dateIn(run.started_at, session.organization?.timezone)}</td>
+                      <td className="py-2">{p ? `${p.completed_tasks}/${p.total_tasks}` : "—"}{p?.overdue_tasks > 0 && <span className="badge badge-ruby ml-2">{p.overdue_tasks} overdue</span>}</td>
+                      <td className="py-2"><span className={`badge ${statusBadgeClass(run.status)}`}>{run.status.replace("_", " ")}</span></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
 
       {!canManage && (
         <p className="flex items-center gap-1.5 text-xs text-stone-400"><Icon name="shield" size={14} /> Some details (compensation, documents) may be hidden based on your permissions.</p>

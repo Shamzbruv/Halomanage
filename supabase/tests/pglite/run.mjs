@@ -2207,6 +2207,43 @@ async function main() {
     ok("the HR timeline shows creation, access preparation and invitation", ["EMPLOYEE_CREATED", "EMPLOYEE_ACCESS_PREPARED", "EMPLOYEE_INVITED"].every((a) => actions.includes(a)));
   });
 
+
+  // ============== ONBOARDING FOLLOW-UPS (timezone, HR/IT owners) ==============
+  // Ref: 20261002100000_onboarding_followups.sql.
+  const orgToday = await db.query(`select private.org_today('${ORG}') = (now() at time zone coalesce((select timezone from public.organizations where id = '${ORG}'), 'America/Jamaica'))::date as same`);
+  ok("org_today() is the organization's calendar day, not UTC's", orgToday.rows[0].same === true);
+
+  await as(ERIN_USER, async () => {
+    const assigned = await db.query(`select public.set_onboarding_responsible('${ORG}', 'hr', '${CAROL_EMP}') as n`);
+    ok("naming an HR owner hands them the open, unowned HR steps", Number(assigned.rows[0].n) > 0);
+    const hrTasks = await db.query(`select count(*) filter (where assigned_to_user_id = '${CAROL_USER}') as carol, count(*) as total from public.onboarding_tasks where employee_id = '${setupEmpId}' and assignee_type = 'hr' and status not in ('completed', 'skipped')`);
+    ok("every open HR step on the run now belongs to the HR owner", Number(hrTasks.rows[0].carol) === Number(hrTasks.rows[0].total) && Number(hrTasks.rows[0].total) > 0);
+
+    const itTask = await db.query(`select id from public.onboarding_tasks where employee_id = '${setupEmpId}' and assignee_type = 'it' limit 1`);
+    let refused = false;
+    try { await db.query(`select * from public.reassign_onboarding_task('${itTask.rows[0].id}', '${DAVID_EMP}')`); } catch { refused = true; }
+    ok("a step cannot be reassigned to a terminated employee", refused);
+    await db.query(`select * from public.reassign_onboarding_task('${itTask.rows[0].id}', '${CAROL_EMP}')`);
+    await db.query(`select public.set_onboarding_responsible('${ORG}', 'it', '${ERIN_EMP}')`);
+    const stillCarol = await db.query(`select assigned_to_user_id, assignment_locked from public.onboarding_tasks where id = '${itTask.rows[0].id}'`);
+    ok("a hand-reassigned step stays with the person HR chose", stillCarol.rows[0].assigned_to_user_id === CAROL_USER && stillCarol.rows[0].assignment_locked === true);
+
+    const step = await db.query(`select s.id from public.onboarding_template_steps s join public.onboarding_template_versions v on v.id = s.template_version_id where v.template_id = '${standardTemplateId}' and v.is_current and s.assignee_type = 'hr' order by s.sequence limit 1`);
+    const saved = await db.query(`select * from public.save_onboarding_template_step('${standardTemplateId}', '${step.rows[0].id}', 'Verify ID and TRN', null, 'document_review', 'hr', 'hire_date', -5, true, 'preboarding', '{}', '${ERIN_EMP}')`);
+    ok("an HR template step can name a specific person", saved.rows[0].assignee_employee_id === ERIN_EMP);
+  });
+  await as(ALICE_USER, async () => {
+    let threw = false;
+    try { await db.query(`select public.set_onboarding_responsible('${ORG}', 'hr', '${ALICE_EMP}')`); } catch { threw = true; }
+    ok("Alice (no onboarding or HR permission) cannot make herself the HR owner", threw);
+  });
+  await as(CAROL_USER, async () => {
+    const mine = await db.query(`select count(*) from public.onboarding_tasks where employee_id = '${setupEmpId}' and assignee_type = 'hr' and assigned_to_user_id = '${CAROL_USER}'`);
+    ok("the HR owner can see the steps assigned to them", Number(mine.rows[0].count) > 0);
+    const subjects = await db.query(`select * from public.list_my_onboarding_subjects()`);
+    ok("the HR owner sees whose onboarding the steps belong to", subjects.rows.some((r) => r.employee_id === setupEmpId && r.display_name === "Setup Person" && r.run_status === "in_progress"));
+  });
+
   console.log(`\n${passCount} passed, ${failCount} failed.`);
   if (failCount > 0) process.exitCode = 1;
 }

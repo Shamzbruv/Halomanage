@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { IDENTIFIER_TYPES, identifierTypeLabel, maskIdentifier } from "@/lib/employeeSetup";
+import { formatDate } from "@/lib/timezone";
 
 export type EmployeeIdentifier = {
   id: string;
@@ -25,10 +26,12 @@ export function EmployeeIdentifiersForm({
   organizationId,
   employeeId,
   identifiers,
+  timezone,
 }: {
   organizationId: string;
   employeeId: string;
   identifiers: EmployeeIdentifier[];
+  timezone: string | undefined;
 }) {
   const supabase = createClient();
   const router = useRouter();
@@ -138,7 +141,7 @@ export function EmployeeIdentifiersForm({
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {identifier.verified_at
-                ? <span className="badge badge-emerald">Verified {identifier.verified_at.slice(0, 10)}</span>
+                ? <span className="badge badge-emerald">Verified {formatDate(identifier.verified_at, timezone, { dateStyle: "medium" })}</span>
                 : <span className="badge badge-gold">Not verified</span>}
               <button type="button" className="btn-secondary px-2.5 py-1 text-xs" disabled={busyId === identifier.id} onClick={() => setVerified(identifier, !identifier.verified_at)}>
                 {identifier.verified_at ? "Unverify" : "Mark verified"}

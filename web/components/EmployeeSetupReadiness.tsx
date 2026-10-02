@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { Icon } from "@/components/Icon";
 import { SETUP_GROUPS, accountLabel, setupHref, type SetupReadiness } from "@/lib/employeeSetup";
+import { formatDate as formatOrgDate } from "@/lib/timezone";
 
-function formatDate(value: string | null) {
-  return value ? new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : null;
+function formatDate(value: string | null, timezone: string | undefined) {
+  return value ? formatOrgDate(value, timezone, { month: "short", day: "numeric", year: "numeric" }) : null;
 }
 
 // Renders get_employee_setup_readiness() — it never decides readiness
@@ -12,14 +13,16 @@ export function EmployeeSetupReadiness({
   employeeId,
   readiness,
   showBlockers = true,
+  timezone,
 }: {
   employeeId: string;
   readiness: SetupReadiness;
   showBlockers?: boolean;
+  timezone: string | undefined;
 }) {
   const remaining = readiness.blockers.length;
-  const invitedAt = formatDate(readiness.account.invited_at);
-  const lastSignIn = formatDate(readiness.account.last_sign_in_at);
+  const invitedAt = formatDate(readiness.account.invited_at, timezone);
+  const lastSignIn = formatDate(readiness.account.last_sign_in_at, timezone);
 
   return (
     <section className="setup-status" aria-label="Employee setup status">
