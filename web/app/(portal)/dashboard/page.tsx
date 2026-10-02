@@ -8,7 +8,7 @@ import { getCurrentSession, sessionCan } from "@/lib/session";
 import { statusBadgeClass } from "@/lib/ui";
 import { currentDateLabelIn, currentHourIn, currentTimeIn, formatDate, formatTime, todayIn } from "@/lib/timezone";
 import { requestTypeLabel } from "@/lib/documentRequests";
-import type { AttendanceSession, LeaveRequest } from "@/lib/supabase/types";
+import type { LeaveRequest } from "@/lib/supabase/types";
 
 type AdminEmployee = {
   id: string;
@@ -148,8 +148,11 @@ export default async function DashboardPage() {
     { data: reviews },
     { data: assignment },
     { data: myOnboarding },
+    { data: openBreak },
   ] = await Promise.all([
-    supabase.from("attendance_sessions").select("*").eq("employee_id", employeeId).is("clock_out_at", null).maybeSingle(),
+    // A forgotten clock-out (status missing_out) also has no clock_out_at;
+    // only the one live session counts as "working".
+    supabase.from("attendance_sessions").select("id, clock_in_at, arrival_status, late_minutes").eq("employee_id", employeeId).eq("status", "open").is("clock_out_at", null).maybeSingle(),
     supabase.from("leave_balance_v").select("balance, leave_type_id, leave_type_name").eq("employee_id", employeeId),
     supabase.from("leave_requests").select("*, leave_types(name)").eq("employee_id", employeeId).order("submitted_at", { ascending: false }).limit(4),
     supabase.from("notifications").select("id, title, body, link_url, is_read, created_at").eq("recipient_user_id", session.userId).order("created_at", { ascending: false }).limit(5),
@@ -157,6 +160,7 @@ export default async function DashboardPage() {
     supabase.from("appraisal_reviewers").select("id, role, appraisal_instance_id").eq("reviewer_user_id", session.userId).eq("status", "pending").limit(4),
     supabase.from("employee_assignments").select("positions(title), org_units(name), supervisor_employee_id, manager_employee_id").eq("employee_id", employeeId).is("end_date", null).maybeSingle(),
     supabase.from("onboarding_progress_v").select("run_id, total_tasks, completed_tasks").eq("employee_id", employeeId).eq("status", "in_progress").limit(1).maybeSingle(),
+    supabase.from("attendance_breaks").select("id").eq("employee_id", employeeId).is("ended_at", null).limit(1).maybeSingle(),
   ]);
   // "Welcome, John" — the first sign-in shows the record HR already built.
   const leaderId = (assignment as any)?.manager_employee_id ?? (assignment as any)?.supervisor_employee_id ?? null;
@@ -202,6 +206,9 @@ export default async function DashboardPage() {
       { data: expiringItems },
       { data: adminEmployees },
       { data: pendingDocumentRequests },
+      { count: pendingCorrections },
+      { count: pendingOvertime },
+      { count: missingClockOuts },
     ] = await Promise.all([
       supabase.from("attendance_today_v").select("*").eq("organization_id", organizationId),
       supabase.from("leave_pending_v").select("*").eq("organization_id", organizationId).order("submitted_at", { ascending: true }),
@@ -210,6 +217,9 @@ export default async function DashboardPage() {
       supabase.from("expiring_items_v").select("*").eq("organization_id", organizationId).lte("expires_on", expiryCutoff).order("expires_on", { ascending: true }),
       supabase.from("employees").select("id, first_name, last_name, preferred_name, status, user_id").eq("organization_id", organizationId),
       supabase.from("document_requests").select("id, employee_id, request_type, request_type_other_label, requested_at").eq("organization_id", organizationId).eq("status", "submitted").order("requested_at", { ascending: true }),
+      supabase.from("attendance_adjustments").select("id", { count: "exact", head: true }).eq("organization_id", organizationId).eq("status", "pending").neq("employee_id", employeeId),
+      supabase.from("attendance_sessions").select("id", { count: "exact", head: true }).eq("organization_id", organizationId).eq("overtime_status", "pending").neq("employee_id", employeeId),
+      supabase.from("attendance_sessions").select("id", { count: "exact", head: true }).eq("organization_id", organizationId).eq("needs_review", true),
     ]);
 
     const employeesById = new Map((adminEmployees as AdminEmployee[] | null ?? []).map((employee) => [employee.id, employee]));
@@ -219,12 +229,45 @@ export default async function DashboardPage() {
     if (lateTodayCount > 0) {
       actions.push({
         key: "late-today",
-        href: "/team",
+        href: "/team/attendance",
         icon: "clock",
         priority: "normal",
         rank: 0,
         title: `${lateTodayCount} late ${lateTodayCount === 1 ? "arrival" : "arrivals"} today`,
-        detail: "Review who clocked in after their scheduled start.",
+        detail: "Review who clocked in after their scheduled start and grace period.",
+      });
+    }
+    if (pendingCorrections) {
+      actions.push({
+        key: "attendance-corrections",
+        href: "/team/attendance",
+        icon: "clock",
+        priority: "high",
+        rank: 0,
+        title: `${pendingCorrections} attendance ${pendingCorrections === 1 ? "correction" : "corrections"} waiting for a decision`,
+        detail: "Employees asked for a clock-in or clock-out to be corrected.",
+      });
+    }
+    if (pendingOvertime) {
+      actions.push({
+        key: "attendance-overtime",
+        href: "/team/attendance",
+        icon: "clock",
+        priority: "normal",
+        rank: 1,
+        title: `${pendingOvertime} overtime ${pendingOvertime === 1 ? "record" : "records"} to approve`,
+        detail: "Time worked beyond the scheduled shift.",
+      });
+    }
+    if (missingClockOuts) {
+      actions.push({
+        key: "attendance-missing-out",
+        href: "/team/attendance?type=missing_clock_out#exceptions",
+        icon: "clock",
+        priority: "normal",
+        rank: 2,
+        title: `${missingClockOuts} forgotten ${missingClockOuts === 1 ? "clock-out" : "clock-outs"} to review`,
+        detail: "Shifts left open past the policy limit — the employee or their manager supplies the real time.",
       });
     }
 
@@ -365,8 +408,8 @@ export default async function DashboardPage() {
       <section className="dashboard-grid">
         <div className="dashboard-column wide">
           <div className="card dashboard-attendance">
-            <div className="panel-heading"><div><span className="panel-icon"><Icon name="clock" /></span><div><h3>Today&apos;s attendance</h3><p>Your time is recorded using a trusted server timestamp.</p></div></div><span className={`badge ${openSession ? "badge-emerald" : "badge-neutral"}`}>{openSession ? "Clocked in" : "Not clocked in"}</span></div>
-            <div className="attendance-action"><div><small>{openSession ? "Session started" : "Current local time"}</small><strong>{openSession ? formatTime(openSession.clock_in_at, session.organization?.timezone) : currentTimeIn(session.organization?.timezone)}</strong></div><ClockButton openSession={(openSession as AttendanceSession) ?? null} /></div>
+            <div className="panel-heading"><div><span className="panel-icon"><Icon name="clock" /></span><div><h3>Today&apos;s attendance</h3><p>The server records the time of every clock action. <Link className="table-action" href="/time">Your schedule &amp; history</Link></p></div></div><span className={`badge ${openSession ? "badge-emerald" : "badge-neutral"}`}>{openSession ? (openBreak ? "On a break" : "Clocked in") : "Not clocked in"}</span></div>
+            <div className="attendance-action"><div><small>{openSession ? "Session started" : "Current local time"}</small><strong>{openSession ? formatTime(openSession.clock_in_at, session.organization?.timezone) : currentTimeIn(session.organization?.timezone)}</strong></div><ClockButton openSession={openSession ?? null} timezone={session.organization?.timezone ?? undefined} onBreak={Boolean(openSession && openBreak)} showBreaks={Boolean(openSession)} /></div>
           </div>
 
           <div className="card">

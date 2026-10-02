@@ -1,7 +1,9 @@
 import { ChangeAssignmentForm } from "@/components/ChangeAssignmentForm";
+import { EmployeeScheduleForm } from "@/components/employee/EmployeeScheduleForm";
 import { EmployeeIdentityForm, EmploymentDatesForm } from "@/components/EmployeeIdentityForm";
 import { EMPLOYMENT_TYPE_LABELS } from "@/lib/employeeSetup";
 import { createClient } from "@/lib/supabase/server";
+import { formatDate, todayIn } from "@/lib/timezone";
 import type { EmployeeRecord } from "@/components/employee/types";
 
 export function IdentityCard({ employee }: { employee: EmployeeRecord }) {
@@ -30,9 +32,10 @@ export function IdentityCard({ employee }: { employee: EmployeeRecord }) {
 // Dates on employees + the effective-dated assignment. A pre-hire's
 // assignment is corrected in place while HR is still setting them up;
 // after that every change opens a new history row (change_employee_assignment()).
-export async function EmploymentCard({ employee, organizationId, showHistory = true }: { employee: EmployeeRecord; organizationId: string; showHistory?: boolean }) {
+export async function EmploymentCard({ employee, organizationId, showHistory = true, timezone, canManageSchedules = false }: { employee: EmployeeRecord; organizationId: string; showHistory?: boolean; timezone?: string | null; canManageSchedules?: boolean }) {
   const supabase = await createClient();
-  const [{ data: current }, { data: history }, { data: orgUnits }, { data: positions }, { data: locations }, { data: people }] = await Promise.all([
+  const today = todayIn(timezone);
+  const [{ data: current }, { data: history }, { data: orgUnits }, { data: positions }, { data: locations }, { data: people }, { data: scheduleAssignments }, { data: schedules }] = await Promise.all([
     supabase.from("employee_assignments").select("*, org_units(name), positions(title), locations(name)").eq("employee_id", employee.id).is("end_date", null).maybeSingle(),
     showHistory
       ? supabase.from("employee_assignments").select("*, org_units(name), positions(title), locations(name)").eq("employee_id", employee.id).order("start_date", { ascending: false })
@@ -41,7 +44,13 @@ export async function EmploymentCard({ employee, organizationId, showHistory = t
     supabase.from("positions").select("id, title").eq("organization_id", organizationId).order("title"),
     supabase.from("locations").select("id, name").eq("organization_id", organizationId).order("name"),
     supabase.from("employees").select("id, first_name, last_name, status").eq("organization_id", organizationId).neq("status", "terminated").order("last_name"),
+    supabase.from("schedule_assignments").select("schedule_id, start_date, end_date").eq("employee_id", employee.id).or(`end_date.is.null,end_date.gte.${today}`).order("start_date"),
+    supabase.from("work_schedules").select("id, name, is_active").eq("organization_id", organizationId).order("name"),
   ]);
+  const scheduleName = new Map((schedules ?? []).map((s) => [s.id, s.name]));
+  const currentSchedule = (scheduleAssignments ?? []).filter((a) => a.start_date <= today).at(-1) ?? null;
+  const upcomingSchedule = (scheduleAssignments ?? []).find((a) => a.start_date > today) ?? null;
+  const dateLabel = (date: string) => formatDate(`${date}T12:00:00Z`, "UTC", { month: "short", day: "numeric", year: "numeric" });
   const nameOf = (id: string | null) => {
     const person = (people ?? []).find((p) => p.id === id);
     return person ? `${person.first_name} ${person.last_name}` : "—";
@@ -92,6 +101,18 @@ export async function EmploymentCard({ employee, organizationId, showHistory = t
           defaultStartDate={isPrehire ? current?.start_date ?? employee.hire_date : null}
           submitLabel={isPrehire || !current ? "Save assignment" : "Save as new assignment"}
         />
+      </section>
+
+      <section className="card">
+        <h2 className="mb-1 text-sm font-semibold text-stone-900">Work schedule</h2>
+        <p className="mb-4 text-xs text-stone-500">The hours this person is expected to work — attendance compares their clock-ins against it. Changes are effective-dated.</p>
+        <dl className="mb-4 grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+          <div><dt className="text-xs uppercase text-stone-400">Current schedule</dt><dd>{currentSchedule ? <>{scheduleName.get(currentSchedule.schedule_id) ?? "Schedule"} <span className="text-xs text-stone-500">since {dateLabel(currentSchedule.start_date)}</span></> : <span className="text-amber-700">Not assigned</span>}</dd></div>
+          <div><dt className="text-xs uppercase text-stone-400">Upcoming change</dt><dd>{upcomingSchedule ? `${scheduleName.get(upcomingSchedule.schedule_id) ?? "Schedule"} from ${dateLabel(upcomingSchedule.start_date)}` : "—"}</dd></div>
+        </dl>
+        {canManageSchedules
+          ? <EmployeeScheduleForm employeeId={employee.id} schedules={(schedules ?? []).filter((s) => s.is_active).map((s) => ({ id: s.id, name: s.name }))} currentScheduleId={(upcomingSchedule ?? currentSchedule)?.schedule_id ?? null} defaultDate={isPrehire && employee.hire_date ? employee.hire_date : today} />
+          : <p className="field-help">Schedules are assigned by someone who manages time &amp; attendance.</p>}
       </section>
 
       {showHistory && (history ?? []).length > 1 && (

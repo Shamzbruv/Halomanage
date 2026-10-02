@@ -87,7 +87,7 @@ export default async function EmployeeSetupPage({
               <EmergencyContactsCard employee={employee} />
             </>
           )}
-          {step === "employment" && <EmploymentCard employee={employee} organizationId={session.organizationId} showHistory={false} />}
+          {step === "employment" && <EmploymentCard employee={employee} organizationId={session.organizationId} showHistory={false} timezone={session.organization?.timezone} canManageSchedules={sessionCan(session, "attendance.manage_policies")} />}
           {step === "access" && <AccessCard timezone={session.organization.timezone} employee={employee} organizationId={session.organizationId} viewerUserId={session.userId} readiness={readiness} />}
           {step === "onboarding" && <OnboardingPlanCard employee={employee} organizationId={session.organizationId} readiness={readiness} />}
           {step === "review" && (

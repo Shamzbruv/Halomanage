@@ -22,6 +22,7 @@ const ADMIN_PAGE_PERMISSIONS: Record<string, AppPermission[]> = {
   "/admin/migrations": ["employee.manage"],
   "/admin/organization": ["organization.manage"],
   "/admin/leave-types": ["leave.manage_policies"],
+  "/admin/attendance": ["attendance.manage_policies"],
   "/admin/onboarding": ["onboarding.manage_templates"],
   "/admin/offboarding": ["employee.manage"],
   "/admin/appraisals": ["appraisal.manage_cycles"],
@@ -35,6 +36,8 @@ const ADMIN_PAGE_PERMISSIONS: Record<string, AppPermission[]> = {
   "/admin/roles": ["roles.manage"],
   "/admin/security": ["organization.manage"],
 };
+
+const TEAM_ATTENDANCE_PERMISSIONS: AppPermission[] = ["attendance.read_team", "attendance.read_org", "attendance.adjust_team", "attendance.adjust_org"];
 
 export default async function PortalLayout({ children }: { children: React.ReactNode }) {
   const session = await getCurrentSession();
@@ -95,6 +98,7 @@ export default async function PortalLayout({ children }: { children: React.React
   // keeps custom role bundles and effective-dated promotions/demotions from
   // disagreeing with what the database actually allows.
   const canSeeTeam = sessionCan(session, "employee.read_team") || sessionCan(session, "employee.read_org");
+  const canSeeTeamAttendance = TEAM_ATTENDANCE_PERMISSIONS.some((permission) => sessionCan(session, permission));
   // "Manage" is shown if any admin page underneath it would actually let
   // this person in — not just organization.manage, so a custom role
   // granted a narrower slice (e.g. just roles.manage, or just
@@ -143,6 +147,7 @@ export default async function PortalLayout({ children }: { children: React.React
       avatarUrl={avatarUrl}
       canSeeAdmin={canSeeAdmin}
       canSeeTeam={canSeeTeam}
+      canSeeTeamAttendance={canSeeTeamAttendance}
       email={session.email}
       name={name}
       organizationName={session.organization.name}

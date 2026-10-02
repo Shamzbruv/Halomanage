@@ -16,6 +16,7 @@ export type AppPermission =
   | "attendance.read_team"
   | "attendance.read_org"
   | "attendance.adjust_team"
+  | "attendance.adjust_org"
   | "attendance.manage_policies"
   | "leave.request_self"
   | "leave.approve_direct_reports"

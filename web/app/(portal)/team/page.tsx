@@ -5,6 +5,7 @@ import { LeaveDecisionButtons } from "@/components/LeaveDecisionButtons";
 import { TeamRosterTable, type RosterRow } from "@/components/team/TeamRosterTable";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession, sessionCan } from "@/lib/session";
+import type { AppPermission } from "@/lib/supabase/types";
 import { statusBadgeClass } from "@/lib/ui";
 import { formatTime, todayIn } from "@/lib/timezone";
 
@@ -99,6 +100,7 @@ export default async function TeamPage() {
   }
 
   const isOrgReader = sessionCan(session, "employee.read_org");
+  const canSeeAttendance = (["attendance.read_team", "attendance.read_org", "attendance.adjust_team", "attendance.adjust_org"] as AppPermission[]).some((permission) => sessionCan(session, permission));
 
   // A person not currently visible in `people` (RLS-scoped) can still be
   // someone's resolved supervisor/manager name to display — most commonly
@@ -219,7 +221,7 @@ export default async function TeamPage() {
         </section>
 
         <section className="card overflow-x-auto">
-          <div className="panel-heading"><div><span className="panel-icon"><Icon name="clock" /></span><div><h3>Team attendance</h3><p>Live status for today.</p></div></div></div>
+          <div className="panel-heading"><div><span className="panel-icon"><Icon name="clock" /></span><div><h3>Team attendance</h3><p>Who&apos;s on the clock right now.</p></div></div>{canSeeAttendance && <Link className="btn-secondary" href="/team/attendance">Corrections &amp; exceptions</Link>}</div>
           <table className="w-full text-sm"><thead><tr className="border-b border-stone-100 text-left"><th className="pb-3">Employee</th><th className="pb-3">Clocked in</th><th className="pb-3">Status</th></tr></thead><tbody className="divide-y divide-stone-100">
             {attendanceToday.length === 0 && <tr><td colSpan={3} className="py-8 text-center text-stone-400">No one is on the clock right now.</td></tr>}
             {(attendanceToday as any[]).map((item) => <tr key={item.employee_id}><td className="py-3 font-medium text-stone-900">{item.first_name} {item.last_name}</td><td className="py-3 text-stone-500">{formatTime(item.clock_in_at, session.organization?.timezone)}</td><td className="py-3"><span className={`badge ${item.is_late ? "badge-gold" : "badge-emerald"}`}>{item.is_late ? "Late" : "On time"}</span></td></tr>)}

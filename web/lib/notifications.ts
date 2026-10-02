@@ -29,6 +29,12 @@ export const NOTIFICATION_GROUPS: NotificationGroup[] = [
     types: ["leave.requested", "leave.approved", "leave.rejected"],
   },
   {
+    key: "attendance",
+    label: "Attendance corrections & overtime",
+    description: "A team member asks for an attendance correction you can decide, or your own correction or overtime is decided.",
+    types: ["attendance.correction_requested", "attendance.correction_decided", "attendance.overtime_decided"],
+  },
+  {
     key: "documents",
     label: "Document requests",
     description: "A document you requested from HR is ready or declined.",

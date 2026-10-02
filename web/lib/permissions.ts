@@ -17,7 +17,7 @@ export const PERMISSION_GROUPS: { domain: string; label: string; permissions: Ap
   {
     domain: "attendance",
     label: "Attendance",
-    permissions: ["attendance.clock_self", "attendance.read_team", "attendance.read_org", "attendance.adjust_team", "attendance.manage_policies"],
+    permissions: ["attendance.clock_self", "attendance.read_team", "attendance.read_org", "attendance.adjust_team", "attendance.adjust_org", "attendance.manage_policies"],
   },
   {
     domain: "leave",

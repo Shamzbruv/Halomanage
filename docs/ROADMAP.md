@@ -43,7 +43,8 @@ an external payroll or accounting system.
   appraisals, and notifications.
 - Employee areas: dedicated time/attendance with correction requests, leave, onboarding,
   appraisals, learning/assets, documents, and profile.
-- Manager area: leave approvals and current team attendance.
+- Manager area: leave approvals, current team attendance, and Team attendance (correction and
+  overtime approvals, day view, exceptions).
 - Admin areas: interactive Setup Guide and employee-portal controls, employee directory and detail,
   organization structure, leave types, onboarding and appraisal builders, documents, external
   pay-record imports, and reporting.
@@ -72,7 +73,7 @@ an external payroll or accounting system.
 - `web`: TypeScript passes with `tsc --noEmit`.
 - `web`: Next.js 16.3.2 production build passes for all routes.
 - `web`: `npm audit` reports 0 vulnerabilities.
-- `supabase/tests/pglite`: 379/379 database assertions pass (2026-10-02, Settings pass; also run by GitHub Actions CI on every push), including employee-setup
+- `supabase/tests/pglite`: 415/415 database assertions pass (2026-10-02, Time & Attendance pass; also run by GitHub Actions CI on every push), including employee-setup
   readiness, prepared access/onboarding at invitation, and versioned template editing; also including starter workspace contents,
   portal lookup/customization, partial-membership repair, invitation permission separation,
   transactional linking, cross-organization provisioning, and duplicate-provisioning rejection.
@@ -135,8 +136,12 @@ actually happened in each pass. What's left, re-numbered:
    noted as deferred in the Compensation & Pay Administration section of ARCHITECTURE.md.
 
 9. Notification events for modules that don't send any yet — performance reviews, training and
-   certification expiry, assets, offboarding tasks, policy acknowledgements, payslips, attendance
-   corrections — then email/SMS channel choices in Settings once outbound delivery is live (the
+   certification expiry, assets, offboarding tasks, policy acknowledgements, payslips — then email/SMS channel choices in Settings once outbound delivery is live (the
    policy model is already per-channel). Accessibility preferences after that.
 
 Recruitment/ATS and payroll calculation remain intentionally out of the first release.
+10. Time & Attendance follow-ups (ARCHITECTURE.md "Time & Attendance"): an approved-timesheet layer
+    (pay-period lock, employee/manager sign-off, regular/overtime/leave hour export) before attendance
+    feeds payroll; verified kiosk/mobile clock sources; geofencing; optional time rounding; choosing
+    per-group attendance policies in the UI (today: the organization default, or a compensation
+    record's `time_policy_id`).

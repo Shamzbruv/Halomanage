@@ -94,9 +94,11 @@ back to the relevant section of the architecture PDF).
 
 ## Non-negotiable implementation rules
 
-1. Attendance timestamps are set by `SECURITY INVOKER` RPCs (`clock_in()`, `clock_out()`) using
-   `now()` server-side — never a client-writable column. A partial unique index enforces one open
-   session per employee at the database level, not just a disabled button.
+1. Attendance timestamps are set by RPCs (`clock_in()`, `clock_out()`, `start_break()`,
+   `end_break()`) using `now()` server-side — never a client-writable column. They ignore any
+   client-supplied location or source and stamp `web`. A partial unique index enforces one open
+   session per employee at the database level (`status = 'open'`; a forgotten clock-out becomes
+   `missing_out` and no longer blocks the next shift), not just a disabled button.
 2. Never grant direct `UPDATE` on `attendance_sessions.clock_in_at`/`clock_out_at` — state
    transitions only happen through RPCs.
 3. Payroll import is **strictly two distinct concepts**: *Pay Run Results Import* (informational,
@@ -210,8 +212,9 @@ changed (a correction is still a new batch with `supersedes_batch_id` set, never
 
 **Explicitly deferred, not silently skipped** (see the phased audit this responds to for the full
 plan): wiring `build_payroll_export()`'s regular/overtime/paid-leave/unpaid-leave hour classification
-to real attendance and leave data (`attendance_sessions` has no `worked_hours`/overtime classification
-today — that needs its own design, not a guessed join); a dedicated Pay Ranges UI beyond what
+to real attendance and leave data (attendance now classifies worked and overtime minutes per
+session — see "Time & Attendance" below — but payroll needs an approved-timesheet layer over it,
+not a direct join); a dedicated Pay Ranges UI beyond what
 Compensation Settings already exposes for Pay Grades; a Payroll Provider Mappings admin page (the
 underlying `payroll_column_maps` table already exists and is functional, just without its own
 dedicated screen); compensation reporting (hourly-vs-salaried mix, compa-ratio, range penetration,
@@ -1459,3 +1462,74 @@ that don't send any yet (performance, learning/certifications, assets,
 offboarding, policy acknowledgements, payslips, attendance corrections),
 email/SMS channel choices once delivery is live, and accessibility
 preferences.
+
+## Time & Attendance
+
+2026-10-02. From the HR review of `/time` (Section 3, 20 items). Migrations
+`20261005090000_attendance_adjust_org_permission_enum.sql` (enum value on its own, as Postgres
+requires) and `20261005100000_time_and_attendance.sql`; PGlite 415/415.
+
+**Permissions.** `attendance.read_org` now only reads. Deciding corrections and overtime needs
+`attendance.adjust_team` (management scope) or the new `attendance.adjust_org` (granted to admins and
+to org-admin overrides that manage policies). `private.can_view_attendance()` /
+`private.can_adjust_attendance()` are the single rules behind RLS on sessions, events, breaks and
+adjustments, so an approver can always read what they decide. Nobody decides their own correction or
+overtime. `clock_in()` requires an active employee holding `attendance.clock_self`.
+
+**Each punch is a snapshot.** `private.recompute_attendance_session()` resolves the work date
+(`private.resolve_work_shift()`: a punch shortly after midnight belongs to the previous evening's
+overnight shift), the effective schedule assignment and shift (`schedule_id`,
+`scheduled_start_at/end_at`, `scheduled_break_minutes`), the employee's policy (compensation
+`time_policy_id` or the organization default) and its grace period, then classifies arrival
+(`on_time` / `within_grace` / `late` with minutes / `unscheduled`), early departure, breaks, worked
+minutes and overtime. Editing a schedule later never rewrites history; an approved correction
+re-snapshots that one record.
+
+**Schedules** are per-day (`save_work_schedule()` with a shifts array; `end_time <= start_time` is an
+overnight shift; one shift per weekday). Assignments are effective-dated and default to the
+organization's today (`assign_employee_schedule()`, also used by new-hire provisioning).
+
+**Breaks and worked time.** `attendance_breaks` (one open break per session). The policy's
+`break_deduction` is `recorded` (deduct recorded breaks), `scheduled` (the scheduled break, or
+recorded if longer) or `none` (paid breaks). Worked = elapsed − deduction. Overtime = worked beyond
+the scheduled net time (or all of it on a scheduled day off); `overtime_status` is `pending` when the
+policy requires approval (`decide_overtime()`).
+
+**Missing clock-outs.** `private.flag_stale_attendance()` runs on clock-in, in the exception/report
+RPCs, and every 15 minutes via pg_cron (`halomanage-attendance-maintenance`). Past
+`missing_clock_out_after_hours` a session is either flagged (`missing_out`, no invented time) or, if
+the policy says `auto_close`, closed at the scheduled end (or the limit) with source `auto` — both
+`needs_review`. The employee supplies the real time through a correction.
+
+**Corrections.** `request_attendance_adjustment()` validates a reason, no future times, the policy's
+correction window (self-requests), clock-out after clock-in and ≤ 24h, and one pending request per
+field; it notifies the supervisor/manager holding `adjust_team` (else `adjust_org` holders).
+`cancel_attendance_adjustment()` withdraws. `decide_attendance_adjustment()` revalidates, applies,
+recomputes and notifies (`attendance.correction_requested` / `attendance.correction_decided` /
+`attendance.overtime_decided` — the "Attendance corrections & overtime" notification group). A decline
+needs a note.
+
+**Leave and holidays.** `private.approved_leave_on()` / `private.holiday_on()` (organization-wide or
+per location). Days on approved leave or a holiday are never absences; work during approved leave is
+its own exception.
+
+**Read models.** `get_my_attendance_overview()` (employee: today's shift, next shift, open
+session/break, worked today/week/month vs scheduled, current and upcoming schedule),
+`list_attendance_day()` (scheduled vs actual per person, leave/holiday-aware),
+`list_attendance_exceptions()` (late, absent, missing clock-out, early departure, unscheduled work,
+overtime pending, worked during leave, correction pending; ≤ 62 days) and `attendance_report()`
+(per-person totals for HR; patterns, no scores). `attendance_today_v` / `attendance_summary_30d_v` use
+the organization's calendar day.
+
+**UI.** `/time` (clock + breaks, shift facts, totals, history with breaks/worked/arrival, corrections
+entered in organization time from any device timezone, withdraw). `/team/attendance` (correction and
+overtime queues with approve/decline, day view, exceptions filterable by type). `/admin/attendance`
+(policy, schedule editor with overnight shifts, bulk effective-dated assignment, holidays; policy and
+holiday edits are audited by trigger). The employee HR record's Employment tab shows and changes the
+schedule. Reports gains an attendance section with CSV download. The admin dashboard feed lists
+waiting corrections, overtime and forgotten clock-outs.
+
+**Not claimed.** No geofencing or location capture, no kiosk or mobile-verified clocking, no time
+rounding — the reserved policy columns are commented as such and the setup page says so.
+Attendance doesn't feed payroll: an approved-timesheet layer (period lock, sign-off, export of
+regular/overtime/leave hours) is the next design step before `build_payroll_export()` uses it.

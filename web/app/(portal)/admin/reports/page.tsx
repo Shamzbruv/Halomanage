@@ -1,11 +1,12 @@
 import { redirect } from "next/navigation";
+import { AttendanceReport } from "@/components/reports/AttendanceReport";
 import { OnboardingReport } from "@/components/reports/OnboardingReport";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession, sessionCan } from "@/lib/session";
 import { Icon } from "@/components/Icon";
 import { formatDate } from "@/lib/timezone";
 
-export default async function ReportsPage() {
+export default async function ReportsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await getCurrentSession();
   if (!session) redirect("/login");
   if (!sessionCan(session, "reports.org")) redirect("/dashboard");
@@ -121,6 +122,10 @@ export default async function ReportsPage() {
           </tbody>
         </table>
       </div>
+
+      {(sessionCan(session, "attendance.read_org") || sessionCan(session, "attendance.adjust_org")) && (
+        <AttendanceReport organizationId={orgId} timezone={session.organization?.timezone} params={await searchParams} />
+      )}
 
       <OnboardingReport timezone={session.organization?.timezone} organizationId={orgId} />
     </div>

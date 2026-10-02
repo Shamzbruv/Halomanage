@@ -123,7 +123,7 @@ export default async function EmployeeDetailPage({
       {tab === "employment" && (
         <div className="space-y-6">
           <IdentityCard employee={employee} />
-          <EmploymentCard employee={employee} organizationId={orgId} />
+          <EmploymentCard employee={employee} organizationId={orgId} timezone={session.organization?.timezone} canManageSchedules={sessionCan(session, "attendance.manage_policies")} />
         </div>
       )}
       {tab === "personal" && <PersonalInfoCard employee={employee} />}

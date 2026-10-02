@@ -42,6 +42,7 @@ const adminItems: NavItem[] = [
   { href: "/admin/migrations", label: "Migration Center", icon: "reports" },
   { href: "/admin/organization", label: "Organization", icon: "organization" },
   { href: "/admin/leave-types", label: "Leave policies", icon: "calendar" },
+  { href: "/admin/attendance", label: "Time & attendance", icon: "clock" },
   { href: "/admin/onboarding", label: "Onboarding setup", icon: "onboarding" },
   { href: "/admin/offboarding", label: "Employee exits", icon: "people" },
   { href: "/admin/appraisals", label: "Performance setup", icon: "performance" },
@@ -73,12 +74,14 @@ const pageTitles: Array<{ pattern: RegExp; title: string; eyebrow: string; help:
   { pattern: /^\/appraisals/, title: "Performance", eyebrow: "Personal workspace", help: "Your performance checkpoints — your own self-reflection, your manager's feedback, and any reviews you've been asked to complete for someone else." },
   { pattern: /^\/development/, title: "Learning & assets", eyebrow: "Personal workspace", help: "Required and optional training assigned to you, professional certifications on file, and company equipment currently in your care." },
   { pattern: /^\/documents/, title: "Documents", eyebrow: "Personal workspace", help: "Files shared with you — contracts, policies, certificates, and HR letters. Anything requiring your acknowledgement stays visible here until you confirm it. Don't see something you need, like a job letter? Request it from here too." },
+  { pattern: /^\/team\/attendance/, title: "Team attendance", eyebrow: "Manager workspace", help: "Decide attendance corrections and overtime for the people in your scope, see who is working, late, absent or on leave on any day, and review exceptions over a period. Approved leave and holidays are never counted as absences." },
   { pattern: /^\/team/, title: "Team hub", eyebrow: "Manager workspace", help: "Everyone in your reporting scope in one place — roster, working schedules, leave balances and approvals, and who's currently clocked in." },
   { pattern: /^\/admin\/setup/, title: "Setup guide", eyebrow: "Administration", help: "A checklist for getting a new organization ready to use — people, structure, policies, and templates. Nothing here has to happen in order; it just tracks what's still empty." },
   { pattern: /^\/admin\/employees/, title: "People", eyebrow: "Administration", help: "The master list of everyone in your organization. Create new hires, connect their sign-in account, and see who's active, pre-hire, or exited." },
   { pattern: /^\/admin\/migrations/, title: "Migration Center", eyebrow: "Administration", help: "Bulk-import employees from a spreadsheet export. Every import is a dry run you review and fix before anything is committed to real employee records." },
   { pattern: /^\/admin\/organization/, title: "Organization", eyebrow: "Administration", help: "Your company's structure — departments, positions, and locations — plus the company profile and branding shown on your organization's sign-in page." },
   { pattern: /^\/admin\/leave-types/, title: "Leave policies", eyebrow: "Administration", help: "Define the kinds of leave your organization offers — paid or unpaid, how balances accrue, notice periods, and who has to approve a request." },
+  { pattern: /^\/admin\/attendance/, title: "Time & attendance setup", eyebrow: "Administration", help: "The rules behind time tracking: grace periods, how breaks count, when a forgotten clock-out is flagged, overtime approval, the work schedules people follow (including overnight shifts), holidays, and who is on which schedule." },
   { pattern: /^\/admin\/onboarding/, title: "Onboarding setup", eyebrow: "Administration", help: "Build reusable onboarding templates — the steps every new hire works through — then start the right one for each new employee." },
   { pattern: /^\/admin\/offboarding/, title: "Offboarding", eyebrow: "Administration", help: "The exit counterpart to onboarding — build offboarding templates and start a tracked exit workflow when someone leaves." },
   { pattern: /^\/admin\/appraisals/, title: "Performance setup", eyebrow: "Administration", help: "Design checkpoint templates — probation, quarterly, annual, or anything else — and launch review cycles that assign one to your team." },
@@ -107,14 +110,23 @@ function UserAvatar({ name, avatarUrl, small }: { name: string; avatarUrl: strin
   );
 }
 
-function isActive(pathname: string, href: string) {
+function matches(pathname: string, href: string) {
   if (href === "/dashboard") return pathname === href;
   return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+// Only the most specific matching link is active — /team/attendance
+// highlights "Team attendance", not "Team hub" as well.
+function activeHref(pathname: string, groups: NavGroup[]) {
+  return groups.flatMap((group) => group.items.map((item) => item.href))
+    .filter((href) => matches(pathname, href))
+    .sort((a, b) => b.length - a.length)[0];
 }
 
 // When the desktop sidebar is collapsed the labels are visually hidden, so
 // each link carries its own aria-label and a title tooltip instead.
 function Navigation({ groups, pathname, onNavigate, collapsed = false }: { groups: NavGroup[]; pathname: string; onNavigate?: () => void; collapsed?: boolean }) {
+  const active = activeHref(pathname, groups);
   return (
     <nav className="portal-nav" aria-label="Primary navigation">
       {groups.map((group) => (
@@ -123,9 +135,9 @@ function Navigation({ groups, pathname, onNavigate, collapsed = false }: { group
           <div>
             {group.items.map((item) => (
               <Link
-                aria-current={isActive(pathname, item.href) ? "page" : undefined}
+                aria-current={item.href === active ? "page" : undefined}
                 aria-label={collapsed ? item.label : undefined}
-                className={isActive(pathname, item.href) ? "active" : ""}
+                className={item.href === active ? "active" : ""}
                 href={item.href}
                 key={item.href}
                 onClick={onNavigate}
@@ -142,11 +154,12 @@ function Navigation({ groups, pathname, onNavigate, collapsed = false }: { group
   );
 }
 
-export function PortalShell({ children, avatarUrl, canSeeAdmin, canSeeTeam, email, name, organizationName, roleLabels, visibleAdminHrefs }: {
+export function PortalShell({ children, avatarUrl, canSeeAdmin, canSeeTeam, canSeeTeamAttendance, email, name, organizationName, roleLabels, visibleAdminHrefs }: {
   children: React.ReactNode;
   avatarUrl: string | null;
   canSeeAdmin: boolean;
   canSeeTeam: boolean;
+  canSeeTeamAttendance: boolean;
   email: string | null;
   name: string;
   organizationName: string;
@@ -166,7 +179,10 @@ export function PortalShell({ children, avatarUrl, canSeeAdmin, canSeeTeam, emai
   const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
   const mobileDrawerRef = useRef<HTMLElement>(null);
   const groups = [...personalItems];
-  if (canSeeTeam) groups.push({ label: "Team", items: [{ href: "/team", label: "Team hub", icon: "team" }] });
+  const teamItems: NavItem[] = [];
+  if (canSeeTeam) teamItems.push({ href: "/team", label: "Team hub", icon: "team" });
+  if (canSeeTeamAttendance) teamItems.push({ href: "/team/attendance", label: "Team attendance", icon: "clock" });
+  if (teamItems.length) groups.push({ label: "Team", items: teamItems });
   if (canSeeAdmin) {
     const items = adminItems.filter((item) => visibleAdminHrefs.includes(item.href));
     if (items.length > 0) groups.push({ label: "Manage", items });

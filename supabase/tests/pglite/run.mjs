@@ -2459,6 +2459,216 @@ async function main() {
     ok("nobody else can read a user's security activity", Number(leaked.rows[0].count) === 0);
   });
 
+
+  // ============== TIME & ATTENDANCE ==============
+  // Ref: 20261005100000_time_and_attendance.sql.
+  // Computed once as the test superuser: an impersonated user has no access
+  // to the private schema (correctly), so tests use literal dates.
+  const attClock = (await db.query(`select private.org_today('${ORG}')::text as d, private.org_timezone('${ORG}') as tz`)).rows[0];
+  const orgDay = (offset) => `('${attClock.d}'::date + ${offset})`;
+  const at = (offset, hhmm) => `(('${attClock.d}'::date + ${offset}) + time '${hhmm}') at time zone '${attClock.tz}'`;
+  const insertSession = async (emp, inExpr, outExpr) => {
+    const row = await db.query(`insert into public.attendance_sessions (organization_id, employee_id, work_date, clock_in_at, clock_out_at, status)
+      values ('${ORG}', '${emp}', private.org_today('${ORG}'), ${inExpr}, ${outExpr ?? "null"}, ${outExpr ? "'closed'" : "'open'"}) returning id`);
+    const recomputed = await db.query(`select * from private.recompute_attendance_session('${row.rows[0].id}', true)`);
+    return recomputed.rows[0];
+  };
+
+  await db.exec(`update public.attendance_policies set grace_period_minutes = 10, break_deduction = 'scheduled', overtime_requires_approval = true,
+    correction_window_days = 30, missing_clock_out_after_hours = 16, missing_clock_out_action = 'flag' where organization_id = '${ORG}' and is_default`);
+  // Earlier tests stopped Alice's open sessions; start from a clean slate for today.
+  await db.exec(`update public.attendance_sessions set clock_out_at = clock_in_at + interval '1 minute', status = 'closed' where employee_id = '${ALICE_EMP}' and clock_out_at is null`);
+
+  let officeScheduleId;
+  await as(ERIN_USER, async () => {
+    const office = await db.query(`select * from public.save_work_schedule('${ORG}', null, 'Office Day', 'Every day 9–5', false,
+      '[0,1,2,3,4,5,6]'::jsonb::text::jsonb)`).catch(() => null);
+    ok("a schedule needs proper shift objects", office === null);
+    const saved = await db.query(`select * from public.save_work_schedule('${ORG}', null, 'Office Day', 'Every day 9–5', false,
+      (select jsonb_agg(jsonb_build_object('day_of_week', d, 'start_time', '09:00', 'end_time', '17:00', 'break_minutes', 60)) from generate_series(0, 6) d))`);
+    officeScheduleId = saved.rows[0].id;
+    await db.query(`select * from public.assign_employee_schedule('${ALICE_EMP}', '${officeScheduleId}', '${attClock.d}'::date)`);
+    const night = await db.query(`select * from public.save_work_schedule('${ORG}', null, 'Night Security', 'Overnight', false,
+      (select jsonb_agg(jsonb_build_object('day_of_week', d, 'start_time', '22:00', 'end_time', '06:00', 'break_minutes', 30)) from generate_series(0, 6) d))`);
+    ok("an overnight shift (22:00–06:00) is a valid schedule", !!night.rows[0].id);
+    await db.query(`select * from public.assign_employee_schedule('${GRACE_EMP}', '${night.rows[0].id}', '${attClock.d}'::date)`);
+  });
+
+  await as(GRACE_USER, async () => {
+    let refused = false;
+    try { await db.query(`select * from public.clock_in()`); } catch (err) { refused = /role/.test(err.message); }
+    ok("attendance.clock_self is enforced — a role without it can't clock in", refused);
+  });
+
+  const attEarly = await insertSession(ALICE_EMP, at(0, "08:55"), at(0, "17:30"));
+  ok("arriving before the shift is on time, with the schedule snapshotted onto the record",
+    attEarly.arrival_status === "on_time" && attEarly.schedule_id === officeScheduleId && attEarly.scheduled_start_at !== null && attEarly.scheduled_break_minutes === 60);
+  ok("worked time deducts the unpaid break (8h35m elapsed − 60 min = 455 min)", attEarly.worked_minutes === 455);
+  ok("time beyond the scheduled net hours is overtime awaiting approval", attEarly.overtime_minutes === 35 && attEarly.overtime_status === "pending");
+  const attGrace = await insertSession(ALICE_EMP, at(0, "09:05"), at(0, "16:30"));
+  ok("arriving inside the grace period is classified 'within grace', not late", attGrace.arrival_status === "within_grace" && attGrace.late_minutes === 0);
+  ok("leaving before the scheduled end is recorded as early departure", attGrace.early_departure_minutes === 30);
+  const attLate = await insertSession(ALICE_EMP, at(0, "09:20"), at(0, "17:00"));
+  ok("arriving after the grace period is late, with the minutes recorded", attLate.arrival_status === "late" && attLate.late_minutes === 20);
+
+  const attOvernight = await insertSession(GRACE_EMP, at(1, "00:30"), at(1, "06:00"));
+  ok("a punch after midnight belongs to the overnight shift that began the previous evening",
+    String(attOvernight.work_date instanceof Date ? attOvernight.work_date.toISOString().slice(0, 10) : attOvernight.work_date) ===
+      (await db.query(`select ${orgDay(0)}::text as d`)).rows[0].d && attOvernight.arrival_status === "late" && attOvernight.late_minutes === 150);
+
+  // Breaks through the real clock RPCs.
+  await as(ALICE_USER, async () => {
+    await db.query(`select * from public.clock_in()`);
+    await db.query(`select * from public.start_break()`);
+    let twice = false;
+    try { await db.query(`select * from public.start_break()`); } catch { twice = true; }
+    ok("only one break can be open at a time", twice);
+    await db.query(`select * from public.end_break()`);
+    const out = await db.query(`select * from public.clock_out()`);
+    const breaks = await db.query(`select count(*) from public.attendance_breaks where session_id = '${out.rows[0].id}' and ended_at is not null`);
+    ok("a recorded break is kept with the attendance record", Number(breaks.rows[0].count) === 1 && out.rows[0].worked_minutes !== null);
+  });
+
+  // Correction validation.
+  await as(ALICE_USER, async () => {
+    let backwards = false;
+    try { await db.query(`select * from public.request_attendance_adjustment('${attEarly.id}', 'clock_out_at', ${at(0, "08:00")}, 'Wrong')`); } catch { backwards = true; }
+    ok("a correction that puts the clock-out before the clock-in is refused", backwards);
+    let future = false;
+    try { await db.query(`select * from public.request_attendance_adjustment('${attEarly.id}', 'clock_out_at', now() + interval '2 days', 'Future')`); } catch { future = true; }
+    ok("a correction to a future time is refused", future);
+    await db.query(`select * from public.request_attendance_adjustment('${attLate.id}', 'clock_in_at', ${at(0, "08:50")}, 'Badge reader was down when I arrived')`);
+    let duplicate = false;
+    try { await db.query(`select * from public.request_attendance_adjustment('${attLate.id}', 'clock_in_at', ${at(0, "08:45")}, 'Again')`); } catch { duplicate = true; }
+    ok("only one pending correction per time on a record", duplicate);
+  });
+  await as(CAROL_USER, async () => {
+    const told = await db.query(`select count(*) from public.notifications where recipient_user_id = '${CAROL_USER}' and type = 'attendance.correction_requested'`);
+    ok("the employee's manager is notified of the correction request", Number(told.rows[0].count) >= 1);
+  });
+
+  // A read-only organization role can't decide corrections.
+  const VIEWER_USER = "d0000000-0000-0000-0000-0000000000a7";
+  const VIEWER_EMP = "d0000000-0000-0000-0000-0000000000e7";
+  await db.exec(`insert into auth.users (id, email) values ('${VIEWER_USER}', 'viewer@acme.test');
+    insert into public.employees (id, organization_id, employee_number, first_name, last_name, status, user_id)
+    values ('${VIEWER_EMP}', '${ORG}', 'ACME-VIEW', 'Vera', 'Viewer', 'active', '${VIEWER_USER}');`);
+  await as(ERIN_USER, async () => {
+    const role = await db.query(`select * from public.create_organization_role('${ORG}', 'Attendance viewer', 'Reads attendance only', array['attendance.read_org']::public.app_permission[])`);
+    await db.query(`select public.set_member_role('${VIEWER_EMP}', null, null, '${role.rows[0].id}')`);
+  });
+  const pendingId = (await db.query(`select id from public.attendance_adjustments where session_id = '${attLate.id}' and status = 'pending'`)).rows[0].id;
+  await as(VIEWER_USER, async () => {
+    const visible = await db.query(`select count(*) from public.attendance_adjustments where id = '${pendingId}'`);
+    let blocked = false;
+    try { await db.query(`select * from public.decide_attendance_adjustment('${pendingId}', true, null)`); } catch { blocked = true; }
+    ok("attendance.read_org can read corrections but no longer decide them", Number(visible.rows[0].count) === 1 && blocked);
+  });
+
+  await as(CAROL_USER, async () => {
+    const decided = await db.query(`select * from public.decide_attendance_adjustment('${pendingId}', true, 'Confirmed with security')`);
+    ok("the manager can approve a correction for their report", decided.rows[0].status === "approved");
+  });
+  const attCorrected = (await db.query(`select * from public.attendance_sessions where id = '${attLate.id}'`)).rows[0];
+  ok("an approved correction re-derives the classification (now on time)", attCorrected.status === "corrected" && attCorrected.arrival_status === "on_time" && attCorrected.late_minutes === 0);
+  const decidedNote = await db.query(`select count(*) from public.notifications where recipient_user_id = '${ALICE_USER}' and type = 'attendance.correction_decided'`);
+  ok("the employee is notified of the decision", Number(decidedNote.rows[0].count) === 1);
+
+  // A correction that moves the clock-in across midnight moves the work date.
+  const afterMidnight = await insertSession(ALICE_EMP, at(0, "00:10"), at(0, "01:00"));
+  await as(ALICE_USER, async () => {
+    await db.query(`select * from public.request_attendance_adjustment('${afterMidnight.id}', 'clock_in_at', ${at(-1, "23:50")}, 'Started before midnight')`);
+  });
+  const moveId = (await db.query(`select id from public.attendance_adjustments where session_id = '${afterMidnight.id}' and status = 'pending'`)).rows[0].id;
+  await as(CAROL_USER, async () => { await db.query(`select * from public.decide_attendance_adjustment('${moveId}', true, null)`); });
+  const attMoved = (await db.query(`select work_date::text as d, (select ${orgDay(-1)}::text) as expected from public.attendance_sessions where id = '${afterMidnight.id}'`)).rows[0];
+  ok("a corrected clock-in recomputes the work date", attMoved.d === attMoved.expected);
+
+  // Nobody decides their own correction; overtime needs someone else too.
+  const erinSession = await insertSession(ERIN_EMP, at(0, "09:00"), at(0, "17:00"));
+  await as(ERIN_USER, async () => {
+    await db.query(`select * from public.request_attendance_adjustment('${erinSession.id}', 'clock_out_at', ${at(0, "17:30")}, 'Stayed late')`);
+    const own = (await db.query(`select id from public.attendance_adjustments where session_id = '${erinSession.id}' and status = 'pending'`)).rows[0].id;
+    let self = false;
+    try { await db.query(`select * from public.decide_attendance_adjustment('${own}', true, null)`); } catch { self = true; }
+    ok("an administrator can't approve a correction to their own attendance", self);
+  });
+  await as(CAROL_USER, async () => {
+    const approved = await db.query(`select * from public.decide_overtime('${attEarly.id}', true, 'Stock count')`);
+    ok("a manager can approve their report's overtime", approved.rows[0].overtime_status === "approved");
+  });
+  const overtimeNote = await db.query(`select count(*) from public.notifications where recipient_user_id = '${ALICE_USER}' and type = 'attendance.overtime_decided'`);
+  ok("the employee is notified of the overtime decision", Number(overtimeNote.rows[0].count) === 1);
+
+  // Missing clock-out: a stale open session is flagged, never given an invented clock-out.
+  await db.exec(`insert into public.attendance_sessions (organization_id, employee_id, work_date, clock_in_at, status)
+    values ('${ORG}', '${ALICE_EMP}', ${orgDay(-1)}, now() - interval '20 hours', 'open')`);
+  await as(ALICE_USER, async () => {
+    const fresh = await db.query(`select * from public.clock_in()`);
+    ok("a forgotten clock-out doesn't block the next clock-in", fresh.rows[0].status === "open");
+    const attStale = await db.query(`select status, clock_out_at, needs_review from public.attendance_sessions where employee_id = '${ALICE_EMP}' and status = 'missing_out'`);
+    ok("the forgotten session is flagged for review without inventing a clock-out", attStale.rows.length === 1 && attStale.rows[0].clock_out_at === null && attStale.rows[0].needs_review === true);
+    const today = await db.query(`select count(*) from public.attendance_today_v where employee_id = '${ALICE_EMP}'`);
+    ok("today's view uses the organization's calendar day", Number(today.rows[0].count) === 1);
+    const overview = await db.query(`select public.get_my_attendance_overview() as o`);
+    ok("the employee overview shows this week's scheduled time and open session", overview.rows[0].o.week_scheduled_minutes > 0 && overview.rows[0].o.open_session !== null);
+    await db.query(`select * from public.clock_out()`);
+  });
+
+  // Exceptions are aware of approved leave and holidays.
+  const ABS_USER = "d0000000-0000-0000-0000-0000000000a8";
+  const ABS_EMP = "d0000000-0000-0000-0000-0000000000e8";
+  await db.exec(`insert into auth.users (id, email) values ('${ABS_USER}', 'abs@acme.test');
+    insert into public.employees (id, organization_id, employee_number, first_name, last_name, status, user_id, hire_date)
+    values ('${ABS_EMP}', '${ORG}', 'ACME-ABS', 'Abe', 'Sent', 'active', '${ABS_USER}', ${orgDay(-30)});
+    insert into public.role_assignments (organization_id, user_id, role) values ('${ORG}', '${ABS_USER}', 'employee');
+    delete from public.schedule_assignments where employee_id = '${ABS_EMP}';
+    insert into public.schedule_assignments (organization_id, employee_id, schedule_id, start_date) values ('${ORG}', '${ABS_EMP}', '${officeScheduleId}', ${orgDay(-10)});
+    insert into public.leave_requests (organization_id, employee_id, leave_type_id, start_date, end_date, total_days, status, submitted_by)
+    values ('${ORG}', '${ABS_EMP}', (select id from public.leave_types where organization_id = '${ORG}' limit 1), ${orgDay(-3)}, ${orgDay(-3)}, 1, 'approved', '${ABS_USER}');
+    insert into public.holidays (organization_id, name, observed_on) values ('${ORG}', 'Test Holiday', ${orgDay(-4)});`);
+  await as(ERIN_USER, async () => {
+    const exceptions = await db.query(`select work_date::text as d, exception_type from public.list_attendance_exceptions('${ORG}', ${orgDay(-6)}, ${orgDay(-2)}) where employee_id = '${ABS_EMP}'`);
+    const absentDays = exceptions.rows.filter((r) => r.exception_type === "absent").map((r) => r.d);
+    const days = (await db.query(`select ${orgDay(-3)}::text as leave, ${orgDay(-4)}::text as holiday`)).rows[0];
+    ok("days with no clock-in are listed as absent", absentDays.length === 3);
+    ok("approved leave and holidays are not reported as absences", !absentDays.includes(days.leave) && !absentDays.includes(days.holiday));
+    const day = await db.query(`select day_status from public.list_attendance_day('${ORG}', ${orgDay(-3)}) where employee_id = '${ABS_EMP}'`);
+    ok("the day view shows approved leave instead of an absence", day.rows[0].day_status === "on_leave");
+    const report = await db.query(`select absent_count from public.attendance_report('${ORG}', ${orgDay(-6)}, ${orgDay(-2)}) where employee_id = '${ABS_EMP}'`);
+    ok("the attendance report counts the same absences", report.rows[0].absent_count === 3);
+  });
+  await as(ORG2_ADMIN_USER, async () => {
+    let blocked = false;
+    try { await db.query(`select * from public.list_attendance_day('${ORG}')`); } catch { blocked = true; }
+    ok("another organization's admin can't see this organization's attendance", blocked);
+  });
+
+  // Setup changes are audited; policy values stay in range.
+  const setupAudit = await db.query(`select
+      (select count(*) from public.audit_events where organization_id = '${ORG}' and action = 'ATTENDANCE_POLICY_UPDATED')::int as policy,
+      (select count(*) from public.audit_events where organization_id = '${ORG}' and action = 'HOLIDAY_CREATED')::int as holiday`);
+  ok("attendance policy and holiday changes are written to the audit trail", setupAudit.rows[0].policy >= 1 && setupAudit.rows[0].holiday >= 1);
+  let graceRange = false;
+  try { await db.exec(`update public.attendance_policies set grace_period_minutes = 500 where organization_id = '${ORG}'`); } catch { graceRange = true; }
+  ok("a lateness grace period over 4 hours is refused", graceRange);
+
+  // A role that can decide attendance org-wide can also read what it decides.
+  const APPROVER_USER = "d0000000-0000-0000-0000-0000000000a9";
+  const APPROVER_EMP = "d0000000-0000-0000-0000-0000000000e9";
+  await db.exec(`insert into auth.users (id, email) values ('${APPROVER_USER}', 'approver@acme.test');
+    insert into public.employees (id, organization_id, employee_number, first_name, last_name, status, user_id)
+    values ('${APPROVER_EMP}', '${ORG}', 'ACME-APPR', 'Ada', 'Approver', 'active', '${APPROVER_USER}');`);
+  await as(ERIN_USER, async () => {
+    const role = await db.query(`select * from public.create_organization_role('${ORG}', 'Attendance approver', 'Decides attendance', array['attendance.adjust_org']::public.app_permission[])`);
+    await db.query(`select public.set_member_role('${APPROVER_EMP}', null, null, '${role.rows[0].id}')`);
+  });
+  await as(APPROVER_USER, async () => {
+    const seen = await db.query(`select count(*) from public.attendance_sessions where id = '${attGrace.id}'`);
+    const report = await db.query(`select count(*) from public.attendance_report('${ORG}', ${orgDay(-6)}, ${orgDay(0)})`);
+    ok("attendance.adjust_org can read the records it decides and run the attendance report", Number(seen.rows[0].count) === 1 && Number(report.rows[0].count) > 0);
+  });
+
   console.log(`\n${passCount} passed, ${failCount} failed.`);
   if (failCount > 0) process.exitCode = 1;
 }

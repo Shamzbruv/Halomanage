@@ -111,3 +111,39 @@ export function startOfMonthIn(timezone: string | null | undefined): string {
   const offsetMs = utcOffsetMsAt(guess, tz);
   return new Date(guess.getTime() - offsetMs).toISOString();
 }
+
+// A wall-clock "YYYY-MM-DDTHH:mm" (as a datetime-local input gives it),
+// read as a time in the organization's timezone, converted to a UTC ISO
+// string. Used so an attendance correction means the same thing whatever
+// timezone the person's device is set to.
+export function zonedInputToUtc(local: string, timezone: string | null | undefined): string {
+  const tz = orgTimezone(timezone);
+  const [datePart, timePart] = local.split("T");
+  const [year, month, day] = datePart.split("-").map(Number);
+  const [hour, minute] = (timePart ?? "00:00").split(":").map(Number);
+  const guess = new Date(Date.UTC(year, month - 1, day, hour, minute));
+  const offset = utcOffsetMsAt(guess, tz);
+  const first = new Date(guess.getTime() - offset);
+  // Re-check the offset at the resulting instant (DST transitions).
+  const corrected = utcOffsetMsAt(first, tz);
+  return new Date(guess.getTime() - corrected).toISOString();
+}
+
+// The reverse: a stored timestamp as an organization-local
+// "YYYY-MM-DDTHH:mm" for a datetime-local input.
+export function utcToZonedInput(value: string | null | undefined, timezone: string | null | undefined): string {
+  if (!value) return "";
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: orgTimezone(timezone), hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
+    }).formatToParts(new Date(value)).map((p) => [p.type, p.value]),
+  );
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+}
+
+// "7h 05m" from minutes.
+export function formatMinutes(minutes: number | null | undefined): string {
+  if (minutes === null || minutes === undefined) return "—";
+  const m = Math.max(0, Math.round(minutes));
+  return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
+}
