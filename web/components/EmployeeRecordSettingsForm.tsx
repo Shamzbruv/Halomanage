@@ -6,6 +6,12 @@ import { createClient } from "@/lib/supabase/client";
 
 type Numbering = { mode: "automatic" | "manual"; prefix: string; padding: number; next_sequence: number; allow_manual_override: boolean };
 type Requirements = Record<(typeof REQUIREMENTS)[number]["key"], boolean>;
+export type ProfileSettings = {
+  collect_gender: "off" | "optional";
+  collect_marital_status: "off" | "optional";
+  work_phone_editable_by_employee: boolean;
+  privacy_notice_url: string;
+};
 
 const REQUIREMENTS = [
   { key: "require_reporting_line", label: "Supervisor or manager", help: "Someone the new hire reports to." },
@@ -30,15 +36,18 @@ export function EmployeeRecordSettingsForm({
   organizationId,
   numbering,
   requirements,
+  profile,
 }: {
   organizationId: string;
   numbering: Numbering;
   requirements: Requirements;
+  profile: ProfileSettings;
 }) {
   const supabase = createClient();
   const router = useRouter();
   const [num, setNum] = useState(numbering);
   const [req, setReq] = useState(requirements);
+  const [prof, setProf] = useState(profile);
   const [loading, setLoading] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,7 +60,7 @@ export function EmployeeRecordSettingsForm({
     const { error: rpcError } = await supabase.rpc("update_employee_record_settings", {
       p_organization_id: organizationId,
       p_numbering: num,
-      p_requirements: req,
+      p_requirements: { ...req, ...prof, privacy_notice_url: prof.privacy_notice_url.trim() },
     });
     if (rpcError) {
       setError(rpcError.message);
@@ -116,6 +125,39 @@ export function EmployeeRecordSettingsForm({
               <span>{item.label}{item.help && <small className="block text-xs text-stone-500">{item.help}</small>}</span>
             </label>
           ))}
+        </div>
+        <p className="text-xs text-stone-500">These stay required after someone starts: the People directory&apos;s &ldquo;Profile incomplete&rdquo; view lists anyone who is missing them, and employees see what&apos;s missing on My Profile.</p>
+      </section>
+
+      <section className="card space-y-4">
+        <div>
+          <h2 className="text-sm font-semibold text-stone-900">Personal information you collect</h2>
+          <p className="text-xs text-stone-500">Collect only what you need and can explain. Fields that are off aren&apos;t shown to employees (values already on file stay visible so they can be reviewed or cleared).</p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label className="label" htmlFor="collect-gender">Gender</label>
+            <select id="collect-gender" className="input" value={prof.collect_gender} onChange={(e) => setProf({ ...prof, collect_gender: e.target.value as ProfileSettings["collect_gender"] })}>
+              <option value="off">Not collected</option>
+              <option value="optional">Optional for employees</option>
+            </select>
+          </div>
+          <div>
+            <label className="label" htmlFor="collect-marital">Marital status</label>
+            <select id="collect-marital" className="input" value={prof.collect_marital_status} onChange={(e) => setProf({ ...prof, collect_marital_status: e.target.value as ProfileSettings["collect_marital_status"] })}>
+              <option value="off">Not collected</option>
+              <option value="optional">Optional for employees</option>
+            </select>
+          </div>
+          <label className="flex items-start gap-2 rounded-lg border border-stone-100 p-2.5 text-sm text-stone-700 sm:col-span-2">
+            <input type="checkbox" className="mt-0.5" checked={prof.work_phone_editable_by_employee} onChange={(e) => setProf({ ...prof, work_phone_editable_by_employee: e.target.checked })} />
+            <span>Employees can change their own work phone<small className="block text-xs text-stone-500">Leave off if work numbers are company-issued — then HR/IT manage them and employees request corrections.</small></span>
+          </label>
+          <div className="sm:col-span-2">
+            <label className="label" htmlFor="privacy-notice">Employee privacy notice (link)</label>
+            <input id="privacy-notice" type="url" className="input" placeholder="https://…" value={prof.privacy_notice_url} onChange={(e) => setProf({ ...prof, privacy_notice_url: e.target.value })} />
+            <p className="field-help">Shown to every employee under Privacy &amp; data on My Profile.</p>
+          </div>
         </div>
       </section>
 

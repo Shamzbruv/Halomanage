@@ -17,6 +17,7 @@ const personalItems: NavGroup[] = [
     items: [
       { href: "/dashboard", label: "Overview", icon: "dashboard" },
       { href: "/profile", label: "My profile", icon: "profile" },
+      { href: "/settings", label: "Settings", icon: "settings" },
     ],
   },
   {
@@ -61,7 +62,8 @@ const adminItems: NavItem[] = [
 // rather than something bolted onto each page individually.
 const pageTitles: Array<{ pattern: RegExp; title: string; eyebrow: string; help: string }> = [
   { pattern: /^\/dashboard/, title: "Overview", eyebrow: "Your workspace", help: "Your at-a-glance snapshot — pending approvals, today's attendance, and quick actions relevant to your role. It's a summary, not a to-do list you have to clear." },
-  { pattern: /^\/profile/, title: "My profile", eyebrow: "Personal workspace", help: "Your own employee record — the fields you're allowed to edit yourself, like contact details, your photo, and which notifications show up in your bell. Employment details such as position, pay, and status are set by HR and shown here read-only." },
+  { pattern: /^\/profile/, title: "My profile", eyebrow: "Personal workspace", help: "Your official employee record — what your employer has on file about you. Keep your own contact details current; employment details are set by HR and shown read-only, and you can request a correction if anything is wrong." },
+  { pattern: /^\/settings/, title: "Settings", eyebrow: "Personal workspace", help: "Your account preferences — which notifications appear in your bell, and your password. Your employee record itself is under My profile." },
   { pattern: /^\/time/, title: "Time & attendance", eyebrow: "Personal workspace", help: "Clock in and out, see your assigned work schedule, and review your attendance history. Spotted a mistake in a past record? Request a correction instead of it being silently overwritten." },
   { pattern: /^\/leave/, title: "Leave", eyebrow: "Personal workspace", help: "Check your available leave balance by type, submit a new request, and track every request through approval." },
   { pattern: /^\/pay/, title: "My pay", eyebrow: "Personal workspace", help: "Yes — this is your salary. See your current rate, next pay date, any allowances or bonuses on top of your base rate, and download a payslip for any approved pay run." },

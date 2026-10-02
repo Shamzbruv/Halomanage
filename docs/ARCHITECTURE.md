@@ -1295,3 +1295,91 @@ profile instead of the HR-only /admin/onboarding.
 
 **CI.** `.github/workflows/ci.yml` runs the PGlite suite, ESLint,
 TypeScript and the production build on every push and pull request.
+
+## My Profile: the employee's official record
+
+2026-10-03. From an HR review of `/profile`: My Profile now answers "what
+does my employer have on file about me, who owns each piece, and what can
+I do when something is wrong?" — not only "what can I edit?". Migration
+`20261003100000_my_profile_employee_record.sql`; PGlite 363/363.
+
+**Security fixes first.**
+- *Tenant integrity.* `employees` gained `unique (id, organization_id)`
+  and every employee-scoped PII table (`employee_private`,
+  `employee_identifiers`, `employee_emergency_contacts`,
+  `employee_access_setup`, and the new tables below) has a composite
+  foreign key `(employee_id, organization_id) → employees(id,
+  organization_id)`. A child row can no longer claim another
+  organization, whoever writes it. `employee_private`'s self-service
+  policies also check it.
+- *HR notes moved out.* `employee_private.notes` was readable by the
+  employee. Notes were copied to the new `employee_hr_notes`
+  (employee.manage only; category; author; audit records the category,
+  never the text) and the column was dropped. New "HR notes" tab on the
+  HR record.
+- *Data minimization.* Profile and HR personal-info cards select only the
+  columns they show (`PERSONAL_INFO_COLUMNS`), never `select("*")`; full
+  identifier values are masked server-side before rendering.
+- *`employee.update_self` means what it says.* The employees self-update
+  RLS path, and the self-service policies on `employee_private` and
+  emergency contacts, now require it; the protected-column trigger is
+  still the second layer deciding *which* fields may change.
+
+**The record.** `get_my_employee_record()` returns the official record
+(legal name, number, status, type, position, department, location,
+supervisor and manager names — which an ordinary employee can't read
+directly — hire/probation dates, schedule), the organization's profile
+settings, and required-item completeness. My Profile shows it read-only
+with a lock, beside "Request a correction".
+
+**Corrections and data requests.** `employee_record_requests` +
+`submit_employee_record_request()` / `cancel_…` /
+`decide_employee_record_request()`. Approving a legal-name or
+date-of-birth correction writes it to the record under HR's identity;
+other fields (assignment, dates, IDs…) are changed by HR in the record and
+the approval confirms it. Declining requires a reason. HR is notified on
+submission, the employee on decision; audit stores field names, not
+values. HR queue: `/admin/employees/requests` (count badge on People).
+"Privacy & data" on My Profile: who can see what, the organization's
+privacy notice link, an instant JSON download (`get_my_personal_data()`,
+audited) and a formal request to HR for everything held.
+
+**Field ownership and data quality.**
+- Work phone is HR/IT-managed unless the organization turns on
+  `work_phone_editable_by_employee` (enforced in the protected-column
+  trigger).
+- Gender and marital status are collected only if the organization
+  enables them (`collect_gender` / `collect_marital_status`, default off;
+  orgs already holding values were set to optional). "Prefer not to say"
+  is stored as an answer; blank means "not provided".
+- Address uses country names (ISO code stored), Parish and Town for
+  Jamaica, State/Postal code elsewhere.
+- Phones are normalized to E.164 by a database trigger
+  (`private.normalize_phone`, NANP-aware, 7-digit Jamaican local numbers
+  get +1876) on work, personal and emergency-contact phones; existing
+  values were backfilled; `lib/phone.ts` formats for display.
+- Emergency contacts need a phone or email (CHECK, NOT VALID for legacy
+  rows), primary selection is one RPC (`set_primary_emergency_contact`),
+  the next contact is promoted when a primary is removed, and an employee
+  can't delete their last reachable contact when the organization
+  requires one.
+
+**After activation.** Required personal items are checked continuously,
+not only before invitation: My Profile shows what's missing;
+`list_employee_setup_summary()` returns `profile_missing` for People's
+"Profile incomplete" filter. `employees.profile_last_confirmed_at` +
+`confirm_my_profile()`; HR can start a verification round
+(`request_profile_confirmation()`) from Record settings; People shows the
+share confirmed in the last 12 months.
+
+**Audit.** Self-service and HR changes to directory fields log
+`EMPLOYEE_SELF_PROFILE_UPDATED` / `EMPLOYEE_PROFILE_UPDATED` with field
+names; photo changes log `EMPLOYEE_PROFILE_PHOTO_UPDATED/REMOVED`.
+
+**Settings, not profile.** Notification preferences moved to `/settings`
+("In-app notifications"). Onboarding tasks and employee-record notices
+are required: `private.create_notification()` ignores preferences for
+`private.required_notification_types()` and a trigger rejects opting out.
+`preferred_locale` is deliberately not exposed — there is no
+localization yet, and a language setting that changes nothing would
+mislead.

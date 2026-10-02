@@ -2244,6 +2244,133 @@ async function main() {
     ok("the HR owner sees whose onboarding the steps belong to", subjects.rows.some((r) => r.employee_id === setupEmpId && r.display_name === "Setup Person" && r.run_status === "in_progress"));
   });
 
+
+  // ============== MY PROFILE: OFFICIAL EMPLOYEE RECORD ==============
+  // Ref: 20261003100000_my_profile_employee_record.sql.
+  await db.exec(`insert into public.employee_private (employee_id, organization_id) values ('${ALICE_EMP}', '${ORG}') on conflict (employee_id) do nothing`);
+  await as(ALICE_USER, async () => {
+    try { await db.query(`update public.employee_private set organization_id = '${ORG2}' where employee_id = '${ALICE_EMP}'`); } catch { /* rejected outright is also fine */ }
+  });
+  const aliceOrg = await db.query(`select organization_id from public.employee_private where employee_id = '${ALICE_EMP}'`);
+  ok("an employee cannot move their private record into another organization", aliceOrg.rows[0].organization_id === ORG);
+  let crossTenantInsert = false;
+  try { await db.query(`insert into public.employee_emergency_contacts (organization_id, employee_id, full_name, phone) values ('${ORG2}', '${ALICE_EMP}', 'Wrong Org', '8765550000')`); } catch { crossTenantInsert = true; }
+  ok("no employee child row can claim a different organization, even for a privileged writer", crossTenantInsert);
+
+  const notesColumn = await db.query(`select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'employee_private' and column_name = 'notes'`);
+  ok("HR notes no longer live in the employee-readable private record", Number(notesColumn.rows[0].count) === 0);
+  await as(ERIN_USER, async () => {
+    await db.query(`insert into public.employee_hr_notes (organization_id, employee_id, category, body) values ('${ORG}', '${ALICE_EMP}', 'employee_relations', 'Confidential matter under review')`);
+  });
+  await as(ALICE_USER, async () => {
+    const seen = await db.query(`select count(*) from public.employee_hr_notes where employee_id = '${ALICE_EMP}'`);
+    ok("an employee cannot read HR notes about themself", Number(seen.rows[0].count) === 0);
+  });
+  await as(CAROL_USER, async () => {
+    const seen = await db.query(`select count(*) from public.employee_hr_notes where employee_id = '${ALICE_EMP}'`);
+    ok("a manager cannot read HR notes about their report", Number(seen.rows[0].count) === 0);
+  });
+  const noteAudit = await db.query(`select new_data from public.audit_events where action = 'HR_NOTE_ADDED' and entity_id = '${ALICE_EMP}'`);
+  ok("the HR-note audit records the category, never the note text", noteAudit.rows.length === 1 && !JSON.stringify(noteAudit.rows[0].new_data).includes("Confidential"));
+
+  // Self-service: employee.update_self gates it; work phone is HR-managed by default.
+  await as(ALICE_USER, async () => {
+    await db.query(`update public.employees set preferred_name = 'Ally' where id = '${ALICE_EMP}'`);
+    let phoneBlocked = false;
+    try { await db.query(`update public.employees set work_phone = '876-555-0001' where id = '${ALICE_EMP}'`); } catch { phoneBlocked = true; }
+    ok("work phone is HR-managed unless the organization lets employees edit it", phoneBlocked);
+  });
+  const ally = await db.query(`select preferred_name from public.employees where id = '${ALICE_EMP}'`);
+  ok("an employee with employee.update_self can edit their preferred name", ally.rows[0].preferred_name === "Ally");
+  const selfAudit = await db.query(`select new_data from public.audit_events where action = 'EMPLOYEE_SELF_PROFILE_UPDATED' and entity_id = '${ALICE_EMP}' order by created_at desc limit 1`);
+  ok("self-service profile edits are audited by field name", selfAudit.rows[0]?.new_data?.fields?.includes("preferred_name"));
+  await as(ERIN_USER, async () => {
+    await db.query(`select public.update_employee_record_settings('${ORG}', null, '{"work_phone_editable_by_employee": true}'::jsonb)`);
+  });
+  await as(ALICE_USER, async () => {
+    await db.query(`update public.employees set work_phone = '876-555-0001' where id = '${ALICE_EMP}'`);
+  });
+  const alicePhone = await db.query(`select work_phone from public.employees where id = '${ALICE_EMP}'`);
+  ok("phone numbers are stored in E.164", alicePhone.rows[0].work_phone === "+18765550001");
+  await as(GRACE_USER, async () => {
+    try { await db.query(`update public.employees set preferred_name = 'Should Not Stick' where id = '${GRACE_EMP}'`); } catch { /* blocked */ }
+  });
+  const grace = await db.query(`select preferred_name from public.employees where id = '${GRACE_EMP}'`);
+  ok("a role without employee.update_self cannot edit its own profile", grace.rows[0].preferred_name !== "Should Not Stick");
+
+  // Emergency contacts.
+  let unreachable = false;
+  await as(ALICE_USER, async () => {
+    try { await db.query(`insert into public.employee_emergency_contacts (organization_id, employee_id, full_name) values ('${ORG}', '${ALICE_EMP}', 'No Way To Reach')`); } catch { unreachable = true; }
+    ok("an emergency contact needs at least one way to reach them", unreachable);
+    const first = await db.query(`insert into public.employee_emergency_contacts (organization_id, employee_id, full_name, phone, is_primary) values ('${ORG}', '${ALICE_EMP}', 'First Contact', '(876) 555-1234', true) returning id, phone`);
+    ok("emergency contact phones are stored in E.164", first.rows[0].phone === "+18765551234");
+    const second = await db.query(`insert into public.employee_emergency_contacts (organization_id, employee_id, full_name, email) values ('${ORG}', '${ALICE_EMP}', 'Second Contact', 'second@example.test') returning id`);
+    await db.query(`select * from public.set_primary_emergency_contact('${second.rows[0].id}')`);
+    const primaries = await db.query(`select id from public.employee_emergency_contacts where employee_id = '${ALICE_EMP}' and is_primary`);
+    ok("switching the primary emergency contact is atomic — exactly one primary", primaries.rows.length === 1 && primaries.rows[0].id === second.rows[0].id);
+  });
+  const local = await db.query(`select private.normalize_phone('555-1234', 'JM') as jm, private.normalize_phone('555-1234', 'US') as us, private.normalize_phone('+44 20 7946 0958', 'JM') as uk`);
+  ok("a 7-digit local number in Jamaica becomes +1876…, elsewhere it is kept as typed", local.rows[0].jm === "+18765551234" && local.rows[0].us === "555-1234" && local.rows[0].uk === "+442079460958");
+  await as(ERIN_USER, async () => {
+    await db.query(`select public.update_employee_record_settings('${ORG}', null, '{"require_emergency_contact": true}'::jsonb)`);
+  });
+  await as(ALICE_USER, async () => {
+    await db.query(`delete from public.employee_emergency_contacts where employee_id = '${ALICE_EMP}' and full_name = 'First Contact'`);
+    let lastBlocked = false;
+    try { await db.query(`delete from public.employee_emergency_contacts where employee_id = '${ALICE_EMP}'`); } catch { lastBlocked = true; }
+    ok("an employee can't delete their last emergency contact when the organization requires one", lastBlocked);
+    const promoted = await db.query(`select count(*) from public.employee_emergency_contacts where employee_id = '${ALICE_EMP}' and is_primary`);
+    ok("a remaining contact is primary", Number(promoted.rows[0].count) === 1);
+  });
+  await as(ERIN_USER, async () => {
+    await db.query(`select public.update_employee_record_settings('${ORG}', null, '{"require_emergency_contact": false}'::jsonb)`);
+  });
+
+  // Correction requests.
+  let dobRequestId;
+  await as(ALICE_USER, async () => {
+    const req = await db.query(`select * from public.submit_employee_record_request('correction', 'date_of_birth', '1990-05-17', 'Registered incorrectly at hiring')`);
+    dobRequestId = req.rows[0].id;
+    ok("an employee can ask HR to correct their date of birth", req.rows[0].status === "pending");
+    let dup = false;
+    try { await db.query(`select * from public.submit_employee_record_request('correction', 'date_of_birth', '1990-05-18', null)`); } catch { dup = true; }
+    ok("only one pending correction per field", dup);
+    let selfDecide = false;
+    try { await db.query(`select * from public.decide_employee_record_request('${dobRequestId}', true, null)`); } catch { selfDecide = true; }
+    ok("an employee cannot approve their own correction", selfDecide);
+  });
+  await as(ERIN_USER, async () => {
+    const notified = await db.query(`select count(*) from public.notifications where recipient_user_id = '${ERIN_USER}' and type = 'record_request.submitted'`);
+    ok("HR is notified of a new correction request", Number(notified.rows[0].count) >= 1);
+    const decided = await db.query(`select * from public.decide_employee_record_request('${dobRequestId}', true, 'Checked against birth certificate')`);
+    ok("approving a date-of-birth correction applies it to the record", decided.rows[0].applied === true);
+  });
+  const dob = await db.query(`select date_of_birth::text as d from public.employee_private where employee_id = '${ALICE_EMP}'`);
+  ok("the corrected date of birth is on the record", dob.rows[0].d === "1990-05-17");
+  await as(ALICE_USER, async () => {
+    const told = await db.query(`select count(*) from public.notifications where recipient_user_id = '${ALICE_USER}' and type = 'record_request.decided'`);
+    ok("the employee is notified of HR's decision", Number(told.rows[0].count) === 1);
+    let mute = false;
+    try { await db.query(`insert into public.notification_preferences (user_id, organization_id, notification_type, channel, enabled) values ('${ALICE_USER}', '${ORG}', 'onboarding.task_assigned', 'in_app', false)`); } catch { mute = true; }
+    ok("required notifications cannot be switched off", mute);
+
+    const nameReq = await db.query(`select * from public.submit_employee_record_request('correction', 'last_name', 'Smith-Jones', 'Married')`);
+    await db.query(`select public.confirm_my_profile()`);
+    const record = await db.query(`select public.get_my_employee_record() as r`);
+    ok("My Profile reads the official record, including who the employee reports to", !!record.rows[0].r.employee_number && !!record.rows[0].r.profile_last_confirmed_at && "supervisor" in record.rows[0].r);
+    const copy = await db.query(`select public.get_my_personal_data() as d`);
+    ok("an employee can download a copy of their personal information", copy.rows[0].d.employee_record.employee_number === record.rows[0].r.employee_number && Array.isArray(copy.rows[0].d.emergency_contacts));
+    const access = await db.query(`select * from public.submit_employee_record_request('data_access', null, null, 'For my records')`);
+    ok("an employee can make a formal data-access request", access.rows[0].kind === "data_access");
+    globalThis.__nameRequestId = nameReq.rows[0].id;
+  });
+  await as(ERIN_USER, async () => {
+    let needsNote = false;
+    try { await db.query(`select * from public.decide_employee_record_request('${globalThis.__nameRequestId}', false, '')`); } catch { needsNote = true; }
+    ok("declining a correction requires an explanation", needsNote);
+  });
+
   console.log(`\n${passCount} passed, ${failCount} failed.`);
   if (failCount > 0) process.exitCode = 1;
 }

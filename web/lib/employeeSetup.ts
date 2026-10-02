@@ -165,6 +165,22 @@ const HISTORY_LABELS: Record<string, string> = {
   ONBOARDING_CANCELLED: "Onboarding cancelled",
   ONBOARDING_EVIDENCE_ATTACHED: "Onboarding evidence attached",
   COMPENSATION_CHANGED: "Compensation changed",
+  EMPLOYEE_PROFILE_UPDATED: "Employee record updated by HR",
+  EMPLOYEE_SELF_PROFILE_UPDATED: "Employee updated their profile",
+  EMPLOYEE_PROFILE_PHOTO_UPDATED: "Profile photo updated",
+  EMPLOYEE_PROFILE_PHOTO_REMOVED: "Profile photo removed",
+  EMPLOYEE_PROFILE_CONFIRMED: "Employee confirmed their details",
+  RECORD_CORRECTION_REQUESTED: "Correction requested",
+  RECORD_CORRECTION_APPROVED: "Correction approved",
+  RECORD_CORRECTION_REJECTED: "Correction declined",
+  RECORD_REQUEST_WITHDRAWN: "Request withdrawn",
+  DATA_ACCESS_REQUESTED: "Copy of personal information requested",
+  DATA_ACCESS_COMPLETED: "Personal information request completed",
+  DATA_ACCESS_DECLINED: "Personal information request declined",
+  PERSONAL_DATA_EXPORTED: "Employee downloaded their information",
+  HR_NOTE_ADDED: "HR note added",
+  HR_NOTE_UPDATED: "HR note edited",
+  HR_NOTE_DELETED: "HR note deleted",
 };
 
 export function historyLabel(action: string): string {

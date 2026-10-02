@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { formatPhone } from "@/lib/phone";
 
 export type EmergencyContact = {
   id: string;
@@ -41,8 +42,8 @@ export function EmergencyContactsEditor({
     setForm({
       full_name: contact.full_name,
       relationship: contact.relationship ?? "",
-      phone: contact.phone ?? "",
-      alternate_phone: contact.alternate_phone ?? "",
+      phone: formatPhone(contact.phone),
+      alternate_phone: formatPhone(contact.alternate_phone),
       email: contact.email ?? "",
     });
   }
@@ -54,6 +55,10 @@ export function EmergencyContactsEditor({
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
+    if (!form.phone.trim() && !form.alternate_phone.trim() && !form.email.trim()) {
+      setError("Add at least one way to reach this person — a phone number or an email.");
+      return;
+    }
     setLoading(true);
     setError(null);
     const values = {
@@ -85,15 +90,10 @@ export function EmergencyContactsEditor({
   async function makePrimary(contact: EmergencyContact) {
     setBusyId(contact.id);
     setError(null);
-    const { error: clearError } = await supabase
-      .from("employee_emergency_contacts")
-      .update({ is_primary: false })
-      .eq("employee_id", employeeId)
-      .eq("is_primary", true);
-    const { error: setError_ } = clearError
-      ? { error: clearError }
-      : await supabase.from("employee_emergency_contacts").update({ is_primary: true }).eq("id", contact.id);
-    if (setError_) setError(setError_.message);
+    // One database transaction (set_primary_emergency_contact), so there's
+    // never a moment with no primary contact if something fails midway.
+    const { error: rpcError } = await supabase.rpc("set_primary_emergency_contact", { p_contact_id: contact.id });
+    if (rpcError) setError(rpcError.message);
     setBusyId(null);
     router.refresh();
   }
@@ -120,7 +120,7 @@ export function EmergencyContactsEditor({
                 {contact.relationship && <span className="ml-2 text-xs font-normal text-stone-500">{contact.relationship}</span>}
               </p>
               <p className="text-xs text-stone-500">
-                {[contact.phone, contact.alternate_phone, contact.email].filter(Boolean).join(" · ") || "No contact details"}
+                {[formatPhone(contact.phone), formatPhone(contact.alternate_phone), contact.email].filter(Boolean).join(" · ") || <span className="text-amber-700">No way to reach them — add a phone or email</span>}
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">

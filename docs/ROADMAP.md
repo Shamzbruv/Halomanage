@@ -1,6 +1,6 @@
 # Halomanage — Build Status and Roadmap
 
-Living handoff document. Last updated: 2026-10-02. This document itself had
+Living handoff document. Last updated: 2026-10-03. This document itself had
 drifted well behind `docs/ARCHITECTURE.md` (which had ~15 dated sections
 past this file's last update) — see ARCHITECTURE.md for the authoritative,
 dated history; this file is being brought back in line with it below rather
@@ -72,7 +72,7 @@ an external payroll or accounting system.
 - `web`: TypeScript passes with `tsc --noEmit`.
 - `web`: Next.js 16.3.2 production build passes for all routes.
 - `web`: `npm audit` reports 0 vulnerabilities.
-- `supabase/tests/pglite`: 334/334 database assertions pass (2026-10-02; also run by GitHub Actions CI on every push), including employee-setup
+- `supabase/tests/pglite`: 363/363 database assertions pass (2026-10-03; also run by GitHub Actions CI on every push), including employee-setup
   readiness, prepared access/onboarding at invitation, and versioned template editing; also including starter workspace contents,
   portal lookup/customization, partial-membership repair, invitation permission separation,
   transactional linking, cross-organization provisioning, and duplicate-provisioning rejection.

@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { COUNTRIES, JAMAICA_PARISHES } from "@/lib/countries";
+import { formatPhone } from "@/lib/phone";
 
 export type PersonalInfo = {
   personal_email: string | null;
@@ -18,34 +20,53 @@ export type PersonalInfo = {
   postal_code: string | null;
 };
 
+// Exactly the columns this form reads or writes — never select("*") for
+// employee_private (data minimization: the page gets only what it shows).
+export const PERSONAL_INFO_COLUMNS =
+  "personal_email, personal_phone, date_of_birth, gender, marital_status, address_line1, address_line2, city, region, country_code, postal_code";
+
+export type CollectionSetting = "off" | "optional";
+
 const SELF_EDITABLE: (keyof PersonalInfo)[] = [
   "personal_email", "personal_phone", "gender", "marital_status",
   "address_line1", "address_line2", "city", "region", "country_code", "postal_code",
 ];
 
-// Protected PII in employee_private: readable/writable by the employee
-// themself and by employee.manage (HR) — never by a supervisor or manager
-// by default. mode="self" is the employee's own profile: date of birth is
-// HR controlled (enforced by a database trigger, not only hidden here).
+// "Prefer not to say" is an answer and is stored as one; a blank means the
+// question simply hasn't been answered — reports need to tell them apart.
+const GENDER_OPTIONS = [
+  ["female", "Female"], ["male", "Male"], ["non_binary", "Non-binary"], ["other", "Other"], ["prefer_not_to_say", "Prefer not to say"],
+] as const;
+const MARITAL_OPTIONS = [
+  ["single", "Single"], ["married", "Married"], ["common_law", "Common-law"], ["divorced", "Divorced"], ["widowed", "Widowed"], ["prefer_not_to_say", "Prefer not to say"],
+] as const;
+
+// Protected PII in employee_private: the employee themself and
+// employee.manage (HR) — never a supervisor or manager by default.
+// mode="self" is the employee's own profile: date of birth is HR controlled
+// (enforced by a database trigger, not only hidden here).
 //
-// Input ids match readiness item codes so setup blocker links land on
-// the right field (date_of_birth, personal_email, personal_phone, home_address).
+// Input ids match readiness item codes so setup links land on the field.
 export function EmployeePersonalInfoForm({
   organizationId,
   employeeId,
   initial,
   mode = "hr",
+  collectGender = "optional",
+  collectMaritalStatus = "optional",
 }: {
   organizationId: string;
   employeeId: string;
   initial: Partial<PersonalInfo> | null;
   mode?: "hr" | "self";
+  collectGender?: CollectionSetting;
+  collectMaritalStatus?: CollectionSetting;
 }) {
   const supabase = createClient();
   const router = useRouter();
   const [form, setForm] = useState<Record<keyof PersonalInfo, string>>({
     personal_email: initial?.personal_email ?? "",
-    personal_phone: initial?.personal_phone ?? "",
+    personal_phone: formatPhone(initial?.personal_phone),
     date_of_birth: initial?.date_of_birth ?? "",
     gender: initial?.gender ?? "",
     marital_status: initial?.marital_status ?? "",
@@ -60,6 +81,13 @@ export function EmployeePersonalInfoForm({
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // A field the organization doesn't collect stays hidden — unless a value
+  // is already on file, which HR (or the employee) should be able to see
+  // and clear.
+  const showGender = collectGender !== "off" || !!initial?.gender;
+  const showMarital = collectMaritalStatus !== "off" || !!initial?.marital_status;
+  const jamaica = form.country_code === "JM";
+
   function set(key: keyof PersonalInfo, value: string) {
     setForm((current) => ({ ...current, [key]: value }));
     setSaved(false);
@@ -69,9 +97,10 @@ export function EmployeePersonalInfoForm({
     event.preventDefault();
     setLoading(true);
     setError(null);
-    const keys = mode === "self" ? SELF_EDITABLE : (Object.keys(form) as (keyof PersonalInfo)[]);
+    const keys = (mode === "self" ? SELF_EDITABLE : (Object.keys(form) as (keyof PersonalInfo)[]))
+      .filter((key) => (key !== "gender" || showGender) && (key !== "marital_status" || showMarital));
     const payload = Object.fromEntries(keys.map((key) => [key, form[key].trim() || null]));
-    if (payload.country_code) payload.country_code = String(payload.country_code).toUpperCase();
+    if (jamaica) payload.postal_code = null;
     const { error: upsertError } = await supabase
       .from("employee_private")
       .upsert({ employee_id: employeeId, organization_id: organizationId, ...payload }, { onConflict: "employee_id" });
@@ -94,65 +123,77 @@ export function EmployeePersonalInfoForm({
         </div>
         <div>
           <label className="label" htmlFor="personal_phone">Personal phone</label>
-          <input id="personal_phone" className="input" value={form.personal_phone} onChange={(e) => set("personal_phone", e.target.value)} />
+          <input id="personal_phone" type="tel" className="input" placeholder="+1 (876) 555-1234" value={form.personal_phone} onChange={(e) => set("personal_phone", e.target.value)} />
         </div>
-        <div>
-          <label className="label" htmlFor="date_of_birth">Date of birth</label>
-          <input id="date_of_birth" type="date" className="input" disabled={mode === "self"} value={form.date_of_birth} onChange={(e) => set("date_of_birth", e.target.value)} />
-          {mode === "self" && <p className="mt-1 text-xs text-stone-500">Managed by HR — ask HR if it&apos;s wrong.</p>}
-        </div>
-        <div className="grid grid-cols-2 gap-3">
+        {mode === "hr" && (
           <div>
-            <label className="label" htmlFor="gender">Gender</label>
-            <select id="gender" className="input" value={form.gender} onChange={(e) => set("gender", e.target.value)}>
-              <option value="">Prefer not to say</option>
-              <option value="female">Female</option>
-              <option value="male">Male</option>
-              <option value="non_binary">Non-binary</option>
-              <option value="other">Other</option>
-            </select>
+            <label className="label" htmlFor="date_of_birth">Date of birth</label>
+            <input id="date_of_birth" type="date" className="input" value={form.date_of_birth} onChange={(e) => set("date_of_birth", e.target.value)} />
           </div>
-          <div>
-            <label className="label" htmlFor="marital_status">Marital status</label>
-            <select id="marital_status" className="input" value={form.marital_status} onChange={(e) => set("marital_status", e.target.value)}>
-              <option value="">Not recorded</option>
-              <option value="single">Single</option>
-              <option value="married">Married</option>
-              <option value="common_law">Common-law</option>
-              <option value="divorced">Divorced</option>
-              <option value="widowed">Widowed</option>
-            </select>
+        )}
+        {(showGender || showMarital) && (
+          <div className="grid grid-cols-2 gap-3">
+            {showGender && (
+              <div>
+                <label className="label" htmlFor="gender">Gender{collectGender === "off" && <span className="font-normal text-stone-400"> (no longer collected)</span>}</label>
+                <select id="gender" className="input" value={form.gender} onChange={(e) => set("gender", e.target.value)}>
+                  <option value="">Not provided</option>
+                  {GENDER_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+              </div>
+            )}
+            {showMarital && (
+              <div>
+                <label className="label" htmlFor="marital_status">Marital status{collectMaritalStatus === "off" && <span className="font-normal text-stone-400"> (no longer collected)</span>}</label>
+                <select id="marital_status" className="input" value={form.marital_status} onChange={(e) => set("marital_status", e.target.value)}>
+                  <option value="">Not provided</option>
+                  {MARITAL_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+              </div>
+            )}
           </div>
-        </div>
+        )}
       </div>
 
       <fieldset id="home_address" className="space-y-3">
         <legend className="text-xs font-semibold uppercase text-stone-400">Home address</legend>
         <div className="grid gap-3 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <label className="label" htmlFor="country_code">Country</label>
+            <select id="country_code" className="input" value={form.country_code} onChange={(e) => set("country_code", e.target.value)}>
+              {COUNTRIES.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
+            </select>
+          </div>
           <div>
             <label className="label" htmlFor="address_line1">Address line 1</label>
-            <input id="address_line1" className="input" value={form.address_line1} onChange={(e) => set("address_line1", e.target.value)} />
+            <input id="address_line1" className="input" autoComplete="address-line1" value={form.address_line1} onChange={(e) => set("address_line1", e.target.value)} />
           </div>
           <div>
             <label className="label" htmlFor="address_line2">Address line 2</label>
-            <input id="address_line2" className="input" value={form.address_line2} onChange={(e) => set("address_line2", e.target.value)} />
+            <input id="address_line2" className="input" autoComplete="address-line2" value={form.address_line2} onChange={(e) => set("address_line2", e.target.value)} />
           </div>
           <div>
-            <label className="label" htmlFor="city">City / town</label>
+            <label className="label" htmlFor="city">{jamaica ? "Town / community" : "City"}</label>
             <input id="city" className="input" value={form.city} onChange={(e) => set("city", e.target.value)} />
           </div>
           <div>
-            <label className="label" htmlFor="region">Parish / region</label>
-            <input id="region" className="input" placeholder="e.g. St. Andrew" value={form.region} onChange={(e) => set("region", e.target.value)} />
+            <label className="label" htmlFor="region">{jamaica ? "Parish" : "State / province / region"}</label>
+            {jamaica ? (
+              <select id="region" className="input" value={form.region} onChange={(e) => set("region", e.target.value)}>
+                <option value="">Choose a parish</option>
+                {!JAMAICA_PARISHES.includes(form.region) && form.region && <option value={form.region}>{form.region}</option>}
+                {JAMAICA_PARISHES.map((parish) => <option key={parish} value={parish}>{parish}</option>)}
+              </select>
+            ) : (
+              <input id="region" className="input" value={form.region} onChange={(e) => set("region", e.target.value)} />
+            )}
           </div>
-          <div>
-            <label className="label" htmlFor="country_code">Country code</label>
-            <input id="country_code" className="input" maxLength={2} placeholder="JM" value={form.country_code} onChange={(e) => set("country_code", e.target.value)} />
-          </div>
-          <div>
-            <label className="label" htmlFor="postal_code">Postal code</label>
-            <input id="postal_code" className="input" value={form.postal_code} onChange={(e) => set("postal_code", e.target.value)} />
-          </div>
+          {!jamaica && (
+            <div>
+              <label className="label" htmlFor="postal_code">Postal / ZIP code</label>
+              <input id="postal_code" className="input" autoComplete="postal-code" value={form.postal_code} onChange={(e) => set("postal_code", e.target.value)} />
+            </div>
+          )}
         </div>
       </fieldset>
 

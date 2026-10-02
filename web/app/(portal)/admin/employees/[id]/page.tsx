@@ -7,7 +7,7 @@ import { TerminateEmployeeButton } from "@/components/TerminateEmployeeButton";
 import { AccessCard } from "@/components/employee/AccessCard";
 import { EmploymentCard, IdentityCard } from "@/components/employee/EmploymentCards";
 import { OnboardingHistoryCard, OnboardingPlanCard } from "@/components/employee/OnboardingCards";
-import { EmergencyContactsCard, IdentifiersCard, PersonalInfoCard } from "@/components/employee/PersonalCards";
+import { EmergencyContactsCard, HrNotesCard, IdentifiersCard, PersonalInfoCard } from "@/components/employee/PersonalCards";
 import { CompensationCard, DocumentsCard, HistoryCard, LeaveCard, LearningAndAssetsCard } from "@/components/employee/RecordCards";
 import type { EmployeeRecord } from "@/components/employee/types";
 import { EMPLOYMENT_TYPE_LABELS, accountLabel, type SetupReadiness } from "@/lib/employeeSetup";
@@ -27,6 +27,7 @@ const TABS = [
   { key: "learning", label: "Learning & assets" },
   { key: "leave", label: "Leave" },
   { key: "compensation", label: "Compensation" },
+  { key: "hr_notes", label: "HR notes" },
   { key: "history", label: "History" },
 ] as const;
 type TabKey = (typeof TABS)[number]["key"];
@@ -128,6 +129,7 @@ export default async function EmployeeDetailPage({
       {tab === "personal" && <PersonalInfoCard employee={employee} />}
       {tab === "ids" && <IdentifiersCard timezone={tz} employee={employee} />}
       {tab === "emergency" && <EmergencyContactsCard employee={employee} />}
+      {tab === "hr_notes" && <HrNotesCard employee={employee} timezone={tz} />}
       {tab === "access" && <AccessCard timezone={tz} employee={employee} organizationId={orgId} viewerUserId={session.userId} readiness={readiness} />}
       {tab === "onboarding" && (
         <div className="space-y-6">

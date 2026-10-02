@@ -8,6 +8,7 @@ import { NewEmployeeForm } from "@/components/NewEmployeeForm";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession, sessionCan } from "@/lib/session";
 import { statusBadgeClass } from "@/lib/ui";
+import { todayIn } from "@/lib/timezone";
 
 type Summary = {
   employee_id: string;
@@ -18,6 +19,10 @@ type Summary = {
   onboarding_status: string | null;
   onboarding_completed: number;
   onboarding_total: number;
+  // Required personal items (organization settings) missing right now —
+  // checked after activation too, not only before invitation.
+  profile_missing: string[];
+  profile_last_confirmed_at: string | null;
 };
 
 const FILTERS = [
@@ -28,6 +33,7 @@ const FILTERS = [
   { key: "pending", label: "Invitation pending" },
   { key: "active", label: "Active" },
   { key: "onboarding", label: "Onboarding" },
+  { key: "profile", label: "Profile incomplete" },
   { key: "leave", label: "On leave" },
   { key: "terminated", label: "Terminated" },
 ] as const;
@@ -43,6 +49,7 @@ function matches(filter: FilterKey, employee: Row, summary: Summary | undefined)
     case "pending": return summary?.account_state === "invited";
     case "active": return employee.status === "active";
     case "onboarding": return summary?.onboarding_status === "in_progress";
+    case "profile": return !!employee.user_id && employee.status !== "terminated" && (summary?.profile_missing?.length ?? 0) > 0;
     case "leave": return employee.status === "leave";
     case "terminated": return employee.status === "terminated";
     default: return true;
@@ -63,6 +70,18 @@ export default async function EmployeesAdminPage({ searchParams }: { searchParam
     supabase.rpc("list_employee_setup_summary", { p_organization_id: session.organizationId }),
     supabase.from("employee_assignments").select("employee_id, org_units(name), positions(title)").eq("organization_id", session.organizationId).is("end_date", null),
   ]);
+  const { count: pendingRequests } = await supabase
+    .from("employee_record_requests")
+    .select("id", { count: "exact", head: true })
+    .eq("organization_id", session.organizationId)
+    .eq("status", "pending");
+  // Profile confirmation within the last 12 months, among people with an account.
+  const yearAgo = new Date(new Date(todayIn(session.organization.timezone)).getTime() - 365 * 86400000).toISOString();
+  const withAccounts = (employees ?? []).filter((e) => e.user_id && e.status !== "terminated");
+  const confirmedRecently = withAccounts.filter((e) => {
+    const confirmed = summaryById.get(e.id)?.profile_last_confirmed_at;
+    return !!confirmed && confirmed >= yearAgo;
+  }).length;
   const summaryById = new Map(((summaries ?? []) as Summary[]).map((s) => [s.employee_id, s]));
   const assignmentById = new Map((assignments ?? []).map((a: any) => [a.employee_id, a]));
   const all = employees ?? [];
@@ -86,6 +105,7 @@ export default async function EmployeesAdminPage({ searchParams }: { searchParam
       <div className="admin-page-head">
         <div className="page-intro"><span className="eyebrow">People</span><h1>Every person, one reliable record.</h1><p>Build the complete HR record first — employment, access and onboarding — then send the invitation as the final step.</p></div>
         <div className="flex flex-wrap items-center gap-2">
+          <Link href="/admin/employees/requests" className="btn-secondary"><Icon name="edit" size={16} /> Employee requests{(pendingRequests ?? 0) > 0 && <span className="badge badge-gold ml-1">{pendingRequests}</span>}</Link>
           <Link href="/admin/employees/settings" className="btn-secondary"><Icon name="settings" size={16} /> Record settings</Link>
           <NewEmployeeForm organizationId={session.organizationId} />
         </div>
@@ -94,6 +114,7 @@ export default async function EmployeesAdminPage({ searchParams }: { searchParam
         <div className="metric-card"><span className="metric-icon mint"><Icon name="people" /></span><div><small>Total people</small><strong>{all.length}</strong><em>{counts.active} active</em></div></div>
         <div className="metric-card"><span className="metric-icon sun"><Icon name="onboarding" /></span><div><small>Pre-hires</small><strong>{counts.prehire}</strong><em>{counts.ready} ready to invite</em></div></div>
         <div className="metric-card"><span className="metric-icon coral"><Icon name="profile" /></span><div><small>Invitations pending</small><strong>{counts.pending}</strong><em>{counts.onboarding} onboarding</em></div></div>
+        <div className="metric-card"><span className="metric-icon mint"><Icon name="check" /></span><div><small>Details confirmed</small><strong>{withAccounts.length ? Math.round((confirmedRecently / withAccounts.length) * 100) : 0}%</strong><em>in the last 12 months · {counts.profile} incomplete</em></div></div>
       </div>
       <section className="card overflow-x-auto">
         <div className="panel-heading"><div><span className="panel-icon"><Icon name="people" /></span><div><h3>People directory</h3><p>Select an employee to open their complete HR record.</p></div></div></div>

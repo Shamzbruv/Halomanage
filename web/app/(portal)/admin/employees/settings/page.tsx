@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { EmployeeRecordSettingsForm } from "@/components/EmployeeRecordSettingsForm";
+import { RequestProfileConfirmationButton } from "@/components/RequestProfileConfirmationButton";
 import { getCurrentSession, sessionCan } from "@/lib/session";
 import { createClient } from "@/lib/supabase/server";
 
@@ -41,7 +42,20 @@ export default async function EmployeeRecordSettingsPage() {
           require_home_address: requirements?.require_home_address ?? false,
           require_emergency_contact: requirements?.require_emergency_contact ?? false,
         }}
+        profile={{
+          collect_gender: requirements?.collect_gender ?? "off",
+          collect_marital_status: requirements?.collect_marital_status ?? "off",
+          work_phone_editable_by_employee: requirements?.work_phone_editable_by_employee ?? false,
+          privacy_notice_url: requirements?.privacy_notice_url ?? "",
+        }}
       />
+      <section className="card space-y-3">
+        <div>
+          <h2 className="text-sm font-semibold text-stone-900">Employee information check</h2>
+          <p className="text-xs text-stone-500">Ask every active employee to review My Profile and confirm their details are still correct — for example once a year. Each person&apos;s last confirmation date appears in People.</p>
+        </div>
+        <RequestProfileConfirmationButton organizationId={session.organizationId} />
+      </section>
     </div>
   );
 }

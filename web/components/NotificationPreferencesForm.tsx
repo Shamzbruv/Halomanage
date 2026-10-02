@@ -12,7 +12,10 @@ import { createClient } from "@/lib/supabase/client";
 // 'in_app'); email/SMS/push delivery isn't live yet (see ROADMAP.md), so
 // this only controls what shows up in-app, not a promise about email you
 // aren't receiving anyway.
-const CATEGORIES: { key: string; label: string; description: string; types: string[] }[] = [
+// required: operational notifications the organization must be able to rely
+// on (private.required_notification_types() — the database ignores
+// preferences for these and rejects attempts to switch them off).
+const CATEGORIES: { key: string; label: string; description: string; types: string[]; required?: boolean }[] = [
   {
     key: "leave",
     label: "Leave requests & decisions",
@@ -24,6 +27,14 @@ const CATEGORIES: { key: string; label: string; description: string; types: stri
     label: "Onboarding tasks",
     description: "A new onboarding task is assigned to you.",
     types: ["onboarding.task_assigned"],
+    required: true,
+  },
+  {
+    key: "record",
+    label: "Your employee record",
+    description: "HR responds to a correction or data request, or asks everyone to confirm their details.",
+    types: ["record_request.decided", "record_request.submitted", "profile.confirmation_requested"],
+    required: true,
   },
   {
     key: "rewards",
@@ -98,15 +109,19 @@ export function NotificationPreferencesForm({
             <p className="text-sm font-medium text-stone-900">{category.label}</p>
             <p className="text-xs text-stone-500">{category.description}</p>
           </div>
-          <label className="flex shrink-0 items-center gap-2 pt-0.5 text-xs text-stone-500">
-            <input
-              type="checkbox"
-              checked={state[category.key]}
-              disabled={pending === category.key}
-              onChange={(e) => handleToggle(category, e.target.checked)}
-            />
-            Notify me
-          </label>
+          {category.required ? (
+            <span className="badge badge-neutral shrink-0" title="Required by your organization">Always on</span>
+          ) : (
+            <label className="flex shrink-0 items-center gap-2 pt-0.5 text-xs text-stone-500">
+              <input
+                type="checkbox"
+                checked={state[category.key]}
+                disabled={pending === category.key}
+                onChange={(e) => handleToggle(category, e.target.checked)}
+              />
+              Notify me
+            </label>
+          )}
         </li>
       ))}
       {error && <p className="alert-error">{error}</p>}

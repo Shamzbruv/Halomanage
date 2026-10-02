@@ -1,6 +1,7 @@
 import { EmergencyContactsEditor } from "@/components/EmergencyContactsEditor";
 import { EmployeeIdentifiersForm } from "@/components/EmployeeIdentifiersForm";
-import { EmployeePersonalInfoForm } from "@/components/EmployeePersonalInfoForm";
+import { EmployeeHrNotes } from "@/components/EmployeeHrNotes";
+import { EmployeePersonalInfoForm, PERSONAL_INFO_COLUMNS, type CollectionSetting } from "@/components/EmployeePersonalInfoForm";
 import { createClient } from "@/lib/supabase/server";
 import type { EmployeeRecord } from "@/components/employee/types";
 
@@ -10,12 +11,49 @@ import type { EmployeeRecord } from "@/components/employee/types";
 
 export async function PersonalInfoCard({ employee }: { employee: EmployeeRecord }) {
   const supabase = await createClient();
-  const { data: privateInfo } = await supabase.from("employee_private").select("*").eq("employee_id", employee.id).maybeSingle();
+  const [{ data: privateInfo }, { data: prefs }] = await Promise.all([
+    supabase.from("employee_private").select(PERSONAL_INFO_COLUMNS).eq("employee_id", employee.id).maybeSingle(),
+    supabase.from("employee_setup_preferences").select("collect_gender, collect_marital_status").eq("organization_id", employee.organization_id).maybeSingle(),
+  ]);
   return (
     <section className="card">
       <h2 className="mb-1 text-sm font-semibold text-stone-900">Personal information</h2>
       <p className="mb-4 text-xs text-stone-500">Visible only to {employee.first_name} and HR. The employee can keep their contact details and address current; date of birth stays HR controlled.</p>
-      <EmployeePersonalInfoForm organizationId={employee.organization_id} employeeId={employee.id} initial={privateInfo} />
+      <EmployeePersonalInfoForm
+        organizationId={employee.organization_id}
+        employeeId={employee.id}
+        initial={privateInfo}
+        collectGender={(prefs?.collect_gender ?? "off") as CollectionSetting}
+        collectMaritalStatus={(prefs?.collect_marital_status ?? "off") as CollectionSetting}
+      />
+    </section>
+  );
+}
+
+// HR-only notes (employee_hr_notes) — never visible to the employee or
+// their managers, unlike employee_private where HR notes used to live.
+export async function HrNotesCard({ employee, timezone }: { employee: EmployeeRecord; timezone: string | undefined }) {
+  const supabase = await createClient();
+  const { data: notes } = await supabase
+    .from("employee_hr_notes")
+    .select("id, category, body, created_at, created_by, updated_at")
+    .eq("employee_id", employee.id)
+    .order("created_at", { ascending: false });
+  const authorIds = [...new Set((notes ?? []).map((n) => n.created_by).filter(Boolean))] as string[];
+  const { data: authors } = authorIds.length
+    ? await supabase.from("employees").select("user_id, first_name, last_name").eq("organization_id", employee.organization_id).in("user_id", authorIds)
+    : { data: [] as { user_id: string; first_name: string; last_name: string }[] };
+  const nameByUser = new Map((authors ?? []).map((a) => [a.user_id, `${a.first_name} ${a.last_name}`]));
+  return (
+    <section className="card">
+      <h2 className="mb-1 text-sm font-semibold text-stone-900">HR notes</h2>
+      <p className="mb-4 text-xs text-stone-500">🔒 Visible only to people who manage employee records. {employee.first_name} and their managers can never see these. The audit trail records that a note was added, not what it says.</p>
+      <EmployeeHrNotes
+        organizationId={employee.organization_id}
+        employeeId={employee.id}
+        timezone={timezone}
+        notes={(notes ?? []).map((n) => ({ id: n.id, category: n.category, body: n.body, created_at: n.created_at, updated_at: n.updated_at, created_by_name: n.created_by ? nameByUser.get(n.created_by) ?? null : null }))}
+      />
     </section>
   );
 }
