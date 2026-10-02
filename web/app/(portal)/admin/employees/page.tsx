@@ -70,6 +70,7 @@ export default async function EmployeesAdminPage({ searchParams }: { searchParam
     supabase.rpc("list_employee_setup_summary", { p_organization_id: session.organizationId }),
     supabase.from("employee_assignments").select("employee_id, org_units(name), positions(title)").eq("organization_id", session.organizationId).is("end_date", null),
   ]);
+  const summaryById = new Map(((summaries ?? []) as Summary[]).map((s) => [s.employee_id, s]));
   const { count: pendingRequests } = await supabase
     .from("employee_record_requests")
     .select("id", { count: "exact", head: true })
@@ -82,7 +83,6 @@ export default async function EmployeesAdminPage({ searchParams }: { searchParam
     const confirmed = summaryById.get(e.id)?.profile_last_confirmed_at;
     return !!confirmed && confirmed >= yearAgo;
   }).length;
-  const summaryById = new Map(((summaries ?? []) as Summary[]).map((s) => [s.employee_id, s]));
   const assignmentById = new Map((assignments ?? []).map((a: any) => [a.employee_id, a]));
   const all = employees ?? [];
   const counts = Object.fromEntries(FILTERS.map((f) => [f.key, all.filter((e) => matches(f.key, e, summaryById.get(e.id))).length])) as Record<FilterKey, number>;
