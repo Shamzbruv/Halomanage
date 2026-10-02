@@ -20,11 +20,6 @@ export type PersonalInfo = {
   postal_code: string | null;
 };
 
-// Exactly the columns this form reads or writes — never select("*") for
-// employee_private (data minimization: the page gets only what it shows).
-export const PERSONAL_INFO_COLUMNS =
-  "personal_email, personal_phone, date_of_birth, gender, marital_status, address_line1, address_line2, city, region, country_code, postal_code";
-
 export type CollectionSetting = "off" | "optional";
 
 const SELF_EDITABLE: (keyof PersonalInfo)[] = [

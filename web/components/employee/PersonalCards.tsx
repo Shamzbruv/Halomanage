@@ -1,7 +1,8 @@
 import { EmergencyContactsEditor } from "@/components/EmergencyContactsEditor";
 import { EmployeeIdentifiersForm } from "@/components/EmployeeIdentifiersForm";
 import { EmployeeHrNotes } from "@/components/EmployeeHrNotes";
-import { EmployeePersonalInfoForm, PERSONAL_INFO_COLUMNS, type CollectionSetting } from "@/components/EmployeePersonalInfoForm";
+import { EmployeePersonalInfoForm, type CollectionSetting } from "@/components/EmployeePersonalInfoForm";
+import { PERSONAL_INFO_COLUMNS } from "@/lib/personalInfo";
 import { createClient } from "@/lib/supabase/server";
 import type { EmployeeRecord } from "@/components/employee/types";
 

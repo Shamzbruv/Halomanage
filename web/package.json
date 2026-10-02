@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "check:client-boundary": "node scripts/check-client-boundary.mjs",
     "test:e2e": "playwright test",
     "test:a11y": "playwright test tests/e2e/public-accessibility.spec.ts"
   },
