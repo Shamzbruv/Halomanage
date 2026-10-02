@@ -2,76 +2,37 @@
 
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { NOTIFICATION_GROUPS, type NotificationGroup, type RequiredState } from "@/lib/notifications";
 
-// One friendly toggle can cover several raw notification_type strings (see
-// private.create_notification()'s call sites across the migrations for the
-// authoritative list) — nobody thinks in terms of "rewards.redemption_
-// cancelled" as a distinct concept from "rewards.points_awarded". Only the
-// in_app channel is wired to notification_preferences today
-// (create_notification() is the only reader, and only checks channel =
-// 'in_app'); email/SMS/push delivery isn't live yet (see ROADMAP.md), so
-// this only controls what shows up in-app, not a promise about email you
-// aren't receiving anyway.
-// required: operational notifications the organization must be able to rely
-// on (private.required_notification_types() — the database ignores
-// preferences for these and rejects attempts to switch them off).
-const CATEGORIES: { key: string; label: string; description: string; types: string[]; required?: boolean }[] = [
-  {
-    key: "leave",
-    label: "Leave requests & decisions",
-    description: "A team member requests leave you can approve, or your own request is decided.",
-    types: ["leave.requested", "leave.approved", "leave.rejected"],
-  },
-  {
-    key: "onboarding",
-    label: "Onboarding tasks",
-    description: "A new onboarding task is assigned to you.",
-    types: ["onboarding.task_assigned"],
-    required: true,
-  },
-  {
-    key: "record",
-    label: "Your employee record",
-    description: "HR responds to a correction or data request, or asks everyone to confirm their details.",
-    types: ["record_request.decided", "record_request.submitted", "profile.confirmation_requested"],
-    required: true,
-  },
-  {
-    key: "rewards",
-    label: "Rewards & recognition",
-    description: "Points awarded to you, a redemption's status, or a coworker recognizing you.",
-    types: ["rewards.points_awarded", "rewards.redemption_fulfilled", "rewards.redemption_cancelled", "rewards.redemption_failed", "recognition.received"],
-  },
-  {
-    key: "documents",
-    label: "Document requests",
-    description: "A document you requested from HR is ready or declined.",
-    types: ["document_request.fulfilled", "document_request.rejected"],
-  },
-];
-
+// In-app preferences (notification_preferences, channel 'in_app'). Which
+// groups are required comes from the database — HaloManage's system-critical
+// notices plus the organization's own policy — and the database also
+// refuses an opt-out of a required notification, so this is only the
+// friendly face of a rule enforced underneath. Email/SMS aren't live yet,
+// so no channel choices are offered.
 export function NotificationPreferencesForm({
   userId,
   organizationId,
   disabledTypes,
+  requirements,
 }: {
   userId: string;
   organizationId: string;
-  // notification_type values that already have an explicit enabled=false
-  // row for this user (channel='in_app'). No row for a type means enabled
-  // — the preferences table is opt-out, not opt-in.
+  // notification_type values with an explicit enabled=false row for this
+  // user (in_app). No row means enabled — the table is opt-out.
   disabledTypes: string[];
+  requirements: Record<string, RequiredState>;
 }) {
   const supabase = createClient();
   const disabled = new Set(disabledTypes);
   const [state, setState] = useState<Record<string, boolean>>(
-    Object.fromEntries(CATEGORIES.map((c) => [c.key, !c.types.every((t) => disabled.has(t))])),
+    Object.fromEntries(NOTIFICATION_GROUPS.map((g) => [g.key, !g.types.every((t) => disabled.has(t))])),
   );
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleToggle(category: (typeof CATEGORIES)[number], nextEnabled: boolean) {
-    setPending(category.key);
+  async function handleToggle(group: NotificationGroup, nextEnabled: boolean) {
+    setPending(group.key);
     setError(null);
     const result = nextEnabled
       ? await supabase
@@ -80,17 +41,11 @@ export function NotificationPreferencesForm({
           .eq("user_id", userId)
           .eq("organization_id", organizationId)
           .eq("channel", "in_app")
-          .in("notification_type", category.types)
+          .in("notification_type", group.types)
       : await supabase
           .from("notification_preferences")
           .upsert(
-            category.types.map((notification_type) => ({
-              user_id: userId,
-              organization_id: organizationId,
-              notification_type,
-              channel: "in_app",
-              enabled: false,
-            })),
+            group.types.map((notification_type) => ({ user_id: userId, organization_id: organizationId, notification_type, channel: "in_app", enabled: false })),
             { onConflict: "user_id,organization_id,notification_type,channel" },
           );
     setPending(null);
@@ -98,32 +53,32 @@ export function NotificationPreferencesForm({
       setError(result.error.message);
       return;
     }
-    setState((s) => ({ ...s, [category.key]: nextEnabled }));
+    setState((s) => ({ ...s, [group.key]: nextEnabled }));
   }
 
   return (
     <ul className="space-y-3">
-      {CATEGORIES.map((category) => (
-        <li key={category.key} className="flex items-start justify-between gap-4 rounded-lg bg-cream-100 px-3 py-2.5">
-          <div>
-            <p className="text-sm font-medium text-stone-900">{category.label}</p>
-            <p className="text-xs text-stone-500">{category.description}</p>
-          </div>
-          {category.required ? (
-            <span className="badge badge-neutral shrink-0" title="Required by your organization">Always on</span>
-          ) : (
-            <label className="flex shrink-0 items-center gap-2 pt-0.5 text-xs text-stone-500">
-              <input
-                type="checkbox"
-                checked={state[category.key]}
-                disabled={pending === category.key}
-                onChange={(e) => handleToggle(category, e.target.checked)}
-              />
-              Notify me
-            </label>
-          )}
-        </li>
-      ))}
+      {NOTIFICATION_GROUPS.map((group) => {
+        const requirement = requirements[group.key] ?? { required: false, system: false };
+        return (
+          <li key={group.key} className="flex items-start justify-between gap-4 rounded-lg bg-cream-100 px-3 py-2.5">
+            <div>
+              <p className="text-sm font-medium text-stone-900">{group.label}</p>
+              <p className="text-xs text-stone-500">{group.description}</p>
+            </div>
+            {requirement.required ? (
+              <span className="badge badge-neutral shrink-0" title={requirement.system ? "Required for every HaloManage organization" : "Required by your organization"}>
+                {requirement.system ? "Always on" : "Required by your organization"}
+              </span>
+            ) : (
+              <label className="flex shrink-0 items-center gap-2 pt-0.5 text-xs text-stone-500">
+                <input type="checkbox" checked={state[group.key]} disabled={pending === group.key} onChange={(e) => handleToggle(group, e.target.checked)} />
+                Notify me
+              </label>
+            )}
+          </li>
+        );
+      })}
       {error && <p className="alert-error">{error}</p>}
     </ul>
   );

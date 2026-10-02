@@ -1,6 +1,6 @@
 # Halomanage — Build Status and Roadmap
 
-Living handoff document. Last updated: 2026-10-03. This document itself had
+Living handoff document. Last updated: 2026-10-02 (Settings pass). This document itself had
 drifted well behind `docs/ARCHITECTURE.md` (which had ~15 dated sections
 past this file's last update) — see ARCHITECTURE.md for the authoritative,
 dated history; this file is being brought back in line with it below rather
@@ -72,7 +72,7 @@ an external payroll or accounting system.
 - `web`: TypeScript passes with `tsc --noEmit`.
 - `web`: Next.js 16.3.2 production build passes for all routes.
 - `web`: `npm audit` reports 0 vulnerabilities.
-- `supabase/tests/pglite`: 363/363 database assertions pass (2026-10-03; also run by GitHub Actions CI on every push), including employee-setup
+- `supabase/tests/pglite`: 379/379 database assertions pass (2026-10-02, Settings pass; also run by GitHub Actions CI on every push), including employee-setup
   readiness, prepared access/onboarding at invitation, and versioned template editing; also including starter workspace contents,
   portal lookup/customization, partial-membership repair, invitation permission separation,
   transactional linking, cross-organization provisioning, and duplicate-provisioning rejection.
@@ -133,5 +133,10 @@ actually happened in each pass. What's left, re-numbered:
 8. A Payroll Provider Mappings admin page over the existing `payroll_column_maps` table, and
    compensation reporting (hourly-vs-salaried mix, compa-ratio, range penetration, FTE cost) — both
    noted as deferred in the Compensation & Pay Administration section of ARCHITECTURE.md.
+
+9. Notification events for modules that don't send any yet — performance reviews, training and
+   certification expiry, assets, offboarding tasks, policy acknowledgements, payslips, attendance
+   corrections — then email/SMS channel choices in Settings once outbound delivery is live (the
+   policy model is already per-channel). Accessibility preferences after that.
 
 Recruitment/ATS and payroll calculation remain intentionally out of the first release.

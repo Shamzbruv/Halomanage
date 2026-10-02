@@ -78,6 +78,19 @@ export default async function PortalLayout({ children }: { children: React.React
     redirect("/signup/complete?repair=1");
   }
 
+  // Organization MFA policy (organization_security_policies): if this person
+  // must use multi-factor authentication and this session isn't verified
+  // (aal2), send them to /mfa — which lives outside this layout — to set up
+  // or enter their authenticator. current_aal comes from the database, i.e.
+  // from the verified JWT, not from anything the browser asserts. Sensitive
+  // writes are additionally enforced by database triggers.
+  {
+    const supabase = await createClient();
+    const { data: securityPolicy } = await supabase.rpc("get_my_security_policy");
+    const policy = securityPolicy as { mfa_required?: boolean; current_aal?: string } | null;
+    if (policy?.mfa_required && policy.current_aal !== "aal2") redirect("/mfa");
+  }
+
   // Navigation follows the same effective permission bundle as RLS. This
   // keeps custom role bundles and effective-dated promotions/demotions from
   // disagreeing with what the database actually allows.

@@ -17,6 +17,11 @@ create table auth.identities (
 create or replace function auth.uid() returns uuid language sql stable as $$
   select nullif(current_setting('request.jwt.uid', true), '')::uuid;
 $$;
+-- Supabase exposes the request JWT claims (including aal, the MFA
+-- assurance level) through auth.jwt(); tests set request.jwt.claims.
+create or replace function auth.jwt() returns jsonb language sql stable as $$
+  select coalesce(nullif(current_setting('request.jwt.claims', true), '')::jsonb, '{}'::jsonb);
+$$;
 create schema if not exists storage;
 create table storage.buckets (
   id text primary key, name text not null, public boolean not null default false,

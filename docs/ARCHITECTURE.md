@@ -1383,3 +1383,79 @@ are required: `private.create_notification()` ignores preferences for
 `preferred_locale` is deliberately not exposed — there is no
 localization yet, and a language setting that changes nothing would
 mislead.
+
+## Settings: account security and notification policy
+
+2026-10-02. From the HR review of `/settings`. Migrations
+`20261004100000_account_security_and_notification_policy.sql` and
+`20261004110000_account_security_events.sql`; PGlite 379/379.
+
+**Settings has three cards** — Notifications, Account security, Sessions &
+devices — and nothing that doesn't work yet (no language, theme or
+personal timezone: there are no translations, and operational dates follow
+the organization's timezone by design).
+
+**Account security.** Sign-in email (managed by the organization; "request
+a correction" goes through the employee-record workflow — Settings never
+changes `auth.users.email`), sign-in method from the user's identities and
+the organization's SSO (`get_my_security_policy()`; with SSO enforced,
+"Change password" disappears and the page says the identity provider
+manages credentials), MFA state, last sign-in (org timezone), and recent
+security activity. Supabase's auth audit log isn't written to this
+project's database and that setting can't be changed via the Management
+API, so `account_security_events` is filled by exception-safe triggers on
+`auth.users` (sign-in, password change) and `auth.mfa_factors`
+(authenticator added/removed) — they can never block a sign-in.
+
+**Password change** moved into the portal (`/settings/security/password`,
+back to `/settings?password=changed`). It needs the current password,
+checked by `verify_my_password()` (bcrypt via pgcrypto, no session
+created, 5 failures → 15-minute lock) and also sent as `current_password`;
+a reauthentication-code branch handles Supabase's secure-password-change
+setting if it's ever enabled. `/update-password` remains the
+recovery/invitation screen (you can't type an old password you forgot or
+never had). Auth config: minimum password length raised 6 → 8 to match
+what the app says; Supabase's password-changed and MFA added/removed
+emails switched on.
+
+**MFA.** Authenticator-app (TOTP) enrollment, verification and removal with
+Supabase Auth MFA (`components/settings/MfaManager.tsx`). Organization
+policy in `organization_security_policies` (`/admin/security`): optional,
+required for administrators, for managers and administrators, or for
+everyone; plus "require MFA verification for sensitive actions". The
+portal layout sends anyone whose policy requires MFA, and whose session
+isn't aal2 (read from the verified JWT via the database), to `/mfa` —
+outside the portal so it can't loop — to set up or enter a code.
+**Step-up is enforced in the database:** `private.step_up_guard()`
+triggers on role assignments/permissions/custom roles, compensation,
+payroll and employee import batches, SSO/network settings, the security
+and notification policies themselves, and termination refuse writes from
+an aal1 session when the organization requires it (or the person must use
+MFA). Service-role work (`auth.uid()` null) is unaffected.
+
+**Sessions.** "Sign out" now means this device (`scope: "local"`;
+supabase-js defaults to global). Settings adds "Sign out other devices"
+(`others`) and "Sign out everywhere" (`global`), noting that a revoked
+device can keep access until its current access token expires (≤ 1 hour).
+
+**Notifications.**
+- `notification_preferences` RLS also requires organization membership.
+- Requirements are organization- and channel-aware:
+  `private.notification_required(org, type, channel)` = system-critical
+  (record notices, in-app — no organization can change it) or the
+  organization's `organization_notification_policies` row or HaloManage's
+  default (onboarding tasks, in-app). Organizations set it from
+  `/admin/security`; requiring a group clears existing opt-outs. Opting out
+  is refused only on the channel that is actually required, so "required
+  in-app" never means "required by SMS".
+- Email delivery no longer depends on `notifications.is_read`:
+  `list_pending_email_notifications()` (service role) returns recent
+  notifications that should go by email and have no email delivery
+  attempt, read or not; `send-notifications` uses it. Footer wording now
+  points to Settings.
+
+**Carried forward** (tracked in ROADMAP): notification events for modules
+that don't send any yet (performance, learning/certifications, assets,
+offboarding, policy acknowledgements, payslips, attendance corrections),
+email/SMS channel choices once delivery is live, and accessibility
+preferences.

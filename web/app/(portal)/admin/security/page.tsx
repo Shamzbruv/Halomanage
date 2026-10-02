@@ -2,6 +2,9 @@ import { redirect } from "next/navigation";
 import { Icon } from "@/components/Icon";
 import { SsoRequestForm } from "@/components/SsoRequestForm";
 import { NetworkAccessSettings } from "@/components/security/NetworkAccessSettings";
+import { NotificationPolicyForm } from "@/components/security/NotificationPolicyForm";
+import { SecurityPolicyForm } from "@/components/security/SecurityPolicyForm";
+import { ALL_NOTIFICATION_TYPES, NOTIFICATION_GROUPS, groupRequirement } from "@/lib/notifications";
 import { getCurrentSession, sessionCan } from "@/lib/session";
 import { createClient } from "@/lib/supabase/server";
 
@@ -39,6 +42,10 @@ export default async function SecurityAdminPage() {
     { data: networkExemptions },
     { data: customRoles },
     { data: employees },
+    { data: securityPolicy },
+    { data: myPolicy },
+    { data: factorData },
+    { data: requiredRows },
   ] = await Promise.all([
     supabase
       .from("organization_identity_providers")
@@ -55,7 +62,14 @@ export default async function SecurityAdminPage() {
       .order("created_at"),
     supabase.from("organization_roles").select("id, name").eq("organization_id", orgId).eq("is_active", true).order("name"),
     supabase.from("employees").select("id, first_name, last_name").eq("organization_id", orgId).eq("status", "active").order("last_name"),
+    supabase.from("organization_security_policies").select("mfa_policy, step_up_for_sensitive_actions").eq("organization_id", orgId).maybeSingle(),
+    supabase.rpc("get_my_security_policy"),
+    supabase.auth.mfa.listFactors(),
+    supabase.rpc("get_required_notifications", { p_types: ALL_NOTIFICATION_TYPES, p_channel: "in_app" }),
   ]);
+  const notificationRequirements = Object.fromEntries(
+    NOTIFICATION_GROUPS.map((g) => [g.key, groupRequirement(g, (requiredRows ?? []) as { notification_type: string; required: boolean; system_required: boolean }[])]),
+  );
   const providers = (data ?? []) as IdentityProvider[];
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "https://YOUR_PROJECT.supabase.co";
 
@@ -120,6 +134,31 @@ export default async function SecurityAdminPage() {
             SSO activation requires a Supabase plan with SAML support and a trusted operator to verify the domain and provider metadata. Tenant administrators cannot self-activate or forge a provider ID.
           </div>
         </aside>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-2">
+        <section className="card space-y-4" aria-labelledby="account-security-policy-title">
+          <div>
+            <span className="eyebrow">Account security</span>
+            <h2 id="account-security-policy-title" className="mt-1 text-lg font-semibold text-stone-900">Multi-factor authentication</h2>
+            <p className="text-xs text-stone-500">Authenticator-app codes as a second sign-in step. Employees set it up under Settings → Account security.</p>
+          </div>
+          <SecurityPolicyForm
+            organizationId={orgId}
+            initialPolicy={securityPolicy?.mfa_policy ?? "optional"}
+            initialStepUp={securityPolicy?.step_up_for_sensitive_actions ?? false}
+            currentAal={(myPolicy as { current_aal?: string } | null)?.current_aal ?? "aal1"}
+            hasMfa={(factorData?.totp ?? []).some((f) => f.status === "verified")}
+          />
+        </section>
+        <section className="card space-y-4" aria-labelledby="notification-policy-title">
+          <div>
+            <span className="eyebrow">Notification policy</span>
+            <h2 id="notification-policy-title" className="mt-1 text-lg font-semibold text-stone-900">Required notifications</h2>
+            <p className="text-xs text-stone-500">Choose which in-app notifications employees can&apos;t switch off. Email and text messages aren&apos;t switched on yet.</p>
+          </div>
+          <NotificationPolicyForm organizationId={orgId} requirements={notificationRequirements} />
+        </section>
       </div>
 
       <NetworkAccessSettings

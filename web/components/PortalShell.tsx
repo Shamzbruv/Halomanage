@@ -63,7 +63,7 @@ const adminItems: NavItem[] = [
 const pageTitles: Array<{ pattern: RegExp; title: string; eyebrow: string; help: string }> = [
   { pattern: /^\/dashboard/, title: "Overview", eyebrow: "Your workspace", help: "Your at-a-glance snapshot — pending approvals, today's attendance, and quick actions relevant to your role. It's a summary, not a to-do list you have to clear." },
   { pattern: /^\/profile/, title: "My profile", eyebrow: "Personal workspace", help: "Your official employee record — what your employer has on file about you. Keep your own contact details current; employment details are set by HR and shown read-only, and you can request a correction if anything is wrong." },
-  { pattern: /^\/settings/, title: "Settings", eyebrow: "Personal workspace", help: "Your account preferences — which notifications appear in your bell, and your password. Your employee record itself is under My profile." },
+  { pattern: /^\/settings/, title: "Settings", eyebrow: "Personal workspace", help: "Your account — which notifications appear in your bell, your sign-in method, password and multi-factor authentication, recent sign-in activity, and signing out other devices. Your employee record itself is under My profile." },
   { pattern: /^\/time/, title: "Time & attendance", eyebrow: "Personal workspace", help: "Clock in and out, see your assigned work schedule, and review your attendance history. Spotted a mistake in a past record? Request a correction instead of it being silently overwritten." },
   { pattern: /^\/leave/, title: "Leave", eyebrow: "Personal workspace", help: "Check your available leave balance by type, submit a new request, and track every request through approval." },
   { pattern: /^\/pay/, title: "My pay", eyebrow: "Personal workspace", help: "Yes — this is your salary. See your current rate, next pay date, any allowances or bonuses on top of your base rate, and download a payslip for any approved pay run." },
@@ -90,7 +90,7 @@ const pageTitles: Array<{ pattern: RegExp; title: string; eyebrow: string; help:
   { pattern: /^\/admin\/rewards/, title: "Rewards catalog", eyebrow: "Administration", help: "Manage the reward vendors and products employees can redeem points for, award points directly, and fulfill redemptions once someone claims one." },
   { pattern: /^\/admin\/reports/, title: "Reports", eyebrow: "Administration", help: "Organization-wide numbers in one place — headcount, pending leave, onboarding progress, items about to expire, and payroll batch history." },
   { pattern: /^\/admin\/roles/, title: "Roles & permissions", eyebrow: "Administration", help: "Control what each role can do. Adjust a built-in role's permission bundle for your organization, or create a custom role with exactly the access you need." },
-  { pattern: /^\/admin\/security/, title: "Identity & access", eyebrow: "Administration", help: "Configure single sign-on for your organization's email domain and restrict sign-in to approved networks." },
+  { pattern: /^\/admin\/security/, title: "Identity & access", eyebrow: "Administration", help: "How people sign in: single sign-on for your email domain, multi-factor authentication requirements, which notifications employees can't switch off, and approved networks." },
 ];
 
 const SIDEBAR_STORAGE_KEY = "halomanage.sidebar.collapsed";

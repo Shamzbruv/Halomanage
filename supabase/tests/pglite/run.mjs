@@ -2371,6 +2371,94 @@ async function main() {
     ok("declining a correction requires an explanation", needsNote);
   });
 
+
+  // ============== SETTINGS: ACCOUNT SECURITY & NOTIFICATION POLICY ==============
+  // Ref: 20261004100000_account_security_and_notification_policy.sql.
+  const setAal = (aal) => db.exec(`select set_config('request.jwt.claims', '${aal ? JSON.stringify({ aal }) : ""}', false)`);
+
+  await as(ALICE_USER, async () => {
+    let foreign = false;
+    try { await db.query(`insert into public.notification_preferences (user_id, organization_id, notification_type, channel, enabled) values ('${ALICE_USER}', '${ORG2}', 'leave.approved', 'in_app', false)`); } catch { foreign = true; }
+    ok("a notification preference can't claim an organization the user doesn't belong to", foreign);
+    await db.query(`insert into public.notification_preferences (user_id, organization_id, notification_type, channel, enabled) values ('${ALICE_USER}', '${ORG}', 'onboarding.task_assigned', 'email', false)`);
+    ok("required in-app doesn't mean required by email — the email opt-out is allowed", true);
+  });
+
+  await as(ERIN_USER, async () => {
+    await db.query(`select public.set_notification_requirement('${ORG}', array['onboarding.task_assigned'], 'in_app', false)`);
+    const skipped = await db.query(`select public.set_notification_requirement('${ORG}', array['record_request.decided'], 'in_app', false) as n`);
+    ok("system-critical record notices can't be made optional by an organization", Number(skipped.rows[0].n) === 0);
+  });
+  await as(ALICE_USER, async () => {
+    await db.query(`insert into public.notification_preferences (user_id, organization_id, notification_type, channel, enabled) values ('${ALICE_USER}', '${ORG}', 'onboarding.task_assigned', 'in_app', false) on conflict (user_id, organization_id, notification_type, channel) do update set enabled = false`);
+    const req = await db.query(`select * from public.get_required_notifications(array['onboarding.task_assigned', 'record_request.decided'])`);
+    const byType = Object.fromEntries(req.rows.map((r) => [r.notification_type, r]));
+    ok("an organization can make onboarding notices optional", byType["onboarding.task_assigned"].required === false && byType["record_request.decided"].system_required === true);
+  });
+  await as(ERIN_USER, async () => {
+    await db.query(`select public.set_notification_requirement('${ORG}', array['onboarding.task_assigned'], 'in_app', true)`);
+  });
+  const optOutGone = await db.query(`select count(*) from public.notification_preferences where user_id = '${ALICE_USER}' and notification_type = 'onboarding.task_assigned' and channel = 'in_app' and not enabled`);
+  ok("making a notice required again clears existing opt-outs", Number(optOutGone.rows[0].count) === 0);
+
+  // Email delivery doesn't depend on whether the notification was read.
+  await db.exec(`insert into public.notification_preferences (user_id, organization_id, notification_type, channel, enabled) values ('${ALICE_USER}', '${ORG}', 'leave.approved', 'email', true) on conflict (user_id, organization_id, notification_type, channel) do update set enabled = true`);
+  const created = await db.query(`select private.create_notification('${ORG}', '${ALICE_USER}', '${ALICE_EMP}', 'leave.approved', 'Leave approved') as id`);
+  await db.exec(`update public.notifications set is_read = true, read_at = now() where id = '${created.rows[0].id}'`);
+  const pending = await db.query(`select id from public.list_pending_email_notifications(200)`);
+  ok("a notification already read in the app is still emailed when email is enabled", pending.rows.some((r) => r.id === created.rows[0].id));
+  await db.exec(`insert into public.notification_delivery_attempts (notification_id, channel, status) values ('${created.rows[0].id}', 'email', 'sent')`);
+  const after = await db.query(`select id from public.list_pending_email_notifications(200)`);
+  ok("once an email attempt is recorded it isn't sent again", !after.rows.some((r) => r.id === created.rows[0].id));
+
+  // MFA policy and step-up for sensitive actions.
+  await as(ERIN_USER, async () => {
+    await db.query(`select * from public.update_security_policy('${ORG}', 'admins', true)`);
+    const policy = await db.query(`select public.get_my_security_policy() as p`);
+    ok("an administrator is told MFA is required by an admins-only policy", policy.rows[0].p.mfa_required === true && policy.rows[0].p.current_aal === "aal1");
+    let blocked = false;
+    try { await db.query(`select public.set_member_role('${CAROL_EMP}', 'manager', null, null)`); } catch (err) { blocked = /multi-factor/.test(err.message); }
+    ok("a sensitive action (changing a role) needs an MFA-verified session", blocked);
+    await setAal("aal2");
+    const changed = await db.query(`select (public.set_member_role('${CAROL_EMP}', 'manager', null, null)).role as role`);
+    ok("the same action succeeds once the session is MFA-verified (aal2)", changed.rows[0].role === "manager");
+    await db.query(`select * from public.update_security_policy('${ORG}', 'optional', false)`);
+    await setAal(null);
+  });
+  await as(ALICE_USER, async () => {
+    const policy = await db.query(`select public.get_my_security_policy() as p`);
+    ok("a policy change is visible to employees, and optional MFA requires nothing", policy.rows[0].p.mfa_policy === "optional" && policy.rows[0].p.mfa_required === false);
+    let notAdmin = false;
+    try { await db.query(`select * from public.update_security_policy('${ORG}', 'everyone', true)`); } catch { notAdmin = true; }
+    ok("only an organization administrator can change the security policy", notAdmin);
+  });
+
+  // Current-password verification without creating a session.
+  await db.exec(`update auth.users set encrypted_password = crypt('correct horse battery', gen_salt('bf')) where id = '${ALICE_USER}'`);
+  await as(ALICE_USER, async () => {
+    const wrong = await db.query(`select public.verify_my_password('wrong password') as ok`);
+    const right = await db.query(`select public.verify_my_password('correct horse battery') as ok`);
+    ok("the current password is checked before a password change", wrong.rows[0].ok === false && right.rows[0].ok === true);
+    for (let i = 0; i < 4; i++) await db.query(`select public.verify_my_password('nope ${i}')`);
+    let locked = false;
+    try { await db.query(`select public.verify_my_password('correct horse battery')`); } catch { locked = true; }
+    ok("repeated wrong current-password attempts are locked out for a while", locked);
+  });
+
+
+  // Account security events (20261004110000) — recorded from auth.users updates.
+  await db.exec(`update auth.users set last_sign_in_at = now() where id = '${ALICE_USER}'`);
+  await db.exec(`update auth.users set encrypted_password = crypt('a brand new passphrase', gen_salt('bf')) where id = '${ALICE_USER}'`);
+  await as(ALICE_USER, async () => {
+    const activity = await db.query(`select action from public.list_my_security_activity()`);
+    const actions = activity.rows.map((r) => r.action);
+    ok("sign-ins and password changes appear in the user's security activity", actions.includes("signed_in") && actions.includes("password_changed"));
+  });
+  await as(BOB_USER, async () => {
+    const leaked = await db.query(`select count(*) from public.account_security_events where user_id = '${ALICE_USER}'`);
+    ok("nobody else can read a user's security activity", Number(leaked.rows[0].count) === 0);
+  });
+
   console.log(`\n${passCount} passed, ${failCount} failed.`);
   if (failCount > 0) process.exitCode = 1;
 }

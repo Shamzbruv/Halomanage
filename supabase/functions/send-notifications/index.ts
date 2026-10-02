@@ -6,9 +6,12 @@
 //
 // Intended to run on a short Cron schedule (e.g. every 1–2 minutes) via
 // Supabase Cron invoking this function, not to be called by the client
-// directly. It looks for notifications that have an enabled non-in_app
-// channel preference and no delivery attempt yet, sends each one through
-// Resend, and records the delivery attempt either way.
+// directly. It asks the database for notifications that should go by
+// email (the recipient opted in, or their organization requires it) and
+// have no email delivery attempt yet — list_pending_email_notifications().
+// Whether the notification was already read in the app is irrelevant:
+// reading it in the bell must never cancel an email that was due. Each one
+// is sent through Resend and the delivery attempt recorded either way.
 //
 // Needs two secrets set on the deployed project (never committed —
 // `supabase secrets set RESEND_API_KEY=... EMAIL_FROM_ADDRESS=...`; see
@@ -47,7 +50,7 @@ async function sendEmail(to: string, subject: string, body: string) {
     heading: subject,
     bodyHtml: body ? `<p>${escapeHtml(body)}</p>` : "<p>Open Halomanage to see the details.</p>",
     cta: { text: "Open Halomanage", url: Deno.env.get("NEXT_PUBLIC_SITE_URL") || "https://halomanage-production.up.railway.app/dashboard" },
-    footer: "You're receiving this because email notifications are enabled for this notification type. Manage your preferences from your Halomanage profile.",
+    footer: "You're receiving this because email notifications are enabled for this notification type. Manage your notification preferences in HaloManage Settings.",
   });
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -67,34 +70,12 @@ Deno.serve(async (req) => {
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const admin = createClient(supabaseUrl, serviceRoleKey);
 
-  const { data: pending, error } = await admin
-    .from("notifications")
-    .select("id, recipient_user_id, title, body, type, organization_id")
-    .eq("is_read", false)
-    .order("created_at", { ascending: true })
-    .limit(50);
+  const { data: pending, error } = await admin.rpc("list_pending_email_notifications", { p_limit: 50 });
 
   if (error) return jsonResponse({ error: error.message }, 500);
 
   let sent = 0;
-  for (const n of pending ?? []) {
-    const { data: prefs } = await admin
-      .from("notification_preferences")
-      .select("channel")
-      .eq("user_id", n.recipient_user_id)
-      .eq("organization_id", n.organization_id)
-      .eq("notification_type", n.type)
-      .eq("channel", "email")
-      .eq("enabled", true)
-      .maybeSingle();
-
-    const { data: already } = await admin
-      .from("notification_delivery_attempts")
-      .select("id")
-      .eq("notification_id", n.id)
-      .maybeSingle();
-
-    if (!prefs || already) continue;
+  for (const n of (pending ?? []) as { id: string; recipient_user_id: string; title: string; body: string | null }[]) {
 
     const { data: user } = await admin.auth.admin.getUserById(n.recipient_user_id);
     const email = user?.user?.email;
