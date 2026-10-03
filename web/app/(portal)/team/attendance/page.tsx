@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Icon } from "@/components/Icon";
-import { CorrectionDecision, OvertimeDecision } from "@/components/team/AttendanceDecisions";
+import { LiveBreakBadge } from "@/components/clock/Clock";
+import { CorrectionDecision, OvertimeDecision, ViolationDecision } from "@/components/team/AttendanceDecisions";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession, sessionCan } from "@/lib/session";
 import type { AppPermission } from "@/lib/supabase/types";
-import { DAY_STATUS_LABELS, EXCEPTION_LABELS } from "@/lib/attendance";
+import { DAY_STATUS_LABELS, EXCEPTION_LABELS, VIOLATION_STATUS, violationLabel } from "@/lib/attendance";
 import { addDaysToDate, formatDate, formatDateTime, formatMinutes, formatTime, todayIn } from "@/lib/timezone";
 
 type DayRow = {
@@ -14,6 +15,8 @@ type DayRow = {
   session_id: string | null; clock_in_at: string | null; clock_out_at: string | null;
   worked_minutes: number | null; late_minutes: number; overtime_minutes: number; overtime_status: string;
   day_status: string; detail: string | null; needs_review: boolean;
+  current_break_type: "lunch" | "break" | null; current_break_started_at: string | null; current_break_allowed_minutes: number | null; current_break_grace_minutes: number | null;
+  pending_break_overruns: number;
 };
 type ExceptionRow = { employee_id: string; employee_name: string; work_date: string; exception_type: string; detail: string | null; session_id: string | null };
 
@@ -40,7 +43,7 @@ export default async function TeamAttendancePage({ searchParams }: { searchParam
 
   const supabase = await createClient();
   const organizationId = session.organizationId;
-  const [dayResult, exceptionResult, correctionResult, overtimeResult] = await Promise.all([
+  const [dayResult, exceptionResult, correctionResult, overtimeResult, violationResult] = await Promise.all([
     supabase.rpc("list_attendance_day", { p_organization_id: organizationId, p_date: date }),
     supabase.rpc("list_attendance_exceptions", { p_organization_id: organizationId, p_from: from, p_to: to }),
     supabase
@@ -57,14 +60,22 @@ export default async function TeamAttendancePage({ searchParams }: { searchParam
       .eq("overtime_status", "pending")
       .neq("employee_id", session.employee.id)
       .order("work_date", { ascending: true }),
+    supabase
+      .from("attendance_violations")
+      .select("id, employee_id, kind, work_date, allowed_minutes, actual_minutes, overrun_minutes, status, makeup_due_date, makeup_credited_minutes, decision_note")
+      .eq("organization_id", organizationId)
+      .in("status", ["pending", "make_up"])
+      .neq("employee_id", session.employee.id)
+      .order("work_date", { ascending: true }),
   ]);
-  const failures = [dayResult, exceptionResult, correctionResult, overtimeResult].filter((r) => r.error);
+  const failures = [dayResult, exceptionResult, correctionResult, overtimeResult, violationResult].filter((r) => r.error);
   if (failures.length) console.error("team attendance: a module failed to load", failures.map((r) => r.error));
 
   const day = (dayResult.data ?? []) as DayRow[];
   const exceptions = (exceptionResult.data ?? []) as ExceptionRow[];
   const corrections = (correctionResult.data ?? []) as any[];
   const overtime = (overtimeResult.data ?? []) as any[];
+  const violations = (violationResult.data ?? []) as any[];
 
   // Names for the queues: everyone the viewer can see is in the day view.
   const nameById = new Map(day.map((row) => [row.employee_id, row.employee_name]));
@@ -99,7 +110,7 @@ export default async function TeamAttendancePage({ searchParams }: { searchParam
         <div className="metric-card"><span className="metric-icon mint"><Icon name="clock" /></span><div><small>{isToday ? "Working now" : "Attended"}</small><strong>{isToday ? count("working", "late") : count("working", "late", "completed", "missing_out")}</strong><em>{dayLabel(date)}</em></div></div>
         <div className="metric-card"><span className="metric-icon coral"><Icon name="clock" /></span><div><small>Late</small><strong>{day.filter((r) => r.late_minutes > 0).length}</strong><em>after the grace period</em></div></div>
         <div className="metric-card"><span className="metric-icon coral"><Icon name="people" /></span><div><small>No clock-in</small><strong>{count("absent")}</strong><em>scheduled, not on leave</em></div></div>
-        <div className="metric-card"><span className="metric-icon sun"><Icon name="check" /></span><div><small>Waiting for you</small><strong>{corrections.length + overtime.length}</strong><em>corrections &amp; overtime</em></div></div>
+        <div className="metric-card"><span className="metric-icon sun"><Icon name="check" /></span><div><small>Waiting for you</small><strong>{corrections.length + overtime.length + violations.filter((v) => v.status === "pending").length}</strong><em>corrections, overtime &amp; breaks</em></div></div>
       </div>
 
       <section className="card overflow-x-auto">
@@ -117,6 +128,30 @@ export default async function TeamAttendancePage({ searchParams }: { searchParam
                   <td className="py-3">{item.field === "clock_in_at" ? "Clock-in" : "Clock-out"}: {item.original_value ? formatTime(item.original_value, tz) : "none"} → <strong>{formatDateTime(item.requested_value, tz, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</strong></td>
                   <td className="py-3 max-w-[260px] text-stone-600">{item.reason}</td>
                   <td className="py-3">{canDecide ? <CorrectionDecision adjustmentId={item.id} /> : <span className="text-xs text-stone-500">View only</span>}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </section>
+
+      <section className="card overflow-x-auto" id="breaks">
+        <div className="panel-heading"><div><span className="panel-icon"><Icon name="clock" /></span><div><h3>Lunch &amp; break overruns</h3><p>Lunches and breaks that ran past the allowance. Excuse it, deduct the extra minutes from pay, or have the time made up — worked before or after a shift by the date you choose, credited automatically and not counted as overtime.</p></div></div></div>
+        <table className="w-full text-sm">
+          <thead><tr className="border-b border-stone-100 text-left"><th className="pb-3">Employee</th><th className="pb-3">Date</th><th className="pb-3">What happened</th><th className="pb-3">Status</th><th className="pb-3 text-right">{canDecide ? "Decision" : ""}</th></tr></thead>
+          <tbody className="divide-y divide-stone-100">
+            {violations.length === 0 && <tr><td colSpan={5} className="py-6 text-center text-stone-400">No lunch or break overruns are waiting.</td></tr>}
+            {violations.map((v) => {
+              const overdue = v.status === "make_up" && v.makeup_due_date < today;
+              const status = VIOLATION_STATUS[v.status] ?? { label: v.status, badge: "badge-neutral" };
+              const latest = v.work_date > today ? v.work_date : today;
+              return (
+                <tr key={v.id}>
+                  <td className="py-3 font-medium text-stone-900"><Link className="hover:underline" href={`/team/${v.employee_id}`}>{nameOf(v.employee_id)}</Link></td>
+                  <td className="py-3">{dayLabel(v.work_date)}</td>
+                  <td className="py-3">{violationLabel(v)}</td>
+                  <td className="py-3"><span className={`badge ${overdue ? "badge-ruby" : status.badge}`}>{overdue ? "Make-up overdue" : status.label}</span>{v.status === "make_up" && <small className="block text-stone-500">{v.makeup_credited_minutes} of {v.overrun_minutes} min made up · due {dayLabel(v.makeup_due_date)}</small>}</td>
+                  <td className="py-3">{canDecide ? <ViolationDecision violationId={v.id} defaultDueDate={v.status === "make_up" ? v.makeup_due_date : latest} minDueDate={v.work_date} maxDueDate={addDaysToDate(latest, 31)} /> : <span className="text-xs text-stone-500">View only</span>}</td>
                 </tr>
               );
             })}
@@ -167,7 +202,13 @@ export default async function TeamAttendancePage({ searchParams }: { searchParam
                   <td className="py-3">{row.clock_in_at ? formatTime(row.clock_in_at, tz) : "—"}</td>
                   <td className="py-3">{row.clock_out_at ? formatTime(row.clock_out_at, tz) : row.session_id && row.day_status !== "missing_out" ? "On the clock" : "—"}</td>
                   <td className="py-3">{row.clock_out_at ? formatMinutes(row.worked_minutes) : "—"}{row.overtime_minutes > 0 && <small className="block text-stone-500">+{formatMinutes(row.overtime_minutes)} overtime ({row.overtime_status})</small>}</td>
-                  <td className="py-3"><span className={`badge ${status.badge}`}>{status.label}</span>{row.detail && <small className="block text-stone-500">{row.detail}</small>}</td>
+                  <td className="py-3">
+                    {row.current_break_type && row.current_break_started_at
+                      ? <LiveBreakBadge type={row.current_break_type} startedAt={row.current_break_started_at} allowedMinutes={row.current_break_allowed_minutes ?? 0} graceMinutes={row.current_break_grace_minutes ?? 0} />
+                      : <span className={`badge ${status.badge}`}>{status.label}</span>}
+                    {row.pending_break_overruns > 0 && <a className="ml-1 badge badge-ruby" href="#breaks">{row.pending_break_overruns} overrun{row.pending_break_overruns === 1 ? "" : "s"}</a>}
+                    {row.detail && <small className="block text-stone-500">{row.detail}</small>}
+                  </td>
                 </tr>
               );
             })}

@@ -1012,6 +1012,47 @@
   .table-action:hover { text-decoration: underline; }
   .table-context-empty { margin: .75rem 0; text-align: left; }
   .correction-form { display: grid; gap: 1rem; }
+  .portal-topbar-actions { display: flex; align-items: center; gap: .75rem; }
+  .clock-widget { position: relative; }
+  .clock-pill { display: inline-flex; align-items: center; gap: .4rem; border: 1px solid var(--line); border-radius: 999px; padding: .38rem .8rem; background: var(--surface); color: var(--ink); font-size: .74rem; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .clock-pill:hover { border-color: var(--line-strong); }
+  .clock-pill .clock-dot { width: 8px; height: 8px; flex: none; border-radius: 999px; background: var(--line-strong); }
+  .clock-pill.off { color: var(--ink-soft); }
+  .clock-pill.working { border-color: #bfe3d9; background: var(--brand-teal-light); color: #0d5f52; }
+  .clock-pill.working .clock-dot { background: var(--brand-teal); box-shadow: 0 0 0 3px rgba(18,156,134,.18); }
+  .clock-pill.break { border-color: #ead49c; background: #fff8e7; color: #77591a; }
+  .clock-pill.break .clock-dot { background: var(--sun); }
+  .clock-pill.grace { border-color: #f2b84b; background: #fff1d6; color: #77591a; }
+  .clock-pill.grace .clock-dot { background: #e39b1b; }
+  .clock-pill.over { border-color: #f0b7b0; background: #fdecea; color: var(--danger); animation: clock-pulse 1.6s ease-in-out infinite; }
+  .clock-pill.over .clock-dot { background: var(--danger); }
+  @keyframes clock-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(185,64,66,.28); } 50% { box-shadow: 0 0 0 6px rgba(185,64,66,0); } }
+  @media (prefers-reduced-motion: reduce) { .clock-pill.over { animation: none; } }
+  .clock-pill-flag { border-radius: 999px; padding: .05rem .4rem; background: #fff1d6; color: #77591a; font-size: .6rem; }
+  @media (max-width: 640px) { .clock-pill > svg, .clock-pill-flag { display: none; } .clock-pill { padding: .35rem .6rem; font-size: .7rem; } }
+  .clock-popover { position: absolute; right: 0; top: calc(100% + .5rem); z-index: 40; display: grid; width: min(340px, calc(100vw - 2rem)); gap: .75rem; border: 1px solid var(--line); border-radius: 16px; padding: 1rem; background: var(--surface); box-shadow: var(--shadow-md); }
+  .clock-panel { display: grid; gap: .85rem; }
+  .clock-readout { display: grid; gap: .2rem; border-radius: 15px; padding: 1rem; background: #f4f8f6; }
+  .clock-readout small { color: var(--ink-faint); font-size: .65rem; }
+  .clock-figure { color: var(--ink); font-size: 2rem; font-weight: 720; letter-spacing: -.03em; font-variant-numeric: tabular-nums; line-height: 1.15; }
+  .clock-panel.compact .clock-figure { font-size: 1.6rem; }
+  .clock-figure.muted { color: var(--ink-faint); }
+  .clock-meta { color: var(--ink-soft); font-size: .66rem; }
+  .clock-readout.break-ok { background: #fff8e7; }
+  .clock-readout.break-grace { background: #fff1d6; }
+  .clock-readout.break-over { background: #fdecea; }
+  .clock-readout.break-over .clock-figure, .clock-readout.break-over .clock-meta:first-of-type { color: var(--danger); }
+  .clock-progress { display: block; height: 6px; overflow: hidden; margin: .25rem 0; border-radius: 999px; background: rgba(23,36,31,.08); }
+  .clock-progress > span { display: block; height: 100%; border-radius: inherit; background: var(--sun); transition: width 1s linear; }
+  .break-over .clock-progress > span { background: var(--danger); }
+  .clock-actions { display: grid; gap: .5rem; }
+  .clock-break-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+  .clock-allowance { color: var(--ink-faint); font-size: .62rem; text-align: center; }
+  .clock-notice { border-radius: 10px; padding: .55rem .7rem; background: #fff8e7; color: #77591a; font-size: .66rem; line-height: 1.45; }
+  .clock-notice.muted { background: #f4f6f5; color: var(--ink-soft); }
+  .violation-decision { display: grid; min-width: 270px; gap: .4rem; justify-items: end; }
+  .violation-decision > .input { width: 100%; max-width: 300px; padding-top: .3rem; padding-bottom: .3rem; font-size: .7rem; }
+  .violation-decision input[type="date"] { min-width: 135px; }
   .time-shift-facts { display: grid; gap: .45rem; margin: 0 0 1rem; }
   .time-shift-facts > div { display: flex; align-items: center; justify-content: space-between; gap: .75rem; font-size: .7rem; }
   .time-shift-facts dt { color: var(--ink-faint); }

@@ -30,9 +30,9 @@ export const NOTIFICATION_GROUPS: NotificationGroup[] = [
   },
   {
     key: "attendance",
-    label: "Attendance corrections & overtime",
-    description: "A team member asks for an attendance correction you can decide, or your own correction or overtime is decided.",
-    types: ["attendance.correction_requested", "attendance.correction_decided", "attendance.overtime_decided"],
+    label: "Attendance: corrections, overtime & breaks",
+    description: "Correction requests you can decide, a lunch or break that runs over (yours or a team member's), and decisions on your corrections, overtime and break time.",
+    types: ["attendance.correction_requested", "attendance.correction_decided", "attendance.overtime_decided", "attendance.break_overrun", "attendance.break_overrun_decided"],
   },
   {
     key: "documents",

@@ -1533,3 +1533,41 @@ waiting corrections, overtime and forgotten clock-outs.
 rounding — the reserved policy columns are commented as such and the setup page says so.
 Attendance doesn't feed payroll: an approved-timesheet layer (period lock, sign-off, export of
 regular/overtime/leave hours) is the next design step before `build_payroll_export()` uses it.
+
+## Live time clock, lunch & break allowances
+
+2026-10-02, follow-on to Time & Attendance. Migration
+`20261006100000_lunch_and_break_allowances.sql`; PGlite 439/439.
+
+**The clock is in the top bar of every page** (`components/clock/Clock.tsx`, state from
+`get_my_clock_state()` loaded by the portal layout). While working it ticks the time worked this shift
+(time on the clock minus unpaid break time, mirroring `private.break_unpaid_minutes()`); on lunch or a
+break it counts down the allowance, turns amber during the leeway and red once over. The dropdown has
+Lunch, Break, End and Clock out. Timers are display-only and corrected by the server's clock
+(`server_now`); every timestamp is still set by the clock RPCs. Times shown in client components are
+formatted on the server (`lib/clock.ts` `clockView()`) to avoid hydration mismatches.
+
+**HR controls the allowances** on the attendance policy (Time & attendance setup): lunch length and
+lunches per shift, short-break length and breaks per shift, a leeway before an overrun counts, and
+whether short breaks are paid (lunch is always unpaid). `start_break(p_type)` snapshots the allowance,
+leeway and paid flag on the break; one beyond the number allowed per shift gets 0 minutes, so all of it
+is "extra". Breaks from before this change (no snapshot) keep their old meaning: unpaid, no overrun.
+
+**Overruns** become `attendance_violations` (`private.evaluate_break()` when a break ends, including
+via clock-out, auto-close or a corrected clock-out). The employee and their approvers are notified
+(`attendance.break_overrun`); pg_cron (now every 5 minutes) also alerts both, once, while someone is
+still out past the allowance. The manager's day view shows who is on lunch/break with a live
+countdown. In the Team attendance queue the manager (adjust permission, never their own) chooses
+(`decide_attendance_violation()`, changeable until made up):
+- **Excuse**: treated like the allowance (paid for a paid short break).
+- **Deduct from pay**: the extra minutes are unpaid (excluded from worked time) and reported as
+  "deducted from pay" in the attendance report/CSV for salaried payroll.
+- **Make up the time**: by a due date the manager picks. Time worked beyond the schedule in sessions
+  that end after the overrun, from its day to the due date, is credited automatically
+  (`private.allocate_makeup()`), oldest obligation first; credited minutes are not overtime
+  (`overtime_minutes = overtime_base_minutes − makeup_minutes`). Fully credited → `made_up`. Overdue
+  make-up is an exception and can be switched to a deduction. Until it's made up, the extra minutes
+  aren't deducted (the employee owes them instead).
+Everyone sees the outcome: the employee on /time ("Lunch & break record") and in the clock dropdown
+(make-up owed), the manager in Team attendance, the admin dashboard feed and the report.
+

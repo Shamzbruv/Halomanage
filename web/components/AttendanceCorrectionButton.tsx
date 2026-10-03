@@ -87,3 +87,22 @@ export function AttendanceCorrectionButton({
     </>
   );
 }
+
+export function WithdrawCorrectionButton({ adjustmentId }: { adjustmentId: string }) {
+  const router = useRouter();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <span className="flex flex-col items-end gap-1">
+      <button type="button" className="table-action" disabled={loading} onClick={async () => {
+        setLoading(true);
+        setError(null);
+        const { error: rpcError } = await createClient().rpc("cancel_attendance_adjustment", { p_adjustment_id: adjustmentId });
+        if (rpcError) setError(rpcError.message);
+        setLoading(false);
+        router.refresh();
+      }}>{loading ? "Withdrawing…" : "Withdraw"}</button>
+      {error && <span className="text-xs text-ruby-600">{error}</span>}
+    </span>
+  );
+}

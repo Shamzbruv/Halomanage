@@ -1,11 +1,12 @@
 import { redirect } from "next/navigation";
-import { AttendanceCorrectionButton } from "@/components/AttendanceCorrectionButton";
-import { ClockButton, WithdrawCorrectionButton } from "@/components/ClockButton";
+import { AttendanceCorrectionButton, WithdrawCorrectionButton } from "@/components/AttendanceCorrectionButton";
+import { ClockPanel, LiveWorkedMinutes } from "@/components/clock/Clock";
+import { clockView, type ClockState } from "@/lib/clock";
 import { Icon } from "@/components/Icon";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentSession, sessionCan } from "@/lib/session";
+import { getCurrentSession } from "@/lib/session";
 import { statusBadgeClass } from "@/lib/ui";
-import { arrivalLabel, DAY_NAMES, sessionStatusBadge, sessionStatusLabel, shiftHours } from "@/lib/attendance";
+import { arrivalLabel, DAY_NAMES, sessionStatusBadge, sessionStatusLabel, shiftHours, VIOLATION_STATUS, violationLabel } from "@/lib/attendance";
 import { currentTimeIn, formatDate, formatDateTime, formatMinutes, formatTime, todayIn } from "@/lib/timezone";
 
 type Overview = {
@@ -36,7 +37,7 @@ export default async function TimePage() {
   const tz = session.organization?.timezone ?? undefined;
   const today = todayIn(tz);
 
-  const [{ data: overviewData }, { data: sessions }, { data: adjustments }, { data: currentAssignment }] = await Promise.all([
+  const [{ data: overviewData }, { data: sessions }, { data: adjustments }, { data: currentAssignment }, { data: clockState }, { data: violations }] = await Promise.all([
     supabase.rpc("get_my_attendance_overview"),
     supabase
       .from("attendance_sessions")
@@ -59,7 +60,17 @@ export default async function TimePage() {
       .order("start_date", { ascending: false })
       .limit(1)
       .maybeSingle(),
+    supabase.rpc("get_my_clock_state"),
+    supabase
+      .from("attendance_violations")
+      .select("id, kind, work_date, allowed_minutes, actual_minutes, overrun_minutes, status, makeup_due_date, makeup_credited_minutes, decision_note")
+      .eq("employee_id", employeeId)
+      .order("work_date", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(20),
   ]);
+  const clock = clockView(clockState as ClockState | null);
+  const currentBreak = clock?.state.current_break ?? null;
   const overview = overviewData as Overview | null;
   const scheduleId = currentAssignment?.schedule_id;
   const { data: shifts } = scheduleId
@@ -67,7 +78,6 @@ export default async function TimePage() {
     : { data: [] };
 
   const open = overview?.open_session ?? null;
-  const canClock = sessionCan(session, "attendance.clock_self");
   const pendingBySession = new Set((adjustments ?? []).filter((a) => a.status === "pending").map((a) => `${a.session_id}:${a.field}`));
   const weekScheduled = overview?.week_scheduled_minutes ?? 0;
 
@@ -81,17 +91,15 @@ export default async function TimePage() {
 
       <div className="time-overview-grid">
         <section className="card time-clock-card">
-          <div className="panel-heading"><div><span className="panel-icon"><Icon name="clock" /></span><div><h3>Current shift</h3><p>The server records the time of every clock action.</p></div></div><span className={`badge ${open ? (open.on_break ? "badge-gold" : "badge-emerald") : "badge-neutral"}`}>{open ? (open.on_break ? "On a break" : "Working") : "Off the clock"}</span></div>
-          <div className="time-clock-value"><small>{open ? "Started at" : "Current time"}</small><strong>{open ? formatTime(open.clock_in_at, tz) : currentTimeIn(tz)}</strong></div>
+          <div className="panel-heading"><div><span className="panel-icon"><Icon name="clock" /></span><div><h3>Current shift</h3><p>The server records the time of every clock action.</p></div></div><span className={`badge ${open ? (currentBreak ? "badge-gold" : "badge-emerald") : "badge-neutral"}`}>{open ? (currentBreak ? (currentBreak.type === "lunch" ? "On lunch" : "On a break") : "Working") : "Off the clock"}</span></div>
+          {!open && <div className="time-clock-value"><small>Current time</small><strong>{currentTimeIn(tz)}</strong></div>}
           <dl className="time-shift-facts">
             <div><dt>Today&apos;s shift</dt><dd>{overview?.today_shift ? `${formatTime(overview.today_shift.start_at, tz)} – ${formatTime(overview.today_shift.end_at, tz)} · ${overview.today_shift.break_minutes} min break` : "Not scheduled today"}</dd></div>
             {open && <div><dt>Arrival</dt><dd><span className={`badge ${statusBadgeClass(open.arrival_status ?? "")}`}>{arrivalLabel(open.arrival_status, open.late_minutes)}</span></dd></div>}
-            {open && (open.break_minutes ?? 0) > 0 && <div><dt>Breaks so far</dt><dd>{formatMinutes(open.break_minutes)}</dd></div>}
+            {clock && <div><dt>Allowed</dt><dd>Lunch {clock.state.allowances.lunch_minutes} min{clock.state.allowances.lunches_per_shift !== 1 ? ` ×${clock.state.allowances.lunches_per_shift}` : ""} · {clock.state.allowances.short_breaks_per_shift} break{clock.state.allowances.short_breaks_per_shift === 1 ? "" : "s"} of {clock.state.allowances.short_break_minutes} min</dd></div>}
             {!overview?.today_shift && overview?.next_shift && <div><dt>Next shift</dt><dd>{formatDate(overview.next_shift.start_at, tz, { weekday: "short", month: "short", day: "numeric" })} · {formatTime(overview.next_shift.start_at, tz)}</dd></div>}
           </dl>
-          {canClock
-            ? <ClockButton openSession={open} timezone={tz} onBreak={open?.on_break ?? false} showBreaks />
-            : <p className="field-help">Your role doesn&apos;t record time in HaloManage. Ask HR if you think it should.</p>}
+          {clock ? <ClockPanel view={clock} /> : <p className="field-help">Your time clock couldn&apos;t be loaded. Refresh the page to try again.</p>}
         </section>
 
         <section className="card">
@@ -104,9 +112,9 @@ export default async function TimePage() {
       </div>
 
       <div className="dashboard-metrics">
-        <div className="metric-card"><span className="metric-icon mint"><Icon name="clock" /></span><div><small>Today</small><strong>{formatMinutes(overview?.today_worked_minutes ?? 0)}</strong><em>worked{open ? " so far" : ""}</em></div></div>
-        <div className="metric-card"><span className="metric-icon mint"><Icon name="calendar" /></span><div><small>This week</small><strong>{formatMinutes(overview?.week_worked_minutes ?? 0)}</strong><em>{weekScheduled ? `of ${formatMinutes(weekScheduled)} scheduled` : "no scheduled hours"}</em></div></div>
-        <div className="metric-card"><span className="metric-icon sun"><Icon name="performance" /></span><div><small>This month</small><strong>{formatMinutes(overview?.month_worked_minutes ?? 0)}</strong><em>worked, after breaks</em></div></div>
+        <div className="metric-card"><span className="metric-icon mint"><Icon name="clock" /></span><div><small>Today</small><strong>{clock ? <LiveWorkedMinutes view={clock} baseMinutes={overview?.today_worked_minutes ?? 0} /> : formatMinutes(overview?.today_worked_minutes ?? 0)}</strong><em>worked{open ? " so far" : ""}</em></div></div>
+        <div className="metric-card"><span className="metric-icon mint"><Icon name="calendar" /></span><div><small>This week</small><strong>{clock ? <LiveWorkedMinutes view={clock} baseMinutes={overview?.week_worked_minutes ?? 0} /> : formatMinutes(overview?.week_worked_minutes ?? 0)}</strong><em>{weekScheduled ? `of ${formatMinutes(weekScheduled)} scheduled` : "no scheduled hours"}</em></div></div>
+        <div className="metric-card"><span className="metric-icon sun"><Icon name="performance" /></span><div><small>This month</small><strong>{clock ? <LiveWorkedMinutes view={clock} baseMinutes={overview?.month_worked_minutes ?? 0} /> : formatMinutes(overview?.month_worked_minutes ?? 0)}</strong><em>worked, after breaks</em></div></div>
         <div className="metric-card"><span className="metric-icon coral"><Icon name="check" /></span><div><small>Corrections</small><strong>{overview?.pending_corrections ?? 0}</strong><em>awaiting a decision</em></div></div>
       </div>
 
@@ -156,6 +164,39 @@ export default async function TimePage() {
                 <span className="flex items-center gap-2"><span className={`badge ${statusBadgeClass(item.status)}`}>{item.status === "rejected" ? "declined" : item.status}</span>{item.status === "pending" && <WithdrawCorrectionButton adjustmentId={item.id} />}</span>
               </div>
             ))}</div>}
+      </section>
+
+      <section className="card overflow-x-auto">
+        <div className="panel-heading"><div><span className="panel-icon"><Icon name="clock" /></span><div><h3>Lunch &amp; break record</h3><p>Lunches and breaks that ran past what your organization allows, and what your manager decided.</p></div></div></div>
+        {(violations ?? []).length === 0
+          ? <div className="list-empty">Nothing here — every lunch and break has been within its allowance.</div>
+          : (
+            <table className="w-full text-sm">
+              <thead><tr className="border-b border-stone-100 text-left"><th className="pb-3">Date</th><th className="pb-3">What happened</th><th className="pb-3">Outcome</th><th className="pb-3">Details</th></tr></thead>
+              <tbody className="divide-y divide-stone-100">
+                {(violations ?? []).map((v) => {
+                  const status = VIOLATION_STATUS[v.status] ?? { label: v.status, badge: "badge-neutral" };
+                  const owed = v.overrun_minutes - v.makeup_credited_minutes;
+                  const overdue = v.status === "make_up" && v.makeup_due_date && v.makeup_due_date < today;
+                  return (
+                    <tr key={v.id}>
+                      <td className="py-3 font-medium text-stone-900">{formatDate(`${v.work_date}T12:00:00Z`, "UTC", { weekday: "short", month: "short", day: "numeric" })}</td>
+                      <td className="py-3">{violationLabel(v)}</td>
+                      <td className="py-3"><span className={`badge ${overdue ? "badge-ruby" : status.badge}`}>{overdue ? "Make-up overdue" : status.label}</span></td>
+                      <td className="py-3 text-stone-600">
+                        {v.status === "pending" && "Your manager will excuse it, deduct the time from your pay, or ask you to make it up."}
+                        {v.status === "excused" && "No further action."}
+                        {v.status === "deduct_pay" && `${v.overrun_minutes} min unpaid.`}
+                        {v.status === "make_up" && `${v.makeup_credited_minutes} of ${v.overrun_minutes} min made up — work ${owed} more min before or after a shift by ${v.makeup_due_date ? formatDate(`${v.makeup_due_date}T12:00:00Z`, "UTC", { weekday: "short", month: "short", day: "numeric" }) : "the due date"}.`}
+                        {v.status === "made_up" && `All ${v.overrun_minutes} min made up.`}
+                        {v.decision_note && <small className="block text-stone-500">Manager&apos;s note: “{v.decision_note}”</small>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
       </section>
 
       <p className="field-help">Attendance records track time and attendance. They don&apos;t change your pay automatically — pay comes from your organization&apos;s payroll provider (see My pay).</p>

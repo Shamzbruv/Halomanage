@@ -73,7 +73,7 @@ an external payroll or accounting system.
 - `web`: TypeScript passes with `tsc --noEmit`.
 - `web`: Next.js 16.3.2 production build passes for all routes.
 - `web`: `npm audit` reports 0 vulnerabilities.
-- `supabase/tests/pglite`: 415/415 database assertions pass (2026-10-02, Time & Attendance pass; also run by GitHub Actions CI on every push), including employee-setup
+- `supabase/tests/pglite`: 439/439 database assertions pass (2026-10-02, live clock and lunch/break allowances; also run by GitHub Actions CI on every push), including employee-setup
   readiness, prepared access/onboarding at invitation, and versioned template editing; also including starter workspace contents,
   portal lookup/customization, partial-membership repair, invitation permission separation,
   transactional linking, cross-organization provisioning, and duplicate-provisioning rejection.

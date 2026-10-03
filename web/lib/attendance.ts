@@ -57,6 +57,23 @@ export const DAY_STATUS_LABELS: Record<string, { label: string; badge: string }>
   no_schedule: { label: "No schedule", badge: "badge-neutral" },
 };
 
+export function violationLabel(v: { kind: string; overrun_minutes: number; actual_minutes: number; allowed_minutes: number }): string {
+  switch (v.kind) {
+    case "lunch_overrun": return `Lunch ran ${v.overrun_minutes} min over (${v.actual_minutes} of ${v.allowed_minutes} min)`;
+    case "break_overrun": return `Break ran ${v.overrun_minutes} min over (${v.actual_minutes} of ${v.allowed_minutes} min)`;
+    case "extra_lunch": return `Extra lunch (${v.actual_minutes} min)`;
+    default: return `Extra break (${v.actual_minutes} min)`;
+  }
+}
+
+export const VIOLATION_STATUS: Record<string, { label: string; badge: string }> = {
+  pending: { label: "Awaiting review", badge: "badge-gold" },
+  excused: { label: "Excused", badge: "badge-emerald" },
+  deduct_pay: { label: "Deducted from pay", badge: "badge-ruby" },
+  make_up: { label: "To make up", badge: "badge-gold" },
+  made_up: { label: "Made up", badge: "badge-emerald" },
+};
+
 export const EXCEPTION_LABELS: Record<string, string> = {
   late: "Late arrival",
   absent: "No clock-in",
@@ -66,4 +83,6 @@ export const EXCEPTION_LABELS: Record<string, string> = {
   overtime_pending: "Overtime to approve",
   worked_during_leave: "Worked during leave",
   correction_pending: "Correction to decide",
+  break_overrun: "Lunch/break overrun",
+  makeup_overdue: "Make-up overdue",
 };

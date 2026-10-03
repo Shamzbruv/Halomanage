@@ -2669,6 +2669,117 @@ async function main() {
     ok("attendance.adjust_org can read the records it decides and run the attendance report", Number(seen.rows[0].count) === 1 && Number(report.rows[0].count) > 0);
   });
 
+  // ============== LUNCH & BREAK ALLOWANCES ==============
+  // Ref: 20261006100000_lunch_and_break_allowances.sql. Time passing is
+  // simulated by moving timestamps back as the superuser. Abe (no other
+  // sessions) works; Erin decides as an organization-wide approver.
+  await db.exec(`update public.attendance_policies set lunch_minutes = 60, lunches_per_shift = 1, short_break_minutes = 15, short_breaks_per_shift = 1,
+    short_breaks_paid = true, break_overrun_grace_minutes = 2, break_deduction = 'recorded', overtime_requires_approval = true
+    where organization_id = '${ORG}' and is_default`);
+  const overrunNotes = async (user) => Number((await db.query(`select count(*) from public.notifications where recipient_user_id = '${user}' and type = 'attendance.break_overrun'`)).rows[0].count);
+  const erinBefore = await overrunNotes(ERIN_USER);
+
+  let lunch, shiftId;
+  await as(ABS_USER, async () => {
+    shiftId = (await db.query(`select * from public.clock_in()`)).rows[0].id;
+    lunch = (await db.query(`select * from public.start_break('lunch')`)).rows[0];
+    ok("a lunch starts with the policy's allowance snapshotted (60 min, unpaid)", lunch.break_type === "lunch" && lunch.allowed_minutes === 60 && lunch.paid === false);
+    const state = (await db.query(`select public.get_my_clock_state() as s`)).rows[0].s;
+    ok("the live clock state shows the lunch, its allowance and the server's time", state.current_break?.type === "lunch" && state.current_break.allowed_minutes === 60 && !!state.server_now && state.can_clock === true);
+    let bad = false;
+    try { await db.query(`select * from public.start_break('nap')`); } catch { bad = true; }
+    ok("only lunch or a break can be started", bad);
+  });
+  await db.exec(`update public.attendance_sessions set clock_in_at = now() - interval '3 hours' where id = '${shiftId}';
+    update public.attendance_breaks set started_at = now() - interval '75 minutes' where id = '${lunch.id}';`);
+  await as(ABS_USER, async () => { await db.query(`select * from public.end_break()`); });
+  const lunchViolation = (await db.query(`select * from public.attendance_violations where break_id = '${lunch.id}'`)).rows[0];
+  ok("a 75-minute lunch against a 60-minute allowance is a 15-minute overrun awaiting review",
+    lunchViolation?.kind === "lunch_overrun" && lunchViolation.overrun_minutes === 15 && lunchViolation.status === "pending");
+  ok("the manager and the employee are both told the lunch ran over",
+    (await overrunNotes(ERIN_USER)) === erinBefore + 1 && (await overrunNotes(ABS_USER)) >= 1);
+
+  // A short break inside its allowance is paid; a second one is "extra".
+  let shortBreak, extraBreak;
+  await as(ABS_USER, async () => { shortBreak = (await db.query(`select * from public.start_break('break')`)).rows[0]; });
+  await db.exec(`update public.attendance_breaks set started_at = now() - interval '10 minutes' where id = '${shortBreak.id}'`);
+  await as(ABS_USER, async () => {
+    await db.query(`select * from public.end_break()`);
+    extraBreak = (await db.query(`select * from public.start_break('break')`)).rows[0];
+    ok("a break beyond the number allowed per shift gets no allowance", extraBreak.allowed_minutes === 0);
+  });
+  const shortReported = await db.query(`select count(*) from public.attendance_violations where break_id = '${shortBreak.id}'`);
+  ok("a 10-minute break within its 15-minute allowance isn't reported", Number(shortReported.rows[0].count) === 0);
+  await db.exec(`update public.attendance_breaks set started_at = now() - interval '5 minutes' where id = '${extraBreak.id}'`);
+  await as(ABS_USER, async () => {
+    await db.query(`select * from public.end_break()`);
+    await db.query(`select * from public.clock_out()`);
+  });
+  const extraViolation = (await db.query(`select v.* from public.attendance_violations v join public.attendance_breaks b on b.id = v.break_id where b.session_id = '${shiftId}' and v.kind = 'extra_break'`)).rows[0];
+  ok("the extra break is reported in full", extraViolation?.overrun_minutes === 5);
+  const workedOf = async () => (await db.query(`select worked_minutes from public.attendance_sessions where id = '${shiftId}'`)).rows[0].worked_minutes;
+  ok("worked time = 180 min on the clock − 60 min lunch − 15 min lunch overrun − 5 min extra break (paid break within allowance counts)", (await workedOf()) === 100);
+
+  await as(ABS_USER, async () => {
+    let refused = false;
+    try { await db.query(`select * from public.decide_attendance_violation('${lunchViolation.id}', 'excused')`); } catch { refused = true; }
+    ok("an employee can't decide their own break overrun", refused);
+  });
+  await as(ERIN_USER, async () => {
+    await db.query(`select * from public.decide_attendance_violation('${extraViolation.id}', 'deduct_pay', 'Second break without asking')`);
+  });
+  ok("deducting from pay keeps the extra minutes unpaid", (await workedOf()) === 100);
+  await as(ERIN_USER, async () => { await db.query(`select * from public.decide_attendance_violation('${extraViolation.id}', 'excused', 'Talked it through')`); });
+  ok("a decision can be changed — excusing a paid break's overrun makes it paid time", (await workedOf()) === 105);
+  ok("the employee is notified of each decision",
+    Number((await db.query(`select count(*) from public.notifications where recipient_user_id = '${ABS_USER}' and type = 'attendance.break_overrun_decided'`)).rows[0].count) === 2);
+
+  await as(ERIN_USER, async () => {
+    const decided = (await db.query(`select * from public.decide_attendance_violation('${lunchViolation.id}', 'make_up', 'Stay back 15 min', ${orgDay(1)})`)).rows[0];
+    ok("making up the time sets a due date and waits for the extra time", decided.status === "make_up" && decided.makeup_due_date !== null && decided.makeup_credited_minutes === 0);
+  });
+  ok("time to be made up isn't deducted (180 − 60 lunch = 120)", (await workedOf()) === 120);
+  await as(ABS_USER, async () => {
+    const state = (await db.query(`select public.get_my_clock_state() as s`)).rows[0].s;
+    ok("the employee's clock shows the make-up owed", state.makeup_owed_minutes === 15 && !!state.makeup_due_date);
+  });
+  const longDay = await insertSession(ABS_EMP, at(1, "06:00"), at(1, "17:00"));
+  const madeUp = (await db.query(`select status, makeup_credited_minutes from public.attendance_violations where id = '${lunchViolation.id}'`)).rows[0];
+  const longDayAfter = (await db.query(`select overtime_base_minutes, makeup_minutes, overtime_minutes from public.attendance_sessions where id = '${longDay.id}'`)).rows[0];
+  ok("extra time worked is credited to the make-up and marks it made up", madeUp.status === "made_up" && madeUp.makeup_credited_minutes === 15);
+  ok("credited make-up time isn't counted as overtime (240 extra − 15 = 225)", longDayAfter.overtime_base_minutes === 240 && longDayAfter.makeup_minutes === 15 && longDayAfter.overtime_minutes === 225);
+  await as(ERIN_USER, async () => {
+    let locked = false;
+    try { await db.query(`select * from public.decide_attendance_violation('${lunchViolation.id}', 'deduct_pay')`); } catch { locked = true; }
+    ok("time already made up can't be re-decided", locked);
+  });
+
+  // Live alert while someone is still out.
+  const erinMid = await overrunNotes(ERIN_USER);
+  let liveBreak;
+  await as(ABS_USER, async () => {
+    await db.query(`select * from public.clock_in()`);
+    liveBreak = (await db.query(`select * from public.start_break('break')`)).rows[0];
+  });
+  await db.exec(`update public.attendance_breaks set started_at = now() - interval '30 minutes' where id = '${liveBreak.id}'`);
+  await db.query(`select private.flag_stale_attendance('${ABS_EMP}')`);
+  await db.query(`select private.flag_stale_attendance('${ABS_EMP}')`);
+  ok("a manager is alerted once while the break is still running over",
+    (await overrunNotes(ERIN_USER)) === erinMid + 1 && (await db.query(`select overrun_alerted_at from public.attendance_breaks where id = '${liveBreak.id}'`)).rows[0].overrun_alerted_at !== null);
+  await as(ERIN_USER, async () => {
+    const row = (await db.query(`select current_break_type, current_break_allowed_minutes from public.list_attendance_day('${ORG}') where employee_id = '${ABS_EMP}'`)).rows[0];
+    ok("the manager's day view shows who is on a break and their allowance", row?.current_break_type === "break" && row.current_break_allowed_minutes === 15);
+  });
+  await as(ABS_USER, async () => { await db.query(`select * from public.clock_out()`); });
+  const liveViolation = (await db.query(`select overrun_minutes, status from public.attendance_violations where break_id = '${liveBreak.id}'`)).rows[0];
+  ok("clocking out while on a break ends it and reports the overrun", liveViolation?.overrun_minutes === 15 && liveViolation.status === "pending");
+  await as(ERIN_USER, async () => {
+    const exceptions = await db.query(`select count(*) from public.list_attendance_exceptions('${ORG}', ${orgDay(-1)}, ${orgDay(1)}) where employee_id = '${ABS_EMP}' and exception_type = 'break_overrun'`);
+    ok("pending overruns appear in the exceptions list", Number(exceptions.rows[0].count) >= 1);
+    const report = (await db.query(`select break_overrun_count, deducted_minutes from public.attendance_report('${ORG}', ${orgDay(-1)}, ${orgDay(1)}) where employee_id = '${ABS_EMP}'`)).rows[0];
+    ok("the attendance report counts break overruns", report.break_overrun_count >= 3 && report.deducted_minutes === 0);
+  });
+
   console.log(`\n${passCount} passed, ${failCount} failed.`);
   if (failCount > 0) process.exitCode = 1;
 }

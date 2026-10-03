@@ -71,6 +71,8 @@ export default async function AttendanceSetupPage() {
               id: policy.id, name: policy.name, grace_period_minutes: policy.grace_period_minutes, early_departure_grace_minutes: policy.early_departure_grace_minutes,
               break_deduction: policy.break_deduction, correction_window_days: policy.correction_window_days, missing_clock_out_after_hours: Number(policy.missing_clock_out_after_hours),
               missing_clock_out_action: policy.missing_clock_out_action, overtime_requires_approval: policy.overtime_requires_approval,
+              lunch_minutes: policy.lunch_minutes ?? 60, lunches_per_shift: policy.lunches_per_shift ?? 1, short_break_minutes: policy.short_break_minutes ?? 15,
+              short_breaks_per_shift: policy.short_breaks_per_shift ?? 2, short_breaks_paid: policy.short_breaks_paid ?? true, break_overrun_grace_minutes: policy.break_overrun_grace_minutes ?? 2,
             }} />
           : <div className="list-empty">No attendance policy exists yet. Apply the starter workspace from the <Link className="table-action" href="/admin/setup">Setup guide</Link>.</div>}
         <p className="field-help mt-4">Not offered: time rounding (recorded times are never rounded), location or geofence checks, and kiosk or mobile-only clocking — HaloManage records the server&apos;s time for each clock action from a signed-in web session.</p>

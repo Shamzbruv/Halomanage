@@ -7,6 +7,7 @@ type Row = {
   employee_id: string; employee_name: string; employee_number: string | null; department: string | null;
   days_worked: number; worked_minutes: number; late_count: number; absent_count: number;
   missing_clock_out_count: number; early_departure_count: number; overtime_minutes: number; overtime_pending_minutes: number;
+  break_overrun_count: number; deducted_minutes: number; makeup_owed_minutes: number;
 };
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -46,12 +47,12 @@ export async function AttendanceReport({ organizationId, timezone, params }: { o
       <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold text-stone-900">Attendance · {label(from)} – {label(to)}</h2>
-          <p className="text-xs text-stone-500">Worked time is after breaks. Absences exclude approved leave and holidays. Overtime counts approved and pending time. For the day-by-day picture, use Team attendance.</p>
+          <p className="text-xs text-stone-500">Worked time is after breaks. Absences exclude approved leave and holidays. Overtime counts approved and pending time. &ldquo;Deducted&rdquo; is lunch/break time a manager marked to come out of pay — already excluded from worked time; listed separately for salaried pay. For the day-by-day picture, use Team attendance.</p>
         </div>
         <CsvDownloadButton
           filename={`attendance-${from}-to-${to}.csv`}
-          headers={["Employee", "Employee number", "Department", "Days worked", "Hours worked", "Late", "No clock-in", "Missing clock-out", "Early departures", "Overtime hours", "Overtime awaiting approval (hours)"]}
-          rows={rows.map((r) => [r.employee_name, r.employee_number, r.department, r.days_worked, (r.worked_minutes / 60).toFixed(2), r.late_count, r.absent_count, r.missing_clock_out_count, r.early_departure_count, (r.overtime_minutes / 60).toFixed(2), (r.overtime_pending_minutes / 60).toFixed(2)])}
+          headers={["Employee", "Employee number", "Department", "Days worked", "Hours worked", "Late", "No clock-in", "Missing clock-out", "Early departures", "Overtime hours", "Overtime awaiting approval (hours)", "Lunch/break overruns", "Minutes deducted from pay", "Make-up minutes still owed"]}
+          rows={rows.map((r) => [r.employee_name, r.employee_number, r.department, r.days_worked, (r.worked_minutes / 60).toFixed(2), r.late_count, r.absent_count, r.missing_clock_out_count, r.early_departure_count, (r.overtime_minutes / 60).toFixed(2), (r.overtime_pending_minutes / 60).toFixed(2), r.break_overrun_count, r.deducted_minutes, r.makeup_owed_minutes])}
         />
       </div>
       <div className="filter-chips mb-3">{presets.map((p) => <Link key={p.label} className={p.from === from && p.to === to ? "active" : ""} href={presetHref(p)}>{p.label}</Link>)}</div>
@@ -63,9 +64,9 @@ export async function AttendanceReport({ organizationId, timezone, params }: { o
       </form>
       {error && <p className="alert-error" role="alert">{error.message}</p>}
       <table className="w-full text-sm">
-        <thead><tr className="border-b border-stone-100 text-left text-xs uppercase text-stone-400"><th className="pb-2">Employee</th><th className="pb-2">Department</th><th className="pb-2">Days</th><th className="pb-2">Worked</th><th className="pb-2">Late</th><th className="pb-2">No clock-in</th><th className="pb-2">Missing out</th><th className="pb-2">Left early</th><th className="pb-2">Overtime</th></tr></thead>
+        <thead><tr className="border-b border-stone-100 text-left text-xs uppercase text-stone-400"><th className="pb-2">Employee</th><th className="pb-2">Department</th><th className="pb-2">Days</th><th className="pb-2">Worked</th><th className="pb-2">Late</th><th className="pb-2">No clock-in</th><th className="pb-2">Missing out</th><th className="pb-2">Left early</th><th className="pb-2">Overtime</th><th className="pb-2">Break overruns</th><th className="pb-2">Deducted</th></tr></thead>
         <tbody className="divide-y divide-stone-100">
-          {rows.length === 0 && !error && <tr><td colSpan={9} className="py-4 text-stone-400">No one matches this filter.</td></tr>}
+          {rows.length === 0 && !error && <tr><td colSpan={11} className="py-4 text-stone-400">No one matches this filter.</td></tr>}
           {rows.map((r) => (
             <tr key={r.employee_id}>
               <td className="py-2 font-medium text-stone-900">{r.employee_name}<small className="block text-stone-500">{r.employee_number ?? ""}</small></td>
@@ -77,11 +78,13 @@ export async function AttendanceReport({ organizationId, timezone, params }: { o
               <td className="py-2">{r.missing_clock_out_count || "—"}</td>
               <td className="py-2">{r.early_departure_count || "—"}</td>
               <td className="py-2">{r.overtime_minutes ? formatMinutes(r.overtime_minutes) : "—"}{r.overtime_pending_minutes > 0 && <small className="block text-stone-500">{formatMinutes(r.overtime_pending_minutes)} pending</small>}</td>
+              <td className="py-2">{r.break_overrun_count || "—"}{r.makeup_owed_minutes > 0 && <small className="block text-stone-500">{r.makeup_owed_minutes} min to make up</small>}</td>
+              <td className="py-2">{r.deducted_minutes ? `${r.deducted_minutes} min` : "—"}</td>
             </tr>
           ))}
         </tbody>
         {rows.length > 0 && (
-          <tfoot><tr className="border-t border-stone-200 font-medium"><td className="pt-2">Total</td><td /><td className="pt-2">{total("days_worked")}</td><td className="pt-2">{formatMinutes(total("worked_minutes"))}</td><td className="pt-2">{total("late_count")}</td><td className="pt-2">{total("absent_count")}</td><td className="pt-2">{total("missing_clock_out_count")}</td><td className="pt-2">{total("early_departure_count")}</td><td className="pt-2">{formatMinutes(total("overtime_minutes"))}</td></tr></tfoot>
+          <tfoot><tr className="border-t border-stone-200 font-medium"><td className="pt-2">Total</td><td /><td className="pt-2">{total("days_worked")}</td><td className="pt-2">{formatMinutes(total("worked_minutes"))}</td><td className="pt-2">{total("late_count")}</td><td className="pt-2">{total("absent_count")}</td><td className="pt-2">{total("missing_clock_out_count")}</td><td className="pt-2">{total("early_departure_count")}</td><td className="pt-2">{formatMinutes(total("overtime_minutes"))}</td><td className="pt-2">{total("break_overrun_count")}</td><td className="pt-2">{total("deducted_minutes")} min</td></tr></tfoot>
         )}
       </table>
     </section>

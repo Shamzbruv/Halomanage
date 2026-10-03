@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { PortalShell } from "@/components/PortalShell";
 import { getCurrentSession, sessionCan } from "@/lib/session";
 import { createClient } from "@/lib/supabase/server";
+import { clockView, type ClockState } from "@/lib/clock";
 import type { AppPermission } from "@/lib/supabase/types";
 import { Brand } from "@/components/Brand";
 import { Icon } from "@/components/Icon";
@@ -108,6 +109,7 @@ export default async function PortalLayout({ children }: { children: React.React
     "organization.manage",
     "employee.manage",
     "leave.manage_policies",
+    "attendance.manage_policies",
     "onboarding.manage_templates",
     "appraisal.manage_cycles",
     "documents.manage_org",
@@ -133,6 +135,15 @@ export default async function PortalLayout({ children }: { children: React.React
     ? `${session.employee.preferred_name || session.employee.first_name} ${session.employee.last_name}`
     : session.email?.split("@")[0] || "Team member";
 
+  // The top-bar time clock (get_my_clock_state(): server time, open
+  // session/break, allowances).
+  let clock = null;
+  if (session.employee) {
+    const supabase = await createClient();
+    const { data } = await supabase.rpc("get_my_clock_state");
+    clock = clockView(data as ClockState | null);
+  }
+
   let avatarUrl: string | null = null;
   if (session.employee?.avatar_url) {
     const supabase = await createClient();
@@ -148,6 +159,7 @@ export default async function PortalLayout({ children }: { children: React.React
       canSeeAdmin={canSeeAdmin}
       canSeeTeam={canSeeTeam}
       canSeeTeamAttendance={canSeeTeamAttendance}
+      clock={clock}
       email={session.email}
       name={name}
       organizationName={session.organization.name}

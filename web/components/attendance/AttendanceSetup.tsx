@@ -20,6 +20,12 @@ export type PolicyValues = {
   missing_clock_out_after_hours: number;
   missing_clock_out_action: "flag" | "auto_close";
   overtime_requires_approval: boolean;
+  lunch_minutes: number;
+  lunches_per_shift: number;
+  short_break_minutes: number;
+  short_breaks_per_shift: number;
+  short_breaks_paid: boolean;
+  break_overrun_grace_minutes: number;
 };
 
 function Feedback({ error, message }: { error: string | null; message: string | null }) {
@@ -68,11 +74,11 @@ export function AttendancePolicyForm({ initial }: { initial: PolicyValues }) {
         <div>
           <label className="label" htmlFor="policy-break">How breaks count</label>
           <select id="policy-break" className="input" value={values.break_deduction} onChange={(e) => set("break_deduction", e.target.value as PolicyValues["break_deduction"])}>
-            <option value="recorded">Deduct breaks people record (Start/End break)</option>
-            <option value="scheduled">Deduct the scheduled break, or recorded breaks if longer</option>
-            <option value="none">Don&apos;t deduct breaks (paid breaks)</option>
+            <option value="recorded">Deduct lunch (and unpaid breaks) as people record them</option>
+            <option value="scheduled">Deduct the schedule&apos;s break, or recorded unpaid time if longer</option>
+            <option value="none">Don&apos;t deduct breaks (all paid)</option>
           </select>
-          <p className="field-help">Worked time = clock-in to clock-out minus this deduction.</p>
+          <p className="field-help">Worked time = clock-in to clock-out minus unpaid break time. Time over an allowance is unpaid unless a manager excuses it or asks for it to be made up.</p>
         </div>
         {number("correction_window_days", "Correction window (days)", "How far back employees can request a correction to their own records.", 1, 365)}
         {number("missing_clock_out_after_hours", "Missing clock-out after (hours)", "A shift still open this long after clock-in is treated as a forgotten clock-out.", 1, 48, 0.5)}
@@ -85,6 +91,22 @@ export function AttendancePolicyForm({ initial }: { initial: PolicyValues }) {
           <p className="field-help">Either way the record is marked for review — nothing is silently assumed.</p>
         </div>
       </div>
+      <fieldset className="rounded-lg border border-stone-100 p-3">
+        <legend className="label px-1">Lunch &amp; breaks</legend>
+        <p className="field-help mb-3">Employees see a countdown when they start a lunch or break. Going past it (plus the leeway) is reported to them and their manager — while it&apos;s happening and when it ends — and the manager excuses it, deducts the minutes from pay, or has the time made up.</p>
+        <div className="grid gap-4 md:grid-cols-3">
+          {number("lunch_minutes", "Lunch length (minutes)", "How long a lunch may last.", 0, 240)}
+          {number("lunches_per_shift", "Lunches per shift", "A lunch beyond this is reported as extra.", 0, 3)}
+          {number("break_overrun_grace_minutes", "Leeway before it counts (minutes)", "A lunch or break this close to its allowance isn't reported.", 0, 30)}
+          {number("short_break_minutes", "Break length (minutes)", "How long a short break may last.", 0, 120)}
+          {number("short_breaks_per_shift", "Breaks per shift", "A break beyond this is reported as extra.", 0, 10)}
+          <label className="flex items-start gap-2 self-center text-sm text-stone-700">
+            <input type="checkbox" className="mt-0.5" checked={values.short_breaks_paid} onChange={(e) => set("short_breaks_paid", e.target.checked)} />
+            <span>Short breaks are paid<small className="block text-xs text-stone-500">Lunch is always unpaid time.</small></span>
+          </label>
+        </div>
+        <p className="field-help mt-3">Set each schedule&apos;s unpaid break to the lunch length so expected hours line up. Changes apply to lunches and breaks started from now on.</p>
+      </fieldset>
       <label className="flex items-start gap-2 rounded-lg border border-stone-100 p-2.5 text-sm text-stone-700">
         <input type="checkbox" className="mt-0.5" checked={values.overtime_requires_approval} onChange={(e) => set("overtime_requires_approval", e.target.checked)} />
         <span>Overtime needs a manager&apos;s approval<small className="block text-xs text-stone-500">Time worked beyond the scheduled shift (or any work on a scheduled day off) waits in Team attendance until a manager approves it.</small></span>

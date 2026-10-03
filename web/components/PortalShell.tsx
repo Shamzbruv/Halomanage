@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Brand } from "@/components/Brand";
+import { ClockWidget } from "@/components/clock/Clock";
+import type { ClockView } from "@/lib/clock";
 import { HelpTip } from "@/components/HelpTip";
 import { Icon, type IconName } from "@/components/Icon";
 import { SignOutButton } from "@/components/SignOutButton";
@@ -154,12 +156,13 @@ function Navigation({ groups, pathname, onNavigate, collapsed = false }: { group
   );
 }
 
-export function PortalShell({ children, avatarUrl, canSeeAdmin, canSeeTeam, canSeeTeamAttendance, email, name, organizationName, roleLabels, visibleAdminHrefs }: {
+export function PortalShell({ children, avatarUrl, canSeeAdmin, canSeeTeam, canSeeTeamAttendance, clock, email, name, organizationName, roleLabels, visibleAdminHrefs }: {
   children: React.ReactNode;
   avatarUrl: string | null;
   canSeeAdmin: boolean;
   canSeeTeam: boolean;
   canSeeTeamAttendance: boolean;
+  clock: ClockView | null;
   email: string | null;
   name: string;
   organizationName: string;
@@ -321,6 +324,7 @@ export function PortalShell({ children, avatarUrl, canSeeAdmin, canSeeTeam, canS
           </div>
           <div className="portal-page-title"><span>{page.eyebrow}</span><h1>{page.title}{page.help && <HelpTip title={page.title}>{page.help}</HelpTip>}</h1></div>
           <div className="portal-topbar-actions">
+            {clock && <ClockWidget view={clock} />}
             <Link href="/profile" className="topbar-profile" aria-label="Open my profile">
               <UserAvatar name={name} avatarUrl={avatarUrl} small />
               <span className="topbar-profile-copy"><strong>{name}</strong><small>{email}</small></span>

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ClockButton } from "@/components/ClockButton";
+import { ClockPanel } from "@/components/clock/Clock";
+import { clockView, type ClockState } from "@/lib/clock";
 import { Icon } from "@/components/Icon";
 import type { IconName } from "@/components/Icon";
 import { createClient } from "@/lib/supabase/server";
@@ -148,7 +149,7 @@ export default async function DashboardPage() {
     { data: reviews },
     { data: assignment },
     { data: myOnboarding },
-    { data: openBreak },
+    { data: clockState },
   ] = await Promise.all([
     // A forgotten clock-out (status missing_out) also has no clock_out_at;
     // only the one live session counts as "working".
@@ -160,8 +161,9 @@ export default async function DashboardPage() {
     supabase.from("appraisal_reviewers").select("id, role, appraisal_instance_id").eq("reviewer_user_id", session.userId).eq("status", "pending").limit(4),
     supabase.from("employee_assignments").select("positions(title), org_units(name), supervisor_employee_id, manager_employee_id").eq("employee_id", employeeId).is("end_date", null).maybeSingle(),
     supabase.from("onboarding_progress_v").select("run_id, total_tasks, completed_tasks").eq("employee_id", employeeId).eq("status", "in_progress").limit(1).maybeSingle(),
-    supabase.from("attendance_breaks").select("id").eq("employee_id", employeeId).is("ended_at", null).limit(1).maybeSingle(),
+    supabase.rpc("get_my_clock_state"),
   ]);
+  const clock = clockView(clockState as ClockState | null);
   // "Welcome, John" — the first sign-in shows the record HR already built.
   const leaderId = (assignment as any)?.manager_employee_id ?? (assignment as any)?.supervisor_employee_id ?? null;
   const { data: leader } = myOnboarding && leaderId
@@ -209,6 +211,7 @@ export default async function DashboardPage() {
       { count: pendingCorrections },
       { count: pendingOvertime },
       { count: missingClockOuts },
+      { count: pendingOverruns },
     ] = await Promise.all([
       supabase.from("attendance_today_v").select("*").eq("organization_id", organizationId),
       supabase.from("leave_pending_v").select("*").eq("organization_id", organizationId).order("submitted_at", { ascending: true }),
@@ -220,6 +223,7 @@ export default async function DashboardPage() {
       supabase.from("attendance_adjustments").select("id", { count: "exact", head: true }).eq("organization_id", organizationId).eq("status", "pending").neq("employee_id", employeeId),
       supabase.from("attendance_sessions").select("id", { count: "exact", head: true }).eq("organization_id", organizationId).eq("overtime_status", "pending").neq("employee_id", employeeId),
       supabase.from("attendance_sessions").select("id", { count: "exact", head: true }).eq("organization_id", organizationId).eq("needs_review", true),
+      supabase.from("attendance_violations").select("id", { count: "exact", head: true }).eq("organization_id", organizationId).eq("status", "pending").neq("employee_id", employeeId),
     ]);
 
     const employeesById = new Map((adminEmployees as AdminEmployee[] | null ?? []).map((employee) => [employee.id, employee]));
@@ -246,6 +250,17 @@ export default async function DashboardPage() {
         rank: 0,
         title: `${pendingCorrections} attendance ${pendingCorrections === 1 ? "correction" : "corrections"} waiting for a decision`,
         detail: "Employees asked for a clock-in or clock-out to be corrected.",
+      });
+    }
+    if (pendingOverruns) {
+      actions.push({
+        key: "attendance-overruns",
+        href: "/team/attendance#breaks",
+        icon: "clock",
+        priority: "high",
+        rank: 1,
+        title: `${pendingOverruns} lunch/break ${pendingOverruns === 1 ? "overrun" : "overruns"} to review`,
+        detail: "Excuse, deduct from pay, or have the time made up.",
       });
     }
     if (pendingOvertime) {
@@ -408,8 +423,8 @@ export default async function DashboardPage() {
       <section className="dashboard-grid">
         <div className="dashboard-column wide">
           <div className="card dashboard-attendance">
-            <div className="panel-heading"><div><span className="panel-icon"><Icon name="clock" /></span><div><h3>Today&apos;s attendance</h3><p>The server records the time of every clock action. <Link className="table-action" href="/time">Your schedule &amp; history</Link></p></div></div><span className={`badge ${openSession ? "badge-emerald" : "badge-neutral"}`}>{openSession ? (openBreak ? "On a break" : "Clocked in") : "Not clocked in"}</span></div>
-            <div className="attendance-action"><div><small>{openSession ? "Session started" : "Current local time"}</small><strong>{openSession ? formatTime(openSession.clock_in_at, session.organization?.timezone) : currentTimeIn(session.organization?.timezone)}</strong></div><ClockButton openSession={openSession ?? null} timezone={session.organization?.timezone ?? undefined} onBreak={Boolean(openSession && openBreak)} showBreaks={Boolean(openSession)} /></div>
+            <div className="panel-heading"><div><span className="panel-icon"><Icon name="clock" /></span><div><h3>Today&apos;s attendance</h3><p>The server records the time of every clock action. <Link className="table-action" href="/time">Your schedule &amp; history</Link></p></div></div><span className={`badge ${openSession ? "badge-emerald" : "badge-neutral"}`}>{openSession ? (clock?.state.current_break ? (clock.state.current_break.type === "lunch" ? "On lunch" : "On a break") : "Clocked in") : "Not clocked in"}</span></div>
+            {clock ? <ClockPanel view={clock} /> : <div className="attendance-action"><div><small>Current local time</small><strong>{currentTimeIn(session.organization?.timezone)}</strong></div></div>}
           </div>
 
           <div className="card">
