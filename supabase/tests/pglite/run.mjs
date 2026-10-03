@@ -2464,7 +2464,10 @@ async function main() {
   // Ref: 20261005100000_time_and_attendance.sql.
   // Computed once as the test superuser: an impersonated user has no access
   // to the private schema (correctly), so tests use literal dates.
-  const attClock = (await db.query(`select private.org_today('${ORG}')::text as d, private.org_timezone('${ORG}') as tz`)).rows[0];
+  // Fixtures live on YESTERDAY (the organization's), so a correction to
+  // "9:20" is never in the future whatever hour the suite runs at (CI runs
+  // in UTC, where it may already be tomorrow morning).
+  const attClock = (await db.query(`select (private.org_today('${ORG}') - 1)::text as d, private.org_timezone('${ORG}') as tz`)).rows[0];
   const orgDay = (offset) => `('${attClock.d}'::date + ${offset})`;
   const at = (offset, hhmm) => `(('${attClock.d}'::date + ${offset}) + time '${hhmm}') at time zone '${attClock.tz}'`;
   const insertSession = async (emp, inExpr, outExpr) => {
@@ -2479,6 +2482,10 @@ async function main() {
   // Earlier tests stopped Alice's open sessions; start from a clean slate for today.
   await db.exec(`update public.attendance_sessions set clock_out_at = clock_in_at + interval '1 minute', status = 'closed' where employee_id = '${ALICE_EMP}' and clock_out_at is null`);
 
+  // Existing schedule assignments may start today; let the fixture-day
+  // assignments below follow them.
+  await db.exec(`update public.schedule_assignments set start_date = least(start_date, ${orgDay(-1)})
+    where employee_id in ('${ALICE_EMP}', '${GRACE_EMP}') and end_date is null`);
   let officeScheduleId;
   await as(ERIN_USER, async () => {
     const office = await db.query(`select * from public.save_work_schedule('${ORG}', null, 'Office Day', 'Every day 9–5', false,
@@ -2735,7 +2742,7 @@ async function main() {
     Number((await db.query(`select count(*) from public.notifications where recipient_user_id = '${ABS_USER}' and type = 'attendance.break_overrun_decided'`)).rows[0].count) === 2);
 
   await as(ERIN_USER, async () => {
-    const decided = (await db.query(`select * from public.decide_attendance_violation('${lunchViolation.id}', 'make_up', 'Stay back 15 min', ${orgDay(1)})`)).rows[0];
+    const decided = (await db.query(`select * from public.decide_attendance_violation('${lunchViolation.id}', 'make_up', 'Stay back 15 min', ${orgDay(2)})`)).rows[0];
     ok("making up the time sets a due date and waits for the extra time", decided.status === "make_up" && decided.makeup_due_date !== null && decided.makeup_credited_minutes === 0);
   });
   ok("time to be made up isn't deducted (180 − 60 lunch = 120)", (await workedOf()) === 120);
@@ -2743,7 +2750,7 @@ async function main() {
     const state = (await db.query(`select public.get_my_clock_state() as s`)).rows[0].s;
     ok("the employee's clock shows the make-up owed", state.makeup_owed_minutes === 15 && !!state.makeup_due_date);
   });
-  const longDay = await insertSession(ABS_EMP, at(1, "06:00"), at(1, "17:00"));
+  const longDay = await insertSession(ABS_EMP, at(2, "06:00"), at(2, "17:00"));
   const madeUp = (await db.query(`select status, makeup_credited_minutes from public.attendance_violations where id = '${lunchViolation.id}'`)).rows[0];
   const longDayAfter = (await db.query(`select overtime_base_minutes, makeup_minutes, overtime_minutes from public.attendance_sessions where id = '${longDay.id}'`)).rows[0];
   ok("extra time worked is credited to the make-up and marks it made up", madeUp.status === "made_up" && madeUp.makeup_credited_minutes === 15);
