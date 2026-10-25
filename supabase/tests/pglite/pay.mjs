@@ -618,6 +618,64 @@ export async function testPay({ db, as, ok }) {
   await db.exec(
     `update public.organization_security_policies set mfa_policy='optional' where organization_id='${ORG}'; select set_config('request.jwt.claims','',false)`,
   );
+  // Force an employer-local date different from UTC, regardless of the CI clock.
+  await db.exec(
+    `update public.organizations set timezone=case when extract(hour from now() at time zone 'UTC')<12 then 'Etc/GMT+12' else 'Pacific/Kiritimati' end where id='${ORG}'`,
+  );
+  ok(
+    "timezone fixture crosses the UTC date boundary",
+    (
+      await db.query(
+        `select private.org_today('${ORG}')<>(now() at time zone 'UTC')::date different`,
+      )
+    ).rows[0].different === true,
+  );
+  const group = (
+    await db.query(
+      `insert into public.pay_groups(organization_id,name,code,currency,pay_frequency) values('${ORG}','Boundary group','BOUNDARY','JMD','monthly') returning id`,
+    )
+  ).rows[0].id;
+  const calendar = (
+    await db.query(
+      `insert into public.pay_calendars(organization_id,pay_group_id,name,pay_frequency) values('${ORG}','${group}','Boundary calendar','monthly') returning id`,
+    )
+  ).rows[0].id;
+  await db.exec(
+    `update public.pay_groups set pay_calendar_id='${calendar}' where id='${group}';update public.employee_compensation set start_date=private.org_today('${ORG}'),pay_group_id='${group}' where employee_id='${emp[1]}';insert into public.pay_periods(organization_id,pay_calendar_id,period_start,period_end,pay_date) values('${ORG}','${calendar}',private.org_today('${ORG}'),private.org_today('${ORG}')+14,private.org_today('${ORG}')+15)`,
+  );
+  await as(users[1], async () => {
+    ok(
+      "employee group access uses employer-local effective date",
+      (await db.query(`select id from public.pay_groups where id='${group}'`))
+        .rows.length === 1,
+    );
+    ok(
+      "employee calendar access uses employer-local effective date",
+      (
+        await db.query(
+          `select id from public.pay_calendars where id='${calendar}'`,
+        )
+      ).rows.length === 1,
+    );
+    ok(
+      "employee period access follows the local-date compensation calendar",
+      (
+        await db.query(
+          `select id from public.pay_periods where pay_calendar_id='${calendar}'`,
+        )
+      ).rows.length === 1,
+    );
+  });
+  await db.exec(
+    `update public.employee_compensation set start_date=private.org_today('${ORG}')+1 where employee_id='${emp[1]}'`,
+  );
+  await as(users[1], async () => {
+    ok(
+      "future compensation does not activate a pay group early",
+      (await db.query(`select id from public.pay_groups where id='${group}'`))
+        .rows.length === 0,
+    );
+  });
   // Revoke compensation alone: payslips must still work. Revoke payroll next: deny.
   await db.exec(
     `insert into public.role_permissions(organization_id,role,permission) select '${ORG}',role,permission from public.role_permissions where organization_id is null and role='employee';delete from public.role_permissions where organization_id='${ORG}' and role='employee' and permission='compensation.read_self'`,

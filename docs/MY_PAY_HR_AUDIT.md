@@ -67,4 +67,6 @@ The regression suite applies every repository migration to Postgres/PGlite and e
 
 Signed-in browser acceptance with an actual employee and payroll reviewer is not included in the automated checks. The source-based tests do not claim that every external payroll vendor layout or every employer policy has been certified. Provider mapping administration, automatic provider delivery and statutory rate calculation remain outside this release.
 
-Release verification: 625 assertions passed; lint has zero errors (ten existing warnings), TypeScript/client-boundary checks and the production build passed. The import function also passed Deno type checking using the installed dependency tree. The live publication/privacy/query smoke transaction passed and rolled back. Security advisor comparisons and GitHub CI are checked as release gates.
+Release verification: 630 assertions passed; lint has zero errors (ten existing warnings), TypeScript/client-boundary checks and the production build passed. The import function also passed Deno type checking using the installed dependency tree. The live publication/privacy/query smoke transaction passed and rolled back. Security advisor comparisons and GitHub CI are checked as release gates.
+
+The CI pass also exercises a forced UTC/employer-local date boundary: compensation, pay group, calendar and period visibility follow the employer date, and a future rate does not activate its group early. An older compensation fixture was corrected to use the employer date rather than UTC current_date.

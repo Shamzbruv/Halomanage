@@ -1067,6 +1067,7 @@ async function main() {
   });
 
   // --- Manual, effective-dated Change Compensation workflow ---
+  const compensationToday = (await db.query(`select private.org_today('${ORG}')::text as day`)).rows[0].day;
   await as(DAVID_USER, async () => {
     let threw = false;
     try { await db.query(`select * from public.change_employee_compensation('${ALICE_EMP}', 60000, 'salaried', current_date, 'USD', 'year')`); } catch { threw = true; }
@@ -1084,7 +1085,7 @@ async function main() {
       p_employee_id => '${ALICE_EMP}',
       p_amount => 60000,
       p_pay_type => 'salaried',
-      p_effective_date => current_date,
+      p_effective_date => '${compensationToday}'::date,
       p_currency => 'USD',
       p_rate_unit => 'year',
       p_pay_frequency => 'monthly',
