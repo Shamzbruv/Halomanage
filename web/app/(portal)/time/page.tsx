@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AttendanceCorrectionButton, WithdrawCorrectionButton } from "@/components/AttendanceCorrectionButton";
 import { ClockPanel, LiveWorkedMinutes } from "@/components/clock/Clock";
@@ -90,6 +91,7 @@ export default async function TimePage() {
       {(overview?.needs_review ?? 0) > 0 && <div className="alert-warning" role="alert">{overview!.needs_review === 1 ? "One of your records needs" : `${overview!.needs_review} of your records need`} attention — a clock-out was missing. Use &ldquo;Add clock-out&rdquo; on the record below so your manager can confirm the real time.</div>}
 
       <div className="time-overview-grid">
+      <Link className="btn-secondary" href="/time/timesheets">Review & sign timesheets</Link>
         <section className="card time-clock-card">
           <div className="panel-heading"><div><span className="panel-icon"><Icon name="clock" /></span><div><h3>Current shift</h3><p>The server records the time of every clock action.</p></div></div><span className={`badge ${open ? (currentBreak ? "badge-gold" : "badge-emerald") : "badge-neutral"}`}>{open ? (currentBreak ? (currentBreak.type === "lunch" ? "On lunch" : "On a break") : "Working") : "Off the clock"}</span></div>
           {!open && <div className="time-clock-value"><small>Current time</small><strong>{currentTimeIn(tz)}</strong></div>}

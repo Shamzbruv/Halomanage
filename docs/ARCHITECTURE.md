@@ -1571,3 +1571,45 @@ countdown. In the Team attendance queue the manager (adjust permission, never th
 Everyone sees the outcome: the employee on /time ("Lunch & break record") and in the clock dropdown
 (make-up owed), the manager in Team attendance, the admin dashboard feed and the report.
 
+
+
+## Approved attendance timesheets and department policies
+
+2026-10-24 (Jamaica). Migration `20261025015832_approved_attendance_timesheets.sql`.
+
+- `/time/timesheets`: employee confirmation, independent scoped review, rejection with a reason,
+  withdrawal, period locking, and approved-hours CSV. Links from My attendance and Team attendance.
+- HR with `attendance.adjust_org` creates non-overlapping attendance review periods (1–62 days),
+  aligned manually to the employer's pay-calendar dates. The roster snapshots employee names/numbers
+  for staff employed during the dates and anyone with attendance. HR can add missed hires or exclude
+  unsigned staff who have no attendance/approved leave, with an audited reason. Unlinked employees
+  require an invitation to sign their own hours; HR never signs on their behalf.
+- A period must have ended in organization time. Pending corrections, missing clock-outs/review flags,
+  pending overtime/break decisions and outstanding make-up obligations prevent submission. Approved
+  leave hours use each day's scheduled net minutes × day fraction; unscheduled leave and excess
+  work-plus-leave hours require resolution. Half-day work plus half-day leave is supported.
+- Every employee signs a source snapshot. A different user holding `attendance.adjust_org`, or
+  `attendance.adjust_team` within management scope, approves. Changed source facts invalidate approval
+  and locking until returned/resubmitted. Read permissions never authorize decisions. UI review
+  controls use the database's same per-person permission check.
+- HR locks only when every roster entry is currently approved. Database triggers protect both old
+  and new source dates, including sessions, breaks, corrections, violations and leave. No-op
+  maintenance updates remain valid. Tenant advisory transaction locks serialize source changes,
+  approval, period locking/reopening and exports.
+- Reopening requires a reason, preserves superseded signed snapshots in the append-only audit log,
+  and resets every sheet for new signatures/approvals. Revisions increment on each submission.
+- `payroll.export` can download only a locked period's approved snapshots. CSV includes exact integer
+  minutes, four-decimal hour counterparts, regular time, approved overtime, paid/unpaid leave,
+  make-up credit and deduction reference minutes. Deduction references must not be applied twice.
+  This is an external payroll input file; existing money/pay-record export APIs are unchanged.
+  No gross pay, tax, net pay or statutory deductions are calculated.
+- New tables have explicit authenticated SELECT grants and RLS; writes are through authenticated,
+  permission-checked RPCs. API wrappers are SECURITY INVOKER; privileged implementations live in
+  the unexposed `attendance_internal` schema (follow-up migration `attendance_rpc_api_wrappers`).
+  Sign-off/review and exports are audited and sensitive operations honor MFA
+  step-up. No service key is added to the application.
+- Attendance setup now edits all policies and assigns a policy to each primary department. Resolution
+  order is employee compensation override → primary department policy → organization default.
+  Existing attendance snapshots are preserved; policy groups apply to new punches.
+
+Kiosk/device verification, geofencing and time rounding remain separate, unimplemented features.

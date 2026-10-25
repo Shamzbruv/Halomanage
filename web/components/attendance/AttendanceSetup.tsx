@@ -59,8 +59,8 @@ export function AttendancePolicyForm({ initial }: { initial: PolicyValues }) {
 
   const number = (key: keyof PolicyValues, label: string, help: string, min: number, max: number, step = 1) => (
     <div>
-      <label className="label" htmlFor={`policy-${key}`}>{label}</label>
-      <input id={`policy-${key}`} className="input" type="number" min={min} max={max} step={step} required value={values[key] as number} onChange={(e) => set(key, Number(e.target.value) as never)} />
+      <label className="label" htmlFor={`policy-${initial.id}-${key}`}>{label}</label>
+      <input id={`policy-${initial.id}-${key}`} className="input" type="number" min={min} max={max} step={step} required value={values[key] as number} onChange={(e) => set(key, Number(e.target.value) as never)} />
       <p className="field-help">{help}</p>
     </div>
   );
@@ -68,12 +68,12 @@ export function AttendancePolicyForm({ initial }: { initial: PolicyValues }) {
   return (
     <form onSubmit={save} className="space-y-4">
       <div className="grid gap-4 md:grid-cols-2">
-        <div><label className="label" htmlFor="policy-name">Policy name</label><input id="policy-name" className="input" value={values.name} maxLength={120} onChange={(e) => set("name", e.target.value)} /></div>
+        <div><label className="label" htmlFor={`policy-${initial.id}-name`}>Policy name</label><input id={`policy-${initial.id}-name`} className="input" value={values.name} maxLength={120} onChange={(e) => set("name", e.target.value)} /></div>
         {number("grace_period_minutes", "Lateness grace (minutes)", "Clocking in within this many minutes of the shift start isn't counted as late.", 0, 240)}
         {number("early_departure_grace_minutes", "Early-departure grace (minutes)", "Leaving within this many minutes of the shift end isn't flagged.", 0, 240)}
         <div>
-          <label className="label" htmlFor="policy-break">How breaks count</label>
-          <select id="policy-break" className="input" value={values.break_deduction} onChange={(e) => set("break_deduction", e.target.value as PolicyValues["break_deduction"])}>
+          <label className="label" htmlFor={`policy-${initial.id}-break`}>How breaks count</label>
+          <select id={`policy-${initial.id}-break`} className="input" value={values.break_deduction} onChange={(e) => set("break_deduction", e.target.value as PolicyValues["break_deduction"])}>
             <option value="recorded">Deduct lunch (and unpaid breaks) as people record them</option>
             <option value="scheduled">Deduct the schedule&apos;s break, or recorded unpaid time if longer</option>
             <option value="none">Don&apos;t deduct breaks (all paid)</option>
@@ -83,8 +83,8 @@ export function AttendancePolicyForm({ initial }: { initial: PolicyValues }) {
         {number("correction_window_days", "Correction window (days)", "How far back employees can request a correction to their own records.", 1, 365)}
         {number("missing_clock_out_after_hours", "Missing clock-out after (hours)", "A shift still open this long after clock-in is treated as a forgotten clock-out.", 1, 48, 0.5)}
         <div>
-          <label className="label" htmlFor="policy-missing">When a clock-out is missing</label>
-          <select id="policy-missing" className="input" value={values.missing_clock_out_action} onChange={(e) => set("missing_clock_out_action", e.target.value as PolicyValues["missing_clock_out_action"])}>
+          <label className="label" htmlFor={`policy-${initial.id}-missing`}>When a clock-out is missing</label>
+          <select id={`policy-${initial.id}-missing`} className="input" value={values.missing_clock_out_action} onChange={(e) => set("missing_clock_out_action", e.target.value as PolicyValues["missing_clock_out_action"])}>
             <option value="flag">Flag it for the employee and manager to correct</option>
             <option value="auto_close">Close it at the scheduled end (or the limit) and flag it for review</option>
           </select>

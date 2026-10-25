@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { PolicyGroups } from "@/components/attendance/PolicyGroups";
 import { Icon } from "@/components/Icon";
 import { AttendancePolicyForm, HolidayManager, ScheduleAssignments, ScheduleManager, type AssignmentRow, type PolicyValues, type ScheduleRow } from "@/components/attendance/AttendanceSetup";
 import { createClient } from "@/lib/supabase/server";
@@ -20,19 +21,21 @@ export default async function AttendanceSetupPage() {
   const today = todayIn(tz);
 
   const results = await Promise.all([
-    supabase.from("attendance_policies").select("*").eq("organization_id", organizationId).order("is_default", { ascending: false }).order("created_at").limit(1).maybeSingle(),
+    supabase.from("attendance_policies").select("*").eq("organization_id", organizationId).order("is_default", { ascending: false }).order("created_at"),
     supabase.from("work_schedules").select("id, name, description, is_default, is_active, schedule_shifts(day_of_week, start_time, end_time, break_minutes)").eq("organization_id", organizationId).order("is_active", { ascending: false }).order("name"),
     supabase.from("holidays").select("id, name, observed_on, location_id, is_paid").eq("organization_id", organizationId).gte("observed_on", addDaysToDate(today, -365)).order("observed_on", { ascending: false }),
     supabase.from("locations").select("id, name").eq("organization_id", organizationId).order("name"),
     supabase.from("employees").select("id, first_name, last_name, preferred_name, employee_number, status").eq("organization_id", organizationId).in("status", ["prehire", "active", "leave", "suspended"]).order("last_name"),
     supabase.from("schedule_assignments").select("employee_id, schedule_id, start_date, end_date").eq("organization_id", organizationId).or(`end_date.is.null,end_date.gte.${today}`),
     supabase.from("employee_assignments").select("employee_id, org_units(name)").eq("organization_id", organizationId).is("end_date", null),
+    supabase.from("org_units").select("id, name").eq("organization_id", organizationId).order("name"),
+    supabase.from("attendance_policy_groups").select("org_unit_id, policy_id").eq("organization_id", organizationId),
   ]);
   const failures = results.filter((r) => r.error);
   if (failures.length) console.error("attendance setup: a module failed to load", failures.map((r) => r.error));
-  const [policyResult, scheduleResult, holidayResult, locationResult, employeeResult, scheduleAssignmentResult, assignmentResult] = results;
+  const [policyResult, scheduleResult, holidayResult, locationResult, employeeResult, scheduleAssignmentResult, assignmentResult, departmentResult, policyGroupResult] = results;
 
-  const policy = policyResult.data as (PolicyValues & Record<string, unknown>) | null;
+  const policies = (policyResult.data ?? []) as (PolicyValues & Record<string, unknown>)[];
   const scheduleAssignments = (scheduleAssignmentResult.data ?? []) as { employee_id: string; schedule_id: string; start_date: string; end_date: string | null }[];
   const scheduleRows: ScheduleRow[] = ((scheduleResult.data ?? []) as any[]).map((s) => ({
     id: s.id, name: s.name, description: s.description, is_default: s.is_default, is_active: s.is_active,
@@ -65,18 +68,20 @@ export default async function AttendanceSetupPage() {
       {unassigned > 0 && <div className="alert-warning" role="status">{unassigned} {unassigned === 1 ? "person has" : "people have"} no work schedule — their time is recorded, but lateness, absences and overtime can&apos;t be judged. Assign them below.</div>}
 
       <section className="card">
-        <div className="panel-heading"><div><span className="panel-icon"><Icon name="shield" /></span><div><h3>Attendance policy</h3><p>Applies to everyone unless their compensation record names a different time policy.</p></div></div></div>
-        {policy
-          ? <AttendancePolicyForm initial={{
+        <div className="panel-heading"><div><span className="panel-icon"><Icon name="shield" /></span><div><h3>Attendance policies</h3><p>Configure the default and any department-specific rules.</p></div></div></div>
+        {policies.length
+          ? policies.map(policy => <details key={policy.id} open={Boolean(policy.is_default)} className="mb-4"><summary className="cursor-pointer font-semibold mb-3">{policy.name}{policy.is_default ? " · organization default" : ""}</summary><AttendancePolicyForm initial={{
               id: policy.id, name: policy.name, grace_period_minutes: policy.grace_period_minutes, early_departure_grace_minutes: policy.early_departure_grace_minutes,
               break_deduction: policy.break_deduction, correction_window_days: policy.correction_window_days, missing_clock_out_after_hours: Number(policy.missing_clock_out_after_hours),
               missing_clock_out_action: policy.missing_clock_out_action, overtime_requires_approval: policy.overtime_requires_approval,
               lunch_minutes: policy.lunch_minutes ?? 60, lunches_per_shift: policy.lunches_per_shift ?? 1, short_break_minutes: policy.short_break_minutes ?? 15,
               short_breaks_per_shift: policy.short_breaks_per_shift ?? 2, short_breaks_paid: policy.short_breaks_paid ?? true, break_overrun_grace_minutes: policy.break_overrun_grace_minutes ?? 2,
-            }} />
+            }} /></details>)
           : <div className="list-empty">No attendance policy exists yet. Apply the starter workspace from the <Link className="table-action" href="/admin/setup">Setup guide</Link>.</div>}
         <p className="field-help mt-4">Not offered: time rounding (recorded times are never rounded), location or geofence checks, and kiosk or mobile-only clocking — HaloManage records the server&apos;s time for each clock action from a signed-in web session.</p>
       </section>
+
+      <section className="card"><h3 className="mb-3">Policies by department</h3><PolicyGroups organizationId={organizationId} policies={policies.map(p => ({ id: p.id, name: p.name }))} departments={(departmentResult.data ?? []).map(d => ({ ...d, policyId: (policyGroupResult.data ?? []).find(g => g.org_unit_id === d.id)?.policy_id ?? null }))} /></section>
 
       <section className="card">
         <div className="panel-heading"><div><span className="panel-icon"><Icon name="calendar" /></span><div><h3>Work schedules</h3><p>Per-day hours, including overnight shifts (an end time earlier than the start ends the next day). Each attendance record keeps the schedule it was made under.</p></div></div></div>

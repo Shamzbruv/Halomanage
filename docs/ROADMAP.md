@@ -1,6 +1,6 @@
 # Halomanage — Build Status and Roadmap
 
-Living handoff document. Last updated: 2026-10-02 (Settings pass). This document itself had
+Living handoff document. Last updated: 2026-10-24 (approved attendance timesheets). This document itself had
 drifted well behind `docs/ARCHITECTURE.md` (which had ~15 dated sections
 past this file's last update) — see ARCHITECTURE.md for the authoritative,
 dated history; this file is being brought back in line with it below rather
@@ -73,7 +73,7 @@ an external payroll or accounting system.
 - `web`: TypeScript passes with `tsc --noEmit`.
 - `web`: Next.js 16.3.2 production build passes for all routes.
 - `web`: `npm audit` reports 0 vulnerabilities.
-- `supabase/tests/pglite`: 439/439 database assertions pass (2026-10-02, live clock and lunch/break allowances; also run by GitHub Actions CI on every push), including employee-setup
+- `supabase/tests/pglite`: 485/485 database assertions pass (2026-10-24, approved attendance timesheets and department policies; also run by GitHub Actions CI on every push), including employee-setup
   readiness, prepared access/onboarding at invitation, and versioned template editing; also including starter workspace contents,
   portal lookup/customization, partial-membership repair, invitation permission separation,
   transactional linking, cross-organization provisioning, and duplicate-provisioning rejection.
@@ -140,8 +140,8 @@ actually happened in each pass. What's left, re-numbered:
    policy model is already per-channel). Accessibility preferences after that.
 
 Recruitment/ATS and payroll calculation remain intentionally out of the first release.
-10. Time & Attendance follow-ups (ARCHITECTURE.md "Time & Attendance"): an approved-timesheet layer
-    (pay-period lock, employee/manager sign-off, regular/overtime/leave hour export) before attendance
-    feeds payroll; verified kiosk/mobile clock sources; geofencing; optional time rounding; choosing
-    per-group attendance policies in the UI (today: the organization default, or a compensation
-    record's `time_policy_id`).
+10. Time & Attendance follow-ups: approved employee/manager timesheets, period locking/reopening,
+    approved-hours CSV and department policy assignment shipped in the 2026-10-24 pass (see
+    ARCHITECTURE.md). Still deferred: verified kiosk/mobile clock sources, geofencing, optional
+    rounding, and automatic delivery of approved hours to a payroll provider. Payroll calculation
+    remains outside HaloManage.

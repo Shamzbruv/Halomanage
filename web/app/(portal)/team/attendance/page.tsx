@@ -101,6 +101,7 @@ export default async function TeamAttendancePage({ searchParams }: { searchParam
 
   return (
     <div className="space-y-6">
+      <Link className="btn-secondary" href="/time/timesheets?view=team">Review team timesheets</Link>
       <div className="page-intro"><span className="eyebrow">Manager workspace</span><h1>Team attendance</h1><p>Who&apos;s working, who isn&apos;t and why, and the corrections and overtime waiting for you — for the people in your reporting scope. Times are in {tz ?? "your organization's timezone"}.</p></div>
       <p><Link className="table-action" href="/team">← Back to Team hub</Link></p>
 

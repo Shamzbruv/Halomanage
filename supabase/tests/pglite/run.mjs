@@ -32,6 +32,7 @@
 // Keep this file passing; extend it (or supabase/tests/database/) for any
 // new module before trusting its RLS.
 
+import { testTimesheets } from "./timesheets.mjs";
 import { PGlite } from "@electric-sql/pglite";
 import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
 import { citext } from "@electric-sql/pglite/contrib/citext";
@@ -109,6 +110,16 @@ async function main() {
     ]) as grants(table_name)
   `);
   ok("all compensation administration tables have explicit authenticated Data API grants", compensationGrantCheck.rows[0].granted === true);
+
+  for (const table of ['attendance_periods', 'attendance_timesheets', 'attendance_policy_groups']) {
+    const grants = (await db.query(`select has_table_privilege('authenticated','public.${table}','SELECT') as reads, has_table_privilege('anon','public.${table}','SELECT') as anon, has_table_privilege('authenticated','public.${table}','UPDATE') as writes`)).rows[0];
+    ok(`${table}: explicit SELECT grant, no anonymous access or direct writes`, grants.reads && !grants.anon && !grants.writes);
+  }
+
+  const rpcBoundary = (await db.query(`select count(*) as n, bool_and(not p.prosecdef) as invokers from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in ('create_attendance_period','preview_attendance_timesheet','act_on_attendance_timesheet','set_attendance_period_lock','export_attendance_period','set_department_attendance_policy','create_attendance_policy','update_attendance_period_roster','can_review_attendance_timesheet')`)).rows[0];
+  ok('all nine public attendance RPCs use SECURITY INVOKER wrappers', Number(rpcBoundary.n) === 9 && rpcBoundary.invokers);
+  const internalBoundary = (await db.query(`select bool_and(not has_function_privilege('anon',p.oid,'EXECUTE') and has_function_privilege('authenticated',p.oid,'EXECUTE')) as ok from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='attendance_internal'`)).rows[0];
+  ok('internal attendance implementations deny anonymous execution', internalBoundary.ok === true);
 
   // Mimic Supabase's default provisioning grants (real projects have these
   // already; our migrations correctly don't redo them).
@@ -2786,6 +2797,8 @@ async function main() {
     const report = (await db.query(`select break_overrun_count, deducted_minutes from public.attendance_report('${ORG}', ${orgDay(-1)}, ${orgDay(1)}) where employee_id = '${ABS_EMP}'`)).rows[0];
     ok("the attendance report counts break overruns", report.break_overrun_count >= 3 && report.deducted_minutes === 0);
   });
+
+  await testTimesheets({ db, as, ok });
 
   console.log(`\n${passCount} passed, ${failCount} failed.`);
   if (failCount > 0) process.exitCode = 1;
