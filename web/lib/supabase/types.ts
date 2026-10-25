@@ -55,7 +55,10 @@ export type AppPermission =
   | "rewards.award_points"
   | "rewards.manage_catalog"
   | "rewards.fulfill"
-  | "recognition.give";
+  | "recognition.give"
+  | "recognition.read"
+  | "recognition.manage"
+  | "recognition.moderate";
 
 export type Employee = {
   id: string;

@@ -32,6 +32,7 @@
 // Keep this file passing; extend it (or supabase/tests/database/) for any
 // new module before trusting its RLS.
 
+import { testRecognition } from "./recognition.mjs";
 import { testPay } from "./pay.mjs";
 import { testLeave } from "./leave.mjs";
 import { testTimesheets } from "./timesheets.mjs";
@@ -708,8 +709,9 @@ async function main() {
     let threw = false;
     try { await db.query(`select * from public.rollback_employee_import_batch('${carolBatchId}')`); } catch { threw = true; }
     ok("rollback is blocked once an updated employee changed again afterward", threw);
-    const carol = await db.query(`select work_phone from public.employees where id = '${CAROL_EMP}'`);
+    const carol = await db.query(`select work_phone,status from public.employees where id = '${CAROL_EMP}'`);
     ok("the blocked rollback left Carol's later change untouched", carol.rows[0].work_phone === "changed-after-import");
+    ok("a partial employee update preserves active status when no status was supplied",carol.rows[0].status === "active");
   });
 
   // A clean batch with no subsequent activity rolls back completely.
@@ -1237,6 +1239,7 @@ async function main() {
   });
 
   // ============================ REWARDS & RECOGNITION ============================
+  await db.exec(`insert into public.organization_feature_overrides(organization_id,feature_key,enabled) values('${ORG}','rewards_marketplace',true) on conflict(organization_id,feature_key) do update set enabled=true`);
   const manualProviderId = (await db.query(`select id from public.reward_providers where key = 'manual'`)).rows[0].id;
 
   await as(DAVID_USER, async () => {
@@ -1394,10 +1397,9 @@ async function main() {
   // Carol, not David, is the primary giver here: David's employee status
   // was set to 'terminated' by a raw update much earlier in this file
   // (see the attendance section), and private.current_employee_id() —
-  // which give_recognition() uses to identify the giver — correctly
-  // excludes terminated employees. He's still a perfectly valid observer
-  // for the visibility tests below (org membership, which is all
-  // "read public recognitions" requires, doesn't depend on employee status).
+  // Recognition now independently requires active/leave employment. The
+  // terminated David fixture also verifies that obsolete org membership
+  // cannot retain access to the public or private recognition feed.
   //
   // Default settings: monthly_point_allowance = 0 (kudos-only until an
   // admin opts in) — proves recognition works with zero points before any
@@ -1470,7 +1472,7 @@ async function main() {
   });
   await as(DAVID_USER, async () => {
     const visible = await db.query(`select id from public.recognitions where id in ('${publicRecognitionId}', '${privateRecognitionId}')`);
-    ok("an uninvolved but still org-member observer can see a public recognition but not a private one", visible.rows.length === 1 && visible.rows[0].id === publicRecognitionId);
+    ok("a terminated org member cannot read public or private recognition", visible.rows.length === 0);
   });
   await as(ALICE_USER, async () => {
     const visible = await db.query(`select id from public.recognitions where id in ('${publicRecognitionId}', '${privateRecognitionId}')`);
@@ -2815,6 +2817,7 @@ async function main() {
   await testTimesheets({ db, as, ok });
   await testLeave({ db, as, ok });
   await testPay({ db, as, ok });
+  await testRecognition({ db, as, ok });
 
   console.log(`\n${passCount} passed, ${failCount} failed.`);
   if (failCount > 0) process.exitCode = 1;

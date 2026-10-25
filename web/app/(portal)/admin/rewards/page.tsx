@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession, sessionCan } from "@/lib/session";
@@ -30,8 +31,9 @@ export default async function RewardsAdminPage() {
   if (!enabled) {
     return (
       <div className="space-y-6">
-        <div className="page-intro"><span className="eyebrow">Rewards &amp; recognition</span><h1>Not enabled yet.</h1></div>
-        <div className="card"><p className="text-sm text-stone-500">The rewards marketplace isn&apos;t turned on for your organization yet. Contact your Halomanage account team to enable it.</p></div>
+        <Link className="btn-secondary" href="/admin/recognition">Recognition policy, reports and program health</Link>
+      <div className="page-intro"><span className="eyebrow">Rewards &amp; recognition</span><h1>Not enabled yet.</h1></div>
+        <div className="card"><p className="text-sm text-stone-500">The rewards marketplace isn&apos;t turned on for your organization yet. Contact your Halomanage account team to enable it.</p><Link href="/admin/recognition" className="btn-secondary">Recognition policy and HR review</Link></div>
       </div>
     );
   }
@@ -47,7 +49,7 @@ export default async function RewardsAdminPage() {
       ? supabase.from("employees").select("id, first_name, last_name").eq("organization_id", orgId).eq("status", "active").order("last_name")
       : Promise.resolve({ data: [] }),
     canManageCatalog
-      ? supabase.from("organization_recognition_settings").select("monthly_point_allowance, max_points_per_recognition, max_recognitions_per_day_per_giver, default_visibility").eq("organization_id", orgId).maybeSingle()
+      ? supabase.from("organization_recognition_settings").select("monthly_point_allowance, max_points_per_recognition, max_recognitions_per_day_per_giver, default_visibility, enabled, require_value, max_points_per_recipient_per_month").eq("organization_id", orgId).maybeSingle()
       : Promise.resolve({ data: null }),
     canManageCatalog
       ? supabase.from("recognition_values").select("id, name, description, is_active").eq("organization_id", orgId).order("name")

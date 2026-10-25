@@ -1,117 +1,270 @@
 "use client";
-
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { resolveFunctionErrorMessage } from "@/lib/supabase/functions";
-import { Icon } from "@/components/Icon";
-
-export type CoworkerOption = { id: string; label: string };
-export type RecognitionValueOption = { id: string; name: string };
-
-// Ref: supabase/migrations/20260830140000_peer_recognition.sql —
-// give_recognition() draws points from a separate monthly giving
-// allowance, never from the giver's own redeemable balance. Points are
-// always optional; a company running kudos-only recognition simply has
-// its allowance set to 0, and this form still works, just without the
-// points field doing anything.
+import type { RecognitionState } from "@/lib/recognition";
+export type CoworkerOption = {
+  id: string;
+  label: string;
+  employee_number: string;
+  allow_public: boolean;
+};
+export type RecognitionValueOption = {
+  id: string;
+  name: string;
+  description?: string | null;
+};
 export function GiveRecognitionForm({
-  coworkers,
+  organizationId,
+  initialCoworkers,
   values,
-  monthlyAllowance,
-  remainingAllowance,
-  maxPointsPerRecognition,
-  defaultVisibility,
+  state,
 }: {
-  coworkers: CoworkerOption[];
+  organizationId: string;
+  initialCoworkers: CoworkerOption[];
   values: RecognitionValueOption[];
-  monthlyAllowance: number;
-  remainingAllowance: number;
-  maxPointsPerRecognition: number | null;
-  defaultVisibility: "public" | "private";
+  state: RecognitionState;
 }) {
-  const supabase = createClient();
-  const router = useRouter();
-  const [open, setOpen] = useState(false);
-  const [recipientId, setRecipientId] = useState(coworkers[0]?.id ?? "");
-  const [valueId, setValueId] = useState(values[0]?.id ?? "");
-  const [message, setMessage] = useState("");
-  const [points, setPoints] = useState("0");
-  const [visibility, setVisibility] = useState<"public" | "private">(defaultVisibility);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const pointsEnabled = monthlyAllowance > 0;
-  const pointsCap = maxPointsPerRecognition !== null ? Math.min(maxPointsPerRecognition, remainingAllowance) : remainingAllowance;
-
-  async function handleSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    setLoading(true);
+  const router = useRouter(),
+    dialog = useRef<HTMLDialogElement>(null),
+    retry = useRef<{ payload: string; key: string } | null>(null);
+  const [coworkers, setCoworkers] = useState(initialCoworkers),
+    [search, setSearch] = useState(""),
+    [recipientId, setRecipientId] = useState(""),
+    [valueId, setValueId] = useState(""),
+    [message, setMessage] = useState(""),
+    [points, setPoints] = useState("0"),
+    [visibility, setVisibility] = useState(state.settings.default_visibility),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState<string | null>(null);
+  const pointsEnabled =
+      state.rewards_enabled && state.settings.monthly_point_allowance > 0,
+    cap = Math.min(
+      state.remaining_points,
+      state.settings.max_points_per_recognition ?? state.remaining_points,
+      state.settings.max_points_per_recipient_per_month ??
+        state.remaining_points,
+    ),
+    recipient = coworkers.find((c) => c.id === recipientId);
+  async function find() {
+    setBusy(true);
     setError(null);
-    const { error: rpcError } = await supabase.rpc("give_recognition", {
+    const { data, error } = await createClient().rpc(
+      "search_recognition_coworkers",
+      { p_organization_id: organizationId, p_search: search },
+    );
+    setBusy(false);
+    if (error) setError(error.message);
+    else {
+      setCoworkers(data ?? []);
+      setRecipientId("");
+    }
+  }
+  async function submit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    const args = {
+      p_organization_id: organizationId,
       p_recipient_employee_id: recipientId,
-      p_message: message,
+      p_message: message.trim(),
       p_recognition_value_id: valueId || null,
       p_points: pointsEnabled ? Number(points) : 0,
       p_visibility: visibility,
+    };
+    const payload = JSON.stringify(args);
+    if (retry.current?.payload !== payload)
+      retry.current = { payload, key: crypto.randomUUID() };
+    const { error } = await createClient().rpc("send_recognition", {
+      ...args,
+      p_client_request_id: retry.current.key,
     });
-    if (rpcError) {
-      setError(await resolveFunctionErrorMessage(rpcError, "Could not give this recognition."));
-      setLoading(false);
+    setBusy(false);
+    if (error) {
+      setError(error.message);
       return;
     }
-    setOpen(false);
-    setLoading(false);
+    retry.current = null;
     setMessage("");
     setPoints("0");
+    setRecipientId("");
+    dialog.current?.close();
     router.refresh();
   }
-
-  if (coworkers.length === 0) {
-    return <p className="text-sm text-stone-400">There&apos;s no one else in your organization to recognize yet.</p>;
-  }
-
-  if (!open) {
-    return <button type="button" className="btn-primary" onClick={() => setOpen(true)}><Icon name="spark" size={16} /> Recognize a coworker</button>;
-  }
-
+  if (!state.can_give)
+    return (
+      <p>Your role can read recognition. Giving recognition is unavailable.</p>
+    );
+  if (!state.settings.enabled)
+    return (
+      <p>HR has paused new recognition. Your history remains available.</p>
+    );
+  if (!state.daily_remaining)
+    return (
+      <p>
+        Your daily limit is reached. You can give recognition again after the
+        organization’s next local midnight.
+      </p>
+    );
   return (
-    <div className="modal-layer" role="presentation">
-      <button type="button" className="modal-backdrop" aria-label="Close dialog" onClick={() => setOpen(false)} />
-      <form onSubmit={handleSubmit} className="modal-card space-y-3" role="dialog" aria-modal="true" aria-labelledby="give-recognition-title">
-        <div className="modal-head"><div><span className="eyebrow">Recognition</span><h3 id="give-recognition-title">Recognize a coworker</h3></div><button type="button" className="icon-button" aria-label="Close dialog" onClick={() => setOpen(false)}><Icon name="x" size={18} /></button></div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="label" htmlFor="recognition-recipient">Coworker</label>
-            <select id="recognition-recipient" className="input" value={recipientId} onChange={(e) => setRecipientId(e.target.value)}>
-              {coworkers.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-            </select>
+    <>
+      <button
+        className="btn-primary"
+        onClick={() => dialog.current?.showModal()}
+      >
+        Recognize a coworker
+      </button>
+      <dialog
+        ref={dialog}
+        className="recognition-dialog"
+        aria-labelledby="give-recognition-title"
+        onCancel={(e) => {
+          if (busy) e.preventDefault();
+        }}
+      >
+        <form onSubmit={submit} className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 id="give-recognition-title">Recognize a coworker</h2>
+            <button
+              type="button"
+              disabled={busy}
+              aria-label="Close recognition form"
+              onClick={() => dialog.current?.close()}
+            >
+              Close
+            </button>
           </div>
-          <div>
-            <label className="label" htmlFor="recognition-value">Value</label>
-            <select id="recognition-value" className="input" value={valueId} onChange={(e) => setValueId(e.target.value)}>
-              {values.length === 0 && <option value="">Not specified</option>}
-              {values.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+          <p>
+            Describe the action and why it mattered. Keep personal, medical,
+            customer and pay information out of your message.
+          </p>
+          <label className="block">
+            Find a coworker
+            <input
+              className="input"
+              value={search}
+              maxLength={100}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Name or employee number"
+            />
+          </label>
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={busy}
+            onClick={find}
+          >
+            Search coworkers
+          </button>
+          <label className="block">
+            Coworker
+            <select
+              required
+              className="input"
+              value={recipientId}
+              onChange={(e) => setRecipientId(e.target.value)}
+            >
+              <option value="">Choose a coworker</option>
+              {coworkers.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label} · {c.employee_number}
+                </option>
+              ))}
             </select>
-          </div>
-          <div className="col-span-2"><label className="label" htmlFor="recognition-message">Message</label><textarea id="recognition-message" required maxLength={500} rows={3} className="input" placeholder="What did they do?" value={message} onChange={(e) => setMessage(e.target.value)} /></div>
-          <div>
-            <label className="label" htmlFor="recognition-points">
-              Points {pointsEnabled ? <span className="font-normal text-stone-500">({remainingAllowance.toLocaleString()} left this month)</span> : <span className="font-normal text-stone-500">(not enabled)</span>}
+          </label>
+          {!coworkers.length && (
+            <p>
+              No eligible coworkers match. Try another search or contact HR.
+            </p>
+          )}
+          <label className="block">
+            Organization value
+            <select
+              className="input"
+              required={state.settings.require_value}
+              value={valueId}
+              onChange={(e) => setValueId(e.target.value)}
+            >
+              <option value="">
+                {state.settings.require_value
+                  ? "Choose a value"
+                  : "General appreciation (optional value)"}
+              </option>
+              {values.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          {valueId && (
+            <p className="text-sm">
+              {values.find((v) => v.id === valueId)?.description}
+            </p>
+          )}
+          <label className="block">
+            Message
+            <textarea
+              className="input"
+              required
+              maxLength={500}
+              rows={4}
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              placeholder="Thank you for helping the team resolve… It made a difference because…"
+            />
+          </label>
+          <small>{message.length}/500 characters</small>
+          {pointsEnabled && (
+            <label className="block">
+              Points (optional)
+              <input
+                className="input"
+                type="number"
+                min={0}
+                max={cap}
+                step={1}
+                required
+                value={points}
+                onChange={(e) => setPoints(e.target.value)}
+              />
+              <small>
+                {state.remaining_points.toLocaleString()} points left to give
+                this month. Giving does not spend your own Rewards balance.
+              </small>
             </label>
-            <input id="recognition-points" type="number" min="0" max={pointsCap} disabled={!pointsEnabled} className="input" value={points} onChange={(e) => setPoints(e.target.value)} />
-          </div>
-          <div>
-            <label className="label" htmlFor="recognition-visibility">Visibility</label>
-            <select id="recognition-visibility" className="input" value={visibility} onChange={(e) => setVisibility(e.target.value as "public" | "private")}>
-              <option value="public">Public — visible to your organization</option>
-              <option value="private">Private — just for {coworkers.find((c) => c.id === recipientId)?.label ?? "them"}</option>
+          )}
+          <label className="block">
+            Audience
+            <select
+              className="input"
+              value={visibility}
+              onChange={(e) =>
+                setVisibility(e.target.value as "public" | "private")
+              }
+            >
+              <option value="public">Organization feed</option>
+              <option value="private">
+                Giver, recipient and authorized HR moderators
+              </option>
             </select>
-          </div>
-        </div>
-        {error && <p className="alert-error">{error}</p>}
-        <div className="flex gap-2"><button type="submit" disabled={loading} className="btn-primary">{loading ? "Sending…" : "Send recognition"}</button><button type="button" className="btn-secondary" onClick={() => setOpen(false)}>Cancel</button></div>
-      </form>
-    </div>
+          </label>
+          {recipient?.allow_public === false && (
+            <p>
+              This coworker prefers private recognition. Your message will be
+              private even if you choose the organization feed.
+            </p>
+          )}
+          {error && (
+            <p role="alert" className="alert-error">
+              {error}
+            </p>
+          )}
+          <button disabled={busy || !recipientId} className="btn-primary">
+            {busy ? "Sending…" : "Send recognition"}
+          </button>
+        </form>
+      </dialog>
+    </>
   );
 }

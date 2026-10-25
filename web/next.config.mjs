@@ -7,7 +7,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const nextConfig = {
   reactStrictMode: true,
   async headers() {
-    return ["/pay/:path*", "/payslips/:path*", "/admin/payroll/:path*"].map(source => ({source, headers: [
+    return ["/pay/:path*", "/payslips/:path*", "/admin/payroll/:path*", "/recognition/:path*", "/admin/recognition/:path*"].map(source => ({source, headers: [
       {key:"Cache-Control",value:"private, no-store, max-age=0"},
       {key:"X-Robots-Tag",value:"noindex, nofollow, noarchive"},
       {key:"Referrer-Policy",value:"no-referrer"},

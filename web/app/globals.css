@@ -1621,3 +1621,13 @@
  .payslip-toolbar { flex-wrap: wrap; gap: .8rem; }
  .payslip-net { flex-wrap: wrap; gap: .5rem; }
 }
+
+/* Recognition uses a native dialog for keyboard focus and Escape support. */
+.recognition-dialog { width: min(620px,calc(100% - 2rem)); max-height: calc(100dvh - 3rem); overflow-y: auto; border: 1px solid var(--line); border-radius: 18px; padding: 1.5rem; background: var(--paper); color: var(--ink); }
+.recognition-dialog::backdrop { background: rgb(20 24 37 / .55); }
+.recognition-dialog h2,.recognition-workspace h2 { font-size: 1.05rem; font-weight: 700; margin-bottom: .6rem; }
+.recognition-workspace h3 { font-weight: 600; }
+.recognition-item { padding: 1.25rem 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.recognition-item p { margin: .5rem 0; }
+.recognition-item small { color: var(--ink-faint); }
+.recognition-focused { padding: 1rem; border: 1px solid var(--line-strong); border-radius: 12px; }

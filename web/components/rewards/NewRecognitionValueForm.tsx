@@ -1,54 +1,93 @@
 "use client";
-
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { Icon } from "@/components/Icon";
-
-export function NewRecognitionValueForm({ organizationId }: { organizationId: string }) {
-  const supabase = createClient();
-  const router = useRouter();
-  const [open, setOpen] = useState(false);
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function handleSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    setLoading(true);
+export function NewRecognitionValueForm({
+  organizationId,
+  initial,
+}: {
+  organizationId: string;
+  initial?: {
+    id: string;
+    name: string;
+    description: string | null;
+    is_active: boolean;
+  };
+}) {
+  const router = useRouter(),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState<string | null>(null),
+    [saved, setSaved] = useState(false);
+  async function submit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const form = e.currentTarget,
+      f = new FormData(form);
+    setBusy(true);
     setError(null);
-    const { error: insertError } = await supabase.from("recognition_values").insert({
-      organization_id: organizationId,
-      name,
-      description: description || null,
+    setSaved(false);
+    const { error } = await createClient().rpc("save_recognition_value", {
+      p_organization_id: organizationId,
+      p_value_id: initial?.id ?? null,
+      p_name: String(f.get("name")),
+      p_description: String(f.get("description")) || null,
+      p_active: f.has("active"),
     });
-    if (insertError) {
-      setError(insertError.message);
-      setLoading(false);
-      return;
+    setBusy(false);
+    if (error) setError(error.message);
+    else {
+      if (!initial) form.reset();
+      setSaved(true);
+      router.refresh();
     }
-    setOpen(false);
-    setLoading(false);
-    setName("");
-    setDescription("");
-    router.refresh();
   }
-
-  if (!open) {
-    return <button type="button" className="btn-secondary" onClick={() => setOpen(true)}><Icon name="spark" size={16} /> New value</button>;
-  }
-
   return (
-    <div className="modal-layer" role="presentation">
-      <button type="button" className="modal-backdrop" aria-label="Close dialog" onClick={() => setOpen(false)} />
-      <form onSubmit={handleSubmit} className="modal-card space-y-3" role="dialog" aria-modal="true" aria-labelledby="new-value-title">
-        <div className="modal-head"><div><span className="eyebrow">Recognition</span><h3 id="new-value-title">New recognition value</h3></div><button type="button" className="icon-button" aria-label="Close dialog" onClick={() => setOpen(false)}><Icon name="x" size={18} /></button></div>
-        <div><label className="label" htmlFor="value-name">Name</label><input id="value-name" required className="input" placeholder="Ownership" value={name} onChange={(e) => setName(e.target.value)} /></div>
-        <div><label className="label" htmlFor="value-description">Description</label><textarea id="value-description" className="input" rows={2} value={description} onChange={(e) => setDescription(e.target.value)} /></div>
-        {error && <p className="alert-error">{error}</p>}
-        <div className="flex gap-2"><button type="submit" disabled={loading} className="btn-primary">{loading ? "Saving…" : "Create"}</button><button type="button" className="btn-secondary" onClick={() => setOpen(false)}>Cancel</button></div>
+    <details className="mt-3">
+      <summary className="cursor-pointer font-semibold">
+        {initial ? `Edit ${initial.name}` : "Add an organization value"}
+      </summary>
+      <form className="mt-3 space-y-3" onSubmit={submit}>
+        <label className="block">
+          Value name
+          <input
+            className="input"
+            name="name"
+            required
+            maxLength={80}
+            defaultValue={initial?.name ?? ""}
+          />
+        </label>
+        <label className="block">
+          What this means in practice
+          <textarea
+            className="input"
+            name="description"
+            maxLength={1000}
+            rows={3}
+            defaultValue={initial?.description ?? ""}
+          />
+        </label>
+        <label className="block">
+          <input
+            type="checkbox"
+            name="active"
+            defaultChecked={initial?.is_active ?? true}
+          />{" "}
+          Available for new recognition
+        </label>
+        <p className="text-xs">
+          Archive a value to stop new use. Historical recognition keeps the
+          original value name.
+        </p>
+        {error && (
+          <p className="alert-error" role="alert">
+            {error}
+          </p>
+        )}
+        {saved && <p role="status">Value saved.</p>}
+        <button className="btn-secondary" disabled={busy}>
+          {busy ? "Saving…" : "Save value"}
+        </button>
       </form>
-    </div>
+    </details>
   );
 }

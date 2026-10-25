@@ -43,6 +43,7 @@ export default async function RewardsPage() {
       <div className="page-intro">
         <span className="eyebrow">Rewards &amp; recognition</span>
         <h1>Spend your points.</h1>
+        {Number(balance)<0&&<p className="alert-error">Your points balance includes a reversal of removed recognition. Contact HR about affected or pending redemptions. This adjustment does not affect your salary.</p>}
         <p>Points you&apos;ve earned from recognition can be redeemed for anything in your organization&apos;s catalog.</p>
       </div>
 

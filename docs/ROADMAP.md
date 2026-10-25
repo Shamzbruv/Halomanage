@@ -1,6 +1,6 @@
 # Halomanage — Build Status and Roadmap
 
-Living handoff document. Last updated: 2026-10-25 (My Pay HR review). This document itself had
+Living handoff document. Last updated: 2026-10-25 (Recognition HR review). This document itself had
 drifted well behind `docs/ARCHITECTURE.md` (which had ~15 dated sections
 past this file's last update) — see ARCHITECTURE.md for the authoritative,
 dated history; this file is being brought back in line with it below rather
@@ -73,7 +73,7 @@ an external payroll or accounting system.
 - `web`: TypeScript passes with `tsc --noEmit`.
 - `web`: Next.js 16.3.2 production build passes for all routes.
 - `web`: `npm audit` reports 0 vulnerabilities.
-- `supabase/tests/pglite`: 630/630 database and pay parsing/display assertions pass (2026-10-25, My Pay, pay queries, publication/corrections and approved attendance/leave workflows; also run by GitHub Actions CI on every push), including employee-setup
+- `supabase/tests/pglite`: 721/721 database and parsing/display assertions pass (2026-10-25, Recognition privacy/moderation, Rewards reconciliation, My Pay and approved attendance/leave workflows; also run by GitHub Actions CI on every push), including employee-setup
   readiness, prepared access/onboarding at invitation, and versioned template editing; also including starter workspace contents,
   portal lookup/customization, partial-membership repair, invitation permission separation,
   transactional linking, cross-organization provisioning, and duplicate-provisioning rejection.
@@ -155,3 +155,8 @@ Recruitment/ATS and payroll calculation remain intentionally out of the first re
 ### My Pay review — 2026-10-25
 
 Completed employee permission separation, private HR commentary, published immutable payslips, per-employee correction history, currency-separated totals, paginated history, source validation/reconciliation and private HR pay queries. See [MY_PAY_HR_AUDIT.md](MY_PAY_HR_AUDIT.md). External payroll/vendor calculations, a provider-map editor, automatic payroll-provider delivery and the employer's retention/backup policies remain separate.
+
+
+### Recognition review — 2026-10-25
+
+Completed employee privacy choices, independent read/give permissions, status/value/tenant validation, retry-safe sends, organization-local limits, report/moderation workflow, exact Rewards reversals, value archiving, program-health reporting and administration independent of marketplace enablement. Fixed missing-status directory updates so they do not reset active employees to prehire. See [RECOGNITION_HR_AUDIT.md](RECOGNITION_HR_AUDIT.md). Badges/levels, pre-publication approval, automated collusion detection, tax handling of benefits and external-provider delivery remain separate work.
