@@ -46,7 +46,7 @@ export default async function TeamMemberProfilePage({ params }: { params: Promis
   const [{ data: employee }, { data: assignment }, { data: balances }, { data: scheduleAssignment }, { data: onboardingRuns }, { data: onboardingProgress }] = await Promise.all([
     supabase.from("employees").select("*").eq("id", id).maybeSingle(),
     supabase.from("employee_assignments").select("*, org_units(name), positions(title), locations(name)").eq("employee_id", id).is("end_date", null).maybeSingle(),
-    supabase.from("leave_balance_v").select("balance, leave_type_name").eq("employee_id", id),
+    supabase.from("leave_balance_v").select("balance, reserved, available_balance, leave_type_name").eq("employee_id", id),
     supabase.from("schedule_assignments").select("schedule_id, work_schedules(name)").eq("employee_id", id).is("end_date", null).maybeSingle(),
     canSeeOnboarding
       ? supabase.from("onboarding_runs").select("id, status, started_at, completed_at, cancelled_at, onboarding_template_versions(version_number, onboarding_templates(name))").eq("employee_id", id).order("started_at", { ascending: false })
@@ -174,7 +174,7 @@ export default async function TeamMemberProfilePage({ params }: { params: Promis
           {(balances ?? []).map((b: any) => (
             <li key={b.leave_type_name} className="rounded-lg bg-cream-100 px-3 py-1.5">
               <span className="text-stone-600">{b.leave_type_name}:</span>{" "}
-              <span className="font-semibold text-stone-900">{Number(b.balance).toLocaleString(undefined, { maximumFractionDigits: 1 })} days</span>
+              <span className="font-semibold text-stone-900">{Number(b.available_balance).toLocaleString(undefined, { maximumFractionDigits: 1 })} days available · {b.reserved} pending</span>
             </li>
           ))}
         </ul>

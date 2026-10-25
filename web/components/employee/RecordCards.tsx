@@ -8,6 +8,7 @@ import { GrantLeaveBalanceForm } from "@/components/GrantLeaveBalanceForm";
 import { ReturnAssetButton } from "@/components/ReturnAssetButton";
 import { TrainingStatusSelect } from "@/components/TrainingStatusSelect";
 import { historyLabel } from "@/lib/employeeSetup";
+import { getCurrentSession, sessionCan } from "@/lib/session";
 import { createClient } from "@/lib/supabase/server";
 import { dateIn, formatDateTime, todayIn } from "@/lib/timezone";
 import type { EmployeeRecord } from "@/components/employee/types";
@@ -157,10 +158,11 @@ export async function LearningAndAssetsCard({ employee, canManageTraining, canMa
 }
 
 export async function LeaveCard({ employee }: { employee: EmployeeRecord }) {
+  const session = await getCurrentSession();
   const supabase = await createClient();
   const [{ data: leaveTypes }, { data: balances }] = await Promise.all([
-    supabase.from("leave_types").select("id, name").eq("organization_id", employee.organization_id).eq("is_active", true).order("name"),
-    supabase.from("leave_balance_v").select("balance, leave_type_name").eq("employee_id", employee.id),
+    supabase.from("leave_types").select("id, name").eq("organization_id", employee.organization_id).eq("is_active", true).eq("balance_tracked", true).order("name"),
+    supabase.from("leave_balance_v").select("balance, reserved, available_balance, leave_type_name").eq("employee_id", employee.id),
   ]);
   return (
     <section className="card">
@@ -169,11 +171,11 @@ export async function LeaveCard({ employee }: { employee: EmployeeRecord }) {
         {(balances ?? []).length === 0 && <li className="text-stone-400">No balances recorded yet.</li>}
         {(balances ?? []).map((b: any) => (
           <li key={b.leave_type_name} className="rounded-lg bg-cream-100 px-3 py-1.5">
-            <span className="text-stone-600">{b.leave_type_name}:</span> <span className="font-semibold text-stone-900">{b.balance} days</span>
+            <span className="text-stone-600">{b.leave_type_name}:</span> <span className="font-semibold text-stone-900">{b.available_balance} available · {b.reserved} pending · {b.balance} booked balance</span>
           </li>
         ))}
       </ul>
-      <GrantLeaveBalanceForm organizationId={employee.organization_id} employeeId={employee.id} leaveTypes={leaveTypes ?? []} />
+      {session && sessionCan(session, "leave.manage_policies") && <GrantLeaveBalanceForm organizationId={employee.organization_id} employeeId={employee.id} leaveTypes={leaveTypes ?? []} today={todayIn(session.organization?.timezone)} />}
     </section>
   );
 }

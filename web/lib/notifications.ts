@@ -26,7 +26,7 @@ export const NOTIFICATION_GROUPS: NotificationGroup[] = [
     key: "leave",
     label: "Leave requests & decisions",
     description: "A team member requests leave you can approve, or your own request is decided.",
-    types: ["leave.requested", "leave.approved", "leave.rejected"],
+    types: ["leave.requested", "leave.approved", "leave.rejected", "leave.cancellation_requested", "leave.cancelled", "leave.cancellation_declined", "leave.withdrawn"],
   },
   {
     key: "attendance",

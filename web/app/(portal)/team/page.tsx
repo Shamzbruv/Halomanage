@@ -46,7 +46,7 @@ export default async function TeamPage() {
     supabase.from("work_schedules").select("id, name").eq("organization_id", organizationId),
     supabase
       .from("leave_balance_v")
-      .select("employee_id, leave_type_id, leave_type_name, balance")
+      .select("employee_id, leave_type_id, leave_type_name, balance, reserved, available_balance")
       .eq("organization_id", organizationId),
     supabase
       .from("leave_requests")
@@ -92,7 +92,7 @@ export default async function TeamPage() {
   const scheduleById = new Map(schedules.map((item: any) => [item.id, item.name]));
   const personById = new Map(people.map((item: any) => [item.id, item]));
   const leaveTypeById = new Map(leaveTypes.map((item: any) => [item.id, item.name]));
-  const balancesByEmployee = new Map<string, Array<{ leave_type_id: string; leave_type_name: string; balance: number }>>();
+  const balancesByEmployee = new Map<string, Array<{ leave_type_id: string; leave_type_name: string; balance: number; reserved: number; available_balance: number }>>();
   for (const balance of balances as any[]) {
     const current = balancesByEmployee.get(balance.employee_id) ?? [];
     current.push(balance);
@@ -135,7 +135,7 @@ export default async function TeamPage() {
       scheduleName: scheduleAssignment ? scheduleById.get(scheduleAssignment.schedule_id) ?? "Assigned schedule" : null,
       leaveSummary: employeeBalances
         .slice(0, 2)
-        .map((item) => `${item.leave_type_name}: ${Number(item.balance).toLocaleString(undefined, { maximumFractionDigits: 1 })}d`)
+        .map((item) => `${item.leave_type_name}: ${Number(item.available_balance).toLocaleString(undefined, { maximumFractionDigits: 1 })}d`)
         .join(" · "),
     };
   });
@@ -211,11 +211,11 @@ export default async function TeamPage() {
 
       <div className="grid gap-6 xl:grid-cols-2">
         <section className="card">
-          <div className="panel-heading"><div><span className="panel-icon"><Icon name="leave" /></span><div><h3>Leave approvals</h3><p>Oldest requests appear first.</p></div></div></div>
+          <div className="panel-heading"><div><span className="panel-icon"><Icon name="leave" /></span><div><h3>Leave approvals</h3><p>Oldest requests appear first. <Link className="table-action" href="/leave/review">Open leave calendar &amp; cancellation queue</Link></p></div></div></div>
           <div className="team-approval-list">
             {pendingLeave.length === 0 && <div className="list-empty compact"><Icon name="check" size={17} /> No requests are waiting.</div>}
             {(pendingLeave as any[]).map((request) => (
-              <article key={request.id}><span className="user-avatar small">{request.first_name?.[0]}{request.last_name?.[0]}</span><div><strong>{request.first_name} {request.last_name}</strong><p>{request.leave_type_name} · {request.total_days} day(s)</p><small>{request.start_date} → {request.end_date}{request.reason ? ` · “${request.reason}”` : ""}</small></div><LeaveDecisionButtons leaveRequestId={request.id} /></article>
+              <article key={request.id}><span className="user-avatar small">{request.first_name?.[0]}{request.last_name?.[0]}</span><div><strong>{request.first_name} {request.last_name}</strong><p>{request.leave_type_name} · {request.total_days} day(s)</p><small>{request.start_date} → {request.end_date}</small></div><div className="space-y-2"><Link className="table-action" href={`/leave/${request.id}`}>Review dates &amp; evidence</Link><LeaveDecisionButtons leaveRequestId={request.id} /></div></article>
             ))}
           </div>
         </section>

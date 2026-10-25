@@ -1613,3 +1613,18 @@ Everyone sees the outcome: the employee on /time ("Lunch & break record") and in
   Existing attendance snapshots are preserved; policy groups apply to new punches.
 
 Kiosk/device verification, geofencing and time rounding remain separate, unimplemented features.
+
+
+## Leave HR review — 2026-10-24
+
+See [LEAVE_HR_AUDIT.md](./LEAVE_HR_AUDIT.md) for research, findings, workflow, policy boundaries
+and validation. Migrations `20261025024008_leave_hr_workflow.sql` and
+`20261025025133_leave_accrual_scheduler.sql` (with `20261025030759_leave_entitlement_precision.sql`
+for fractional credits) add effective schedule/holiday day counts,
+calendar-day types, reserved balances, immutable scheduled-minute/policy snapshots,
+independent scoped approval, reviewed cancellation, private evidence, a real request detail
+page, a team leave register/calendar, editable type rules and opt-in recurring credits.
+The employee dashboard, team hub, employee HR card, attendance expectations, day view,
+notifications and approved-timesheet exports use the same facts. Carryover/expiry remain
+audited HR adjustments; pay remains calculated externally. Existing policies are not
+silently replaced or opted in to accrual automation.

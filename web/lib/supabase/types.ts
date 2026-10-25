@@ -94,6 +94,11 @@ export type LeaveType = {
   is_paid: boolean;
   allow_half_day: boolean;
   minimum_notice_days: number;
+  balance_tracked: boolean;
+  day_count_basis: "working_days" | "calendar_days";
+  allow_backdated_requests: boolean;
+  backdate_limit_days: number;
+  minimum_service_days: number;
 };
 
 export type LeaveRequest = {

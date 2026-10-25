@@ -32,6 +32,7 @@
 // Keep this file passing; extend it (or supabase/tests/database/) for any
 // new module before trusting its RLS.
 
+import { testLeave } from "./leave.mjs";
 import { testTimesheets } from "./timesheets.mjs";
 import { PGlite } from "@electric-sql/pglite";
 import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
@@ -482,6 +483,14 @@ async function main() {
   });
 
   // ================================== LEAVE ====================================
+  // Leave is counted against the employee's assigned pattern, never a weekday guess.
+  await db.exec(`update public.leave_ledger set effective_date=private.org_today(organization_id) where entry_type='grant' and effective_date=current_date;`);
+  const leaveOriginalAssignments=(await db.query(`select * from public.schedule_assignments where employee_id='${ALICE_EMP}'`)).rows;
+  await db.exec(`delete from public.schedule_assignments where employee_id='${ALICE_EMP}'`);
+  const leaveFixtureSchedule = (await db.query(`insert into public.work_schedules(organization_id,name) values('${ORG}','Leave test weekdays') returning id`)).rows[0].id;
+  await db.exec(`insert into public.schedule_shifts(schedule_id,day_of_week,start_time,end_time,break_minutes) select '${leaveFixtureSchedule}',d,'09:00','17:00',60 from generate_series(1,5) d;
+    delete from public.schedule_assignments where employee_id='${ALICE_EMP}';
+    insert into public.schedule_assignments(organization_id,employee_id,schedule_id,start_date) values('${ORG}','${ALICE_EMP}','${leaveFixtureSchedule}','2020-01-01');`);
   let leaveRequestId, leaveTotalDays;
   await as(ALICE_USER, async () => {
     // +14/+15 (two weeks out), not +7/+8 (one week out): date_trunc('week', ...)
@@ -517,6 +526,9 @@ async function main() {
     const bal = await db.query(`select balance from public.leave_balance_v where employee_id = '${ALICE_EMP}' and leave_type_id = (select id from public.leave_types where code = 'VAC')`);
     ok(`Alice's vacation balance was deducted (15 - ${leaveTotalDays})`, Number(bal.rows[0].balance) === 15 - leaveTotalDays);
   });
+
+  await db.exec(`delete from public.schedule_assignments where schedule_id='${leaveFixtureSchedule}'; delete from public.schedule_shifts where schedule_id='${leaveFixtureSchedule}'; delete from public.work_schedules where id='${leaveFixtureSchedule}';`);
+  await db.query(`insert into public.schedule_assignments select * from jsonb_populate_recordset(null::public.schedule_assignments,$1::jsonb)`,[JSON.stringify(leaveOriginalAssignments)]);
 
   // ======================== EMPLOYEE SELF-SERVICE PROTECTION ===================
   await as(ALICE_USER, async () => {
@@ -2799,6 +2811,7 @@ async function main() {
   });
 
   await testTimesheets({ db, as, ok });
+  await testLeave({ db, as, ok });
 
   console.log(`\n${passCount} passed, ${failCount} failed.`);
   if (failCount > 0) process.exitCode = 1;

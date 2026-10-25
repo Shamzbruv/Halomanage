@@ -1,6 +1,6 @@
 # Halomanage — Build Status and Roadmap
 
-Living handoff document. Last updated: 2026-10-24 (approved attendance timesheets). This document itself had
+Living handoff document. Last updated: 2026-10-24 (Leave HR review). This document itself had
 drifted well behind `docs/ARCHITECTURE.md` (which had ~15 dated sections
 past this file's last update) — see ARCHITECTURE.md for the authoritative,
 dated history; this file is being brought back in line with it below rather
@@ -73,7 +73,7 @@ an external payroll or accounting system.
 - `web`: TypeScript passes with `tsc --noEmit`.
 - `web`: Next.js 16.3.2 production build passes for all routes.
 - `web`: `npm audit` reports 0 vulnerabilities.
-- `supabase/tests/pglite`: 485/485 database assertions pass (2026-10-24, approved attendance timesheets and department policies; also run by GitHub Actions CI on every push), including employee-setup
+- `supabase/tests/pglite`: 536/536 database assertions pass (2026-10-24, approved attendance timesheets and department policies; also run by GitHub Actions CI on every push), including employee-setup
   readiness, prepared access/onboarding at invitation, and versioned template editing; also including starter workspace contents,
   portal lookup/customization, partial-membership repair, invitation permission separation,
   transactional linking, cross-organization provisioning, and duplicate-provisioning rejection.
@@ -123,7 +123,8 @@ actually happened in each pass. What's left, re-numbered:
 4. Manager org-subtree visibility and per-user permission grants (HR Admin/System Admin/Pay Importer
    — largely superseded by custom organization roles, see ARCHITECTURE.md 2026-08-31, but org-subtree
    visibility beyond direct reports is still unbuilt).
-5. Scheduled accrual, expiry, appraisal, probation, and escalation jobs.
+5. Leave accrual jobs shipped in the 2026-10-24 Leave pass (explicit employer opt-in).
+   Expiry/forfeiture, appraisal, probation and general escalation jobs remain separate work.
 6. Employee-relations cases, announcements, surveys, integrations, and mobile/PWA work in the later
    phases defined by `PRODUCT_BLUEPRINT.md` (recognition itself shipped — see ARCHITECTURE.md
    2026-08-30).
@@ -145,3 +146,7 @@ Recruitment/ATS and payroll calculation remain intentionally out of the first re
     ARCHITECTURE.md). Still deferred: verified kiosk/mobile clock sources, geofencing, optional
     rounding, and automatic delivery of approved hours to a payroll provider. Payroll calculation
     remains outside HaloManage.
+
+11. Leave HR review delivered: see `LEAVE_HR_AUDIT.md`. Carryover/expiry and termination
+    settlement require explicit HR/accounting review; automatic forfeiture and payroll calculation
+    are not enabled. Complete an authenticated browser acceptance pass against each employer policy.

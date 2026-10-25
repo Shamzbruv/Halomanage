@@ -154,7 +154,7 @@ export default async function DashboardPage() {
     // A forgotten clock-out (status missing_out) also has no clock_out_at;
     // only the one live session counts as "working".
     supabase.from("attendance_sessions").select("id, clock_in_at, arrival_status, late_minutes").eq("employee_id", employeeId).eq("status", "open").is("clock_out_at", null).maybeSingle(),
-    supabase.from("leave_balance_v").select("balance, leave_type_id, leave_type_name").eq("employee_id", employeeId),
+    supabase.from("leave_balance_v").select("available_balance, leave_type_id, leave_type_name").eq("employee_id", employeeId),
     supabase.from("leave_requests").select("*, leave_types(name)").eq("employee_id", employeeId).order("submitted_at", { ascending: false }).limit(4),
     supabase.from("notifications").select("id, title, body, link_url, is_read, created_at").eq("recipient_user_id", session.userId).order("created_at", { ascending: false }).limit(5),
     supabase.from("onboarding_tasks").select("id, title, due_date, status").eq("assigned_to_user_id", session.userId).not("status", "in", "(completed,skipped)").order("due_date", { ascending: true }).limit(4),
@@ -173,7 +173,7 @@ export default async function DashboardPage() {
   const firstName = session.employee.preferred_name || session.employee.first_name;
   const unreadCount = (notifications ?? []).filter((item) => !item.is_read).length;
   const openTaskCount = (onboardingTasks ?? []).length + (reviews ?? []).length;
-  const totalLeave = (balances ?? []).reduce((sum, item) => sum + Number(item.balance || 0), 0);
+  const totalLeave = (balances ?? []).reduce((sum, item) => sum + Number(item.available_balance || 0), 0);
   const assignmentData = assignment as any;
   const canManage = sessionCan(session, "employee.read_team") || sessionCan(session, "employee.read_org");
 
@@ -432,7 +432,7 @@ export default async function DashboardPage() {
             <div className="dashboard-list">
               {(leaveRequests ?? []).length === 0 && <div className="list-empty">No leave requests yet. <Link href="/leave">Plan some time away</Link></div>}
               {(leaveRequests as (LeaveRequest & { leave_types: { name: string } })[] | null)?.map((request) => (
-                <div className="dashboard-list-row" key={request.id}><span className="list-date"><strong>{new Date(request.start_date).toLocaleDateString("en", { day: "2-digit" })}</strong><small>{new Date(request.start_date).toLocaleDateString("en", { month: "short" })}</small></span><div><strong>{request.leave_types?.name}</strong><small>{request.start_date} → {request.end_date} · {request.total_days} day(s)</small></div><span className={`badge ${statusBadgeClass(request.status)}`}>{request.status.replace(/_/g, " ")}</span></div>
+                <div className="dashboard-list-row" key={request.id}><span className="list-date"><strong>{formatDate(`${request.start_date}T12:00:00Z`, "UTC", { day: "2-digit" })}</strong><small>{formatDate(`${request.start_date}T12:00:00Z`, "UTC", { month: "short" })}</small></span><div><strong>{request.leave_types?.name}</strong><small>{request.start_date} → {request.end_date} · {request.total_days} day(s)</small></div><span className={`badge ${statusBadgeClass(request.status)}`}>{request.status.replace(/_/g, " ")}</span></div>
               ))}
             </div>
           </div>

@@ -1,0 +1,152 @@
+export async function testLeave({ db, as, ok }) {
+  const boundary=(await db.query(`select count(*) as n,bool_and(not p.prosecdef and not has_function_privilege('anon',p.oid,'EXECUTE')) as safe from pg_proc p join pg_namespace ns on ns.oid=p.pronamespace where ns.nspname='public' and p.proname in ('submit_leave','submit_leave_request','preview_leave','decide_leave_request','request_leave_cancellation','decide_leave_cancellation','adjust_leave_balance','register_leave_attachment','list_leave_requests','get_leave_request','save_leave_accrual_policy','run_leave_accruals')`)).rows[0];
+  ok('leave API entry points are invokers and deny anonymous execution',Number(boundary.n)===12&&boundary.safe===true);
+  const ORG='fb000000-0000-0000-0000-000000000001', OTHER='fb000000-0000-0000-0000-000000000002';
+  const users=[1,2,3,4,5].map(n=>`fb100000-0000-0000-0000-00000000000${n}`), emps=[1,2,3,4,5].map(n=>`fb200000-0000-0000-0000-00000000000${n}`);
+  const denied=async(label,fn)=>{let no=false;try{await fn();}catch{no=true;}ok(label,no);};
+  await db.exec(`insert into public.organizations(id,name,slug,timezone) values('${ORG}','Leave HR Tests','leave-hr-tests','America/Jamaica'),('${OTHER}','Other Leave','other-leave-hr','UTC')`);
+  for(let i=0;i<5;i++) await db.exec(`insert into auth.users(id,email) values('${users[i]}','leave-${i}@test.invalid');
+    insert into public.employees(id,organization_id,user_id,employee_number,first_name,last_name,status,hire_date) values('${emps[i]}','${i===4?OTHER:ORG}','${users[i]}','LV-${i}','Leave','Person ${i}','active','2020-01-01');
+    insert into public.role_assignments(organization_id,user_id,role) values('${i===4?OTHER:ORG}','${users[i]}','${i===0||i===3||i===4?'admin':i===1?'supervisor':'employee'}');`);
+  await db.exec(`insert into public.employee_assignments(organization_id,employee_id,supervisor_employee_id,manager_employee_id,start_date,is_primary)
+    values('${ORG}','${emps[2]}','${emps[1]}','${emps[3]}','2020-01-01',true);`);
+  const schedule=(await db.query(`insert into public.work_schedules(organization_id,name) values('${ORG}','Tuesday to Saturday') returning id`)).rows[0].id;
+  await db.exec(`insert into public.schedule_shifts(schedule_id,day_of_week,start_time,end_time,break_minutes) select '${schedule}',d,'09:00','17:00',0 from generate_series(2,6) d;
+    delete from public.schedule_assignments where employee_id='${emps[2]}';
+    insert into public.schedule_assignments(organization_id,employee_id,schedule_id,start_date) values('${ORG}','${emps[2]}','${schedule}','2020-01-01');`);
+  const dates=(await db.query(`select (date_trunc('week',private.org_today('${ORG}')::timestamp)::date+14)::text as mon,private.org_today('${ORG}')::text as today`)).rows[0];
+  const day=n=>`('${dates.mon}'::date+${n})`;
+  const type=(await db.query(`insert into public.leave_types(organization_id,name,code,requires_approval,balance_tracked) values('${ORG}','Vacation audit','LV-VAC',true,true) returning id`)).rows[0].id;
+  const grant=async(amount,key,date=dates.today)=>as(users[0],()=>db.query(`select public.adjust_leave_balance('${emps[2]}','${type}',${amount},'Audited test entitlement','${date}','${key}')`));
+  const key='fb900000-0000-0000-0000-000000000001';
+  await grant(10,key);await grant(10,key);
+  ok('balance adjustments are retry-safe',Number((await db.query(`select sum(amount) as n from public.leave_ledger where employee_id='${emps[2]}' and leave_type_id='${type}'`)).rows[0].n)===10);
+  await denied('adjustment retry rejects changed content',()=>grant(12,key));
+  await denied('employee cannot grant their own leave balance',()=>as(users[2],()=>db.query(`select public.adjust_leave_balance('${emps[2]}','${type}',10,'Self credit','${dates.today}','fb900000-0000-0000-0000-000000000099')`)));
+  const submit=async(n,end=n,half=false,part='full',id='null',typeId=type,attachment='null')=>as(users[2],async()=>
+    (await db.query(`select * from public.submit_leave_request('${typeId}',${day(n)},${day(end)},${half},'Test request',${attachment},'${part}',${id})`)).rows[0]);
+  await as(users[2],async()=>{
+    const p=(await db.query(`select public.preview_leave('${type}',${day(0)},${day(6)},false) as p`)).rows[0].p;
+    ok('leave counts the assigned Tuesday-Saturday pattern',Number(p.total_days)===5 && p.days.some(d=>d.work_date===new Date(Date.parse(dates.mon)+5*86400000).toISOString().slice(0,10)));
+    await denied('half-day on an unscheduled Monday is rejected',()=>db.query(`select public.preview_leave('${type}',${day(0)},${day(0)},true)`));
+  });
+  await db.exec(`update public.leave_types set excluded_weekdays=array[6]::smallint[] where id='${type}'`);
+  await as(users[2],async()=>{const p=(await db.query(`select public.preview_leave('${type}',${day(0)},${day(6)},false) as p`)).rows[0].p;ok('employer-configured weekday exclusions apply after the work schedule',Number(p.total_days)===4);});
+  await db.exec(`update public.leave_types set excluded_weekdays='{}' where id='${type}'`);
+  await db.exec(`insert into public.holidays(organization_id,name,observed_on) values('${ORG}','Leave test holiday',${day(3)})`);
+  await as(users[2],async()=>{
+    const p=(await db.query(`select public.preview_leave('${type}',${day(0)},${day(6)},false) as p`)).rows[0].p;
+    ok('applicable holidays are excluded from working-day leave',Number(p.total_days)===4);
+  });
+  const requestKey="'fb900000-0000-0000-0000-000000000002'";
+  const req=await submit(1,2,false,'full',requestKey);
+  const retry=await submit(1,2,false,'full',requestKey);
+  ok('submission retries return the same request',req.id===retry.id);
+  await as(users[2],async()=>{
+    const b=(await db.query(`select balance,reserved,available_balance from public.leave_balance_v where employee_id='${emps[2]}' and leave_type_id='${type}'`)).rows[0];
+    ok('pending requests reserve balance without posting a deduction',Number(b.balance)===10&&Number(b.reserved)===2&&Number(b.available_balance)===8);
+    await denied('overlapping pending leave is rejected',()=>db.query(`select public.submit_leave('${type}',${day(1)},${day(1)})`));
+    await denied('employees cannot self-approve leave',()=>db.query(`select public.decide_leave_request('${req.id}',true)`));
+    const c=(await db.query(`select public.get_leave_request('${req.id}') as c`)).rows[0].c;
+    ok('detail includes named approval steps and exact charged dates',c.approvals.length===1&&c.days.length===2&&c.permissions.can_decide===false);
+  });
+  await as(users[4],async()=>{
+    ok('another tenant cannot read leave requests',(await db.query(`select count(*) as n from public.leave_requests where id='${req.id}'`)).rows[0].n==0);
+    await denied('another tenant cannot read request evidence or details',()=>db.query(`select public.get_leave_request('${req.id}')`));
+    await denied('another tenant cannot approve a request',()=>db.query(`select public.decide_leave_request('${req.id}',true)`));
+  });
+  await as(users[1],()=>db.query(`select public.decide_leave_request('${req.id}',true,'Coverage confirmed')`));
+  ok('approval deducts exactly once',Number((await db.query(`select sum(amount) as n from public.leave_ledger where related_request_id='${req.id}'`)).rows[0].n)===-2);
+  await denied('a second approval cannot deduct twice',()=>as(users[1],()=>db.query(`select public.decide_leave_request('${req.id}',true)`)));
+  await as(users[2],()=>db.query(`select public.request_leave_cancellation('${req.id}','Travel cancelled')`));
+  ok('cancellation request does not immediately refund approved days',Number((await db.query(`select sum(amount) as n from public.leave_ledger where related_request_id='${req.id}'`)).rows[0].n)===-2);
+  await denied('employee cannot approve their own cancellation',()=>as(users[2],()=>db.query(`select public.decide_leave_cancellation('${req.id}',true,'Self refund')`)));
+  await as(users[1],()=>db.query(`select public.decide_leave_cancellation('${req.id}',true,'Employee will work; coverage corrected')`));
+  ok('independent cancellation reverses the actual deduction once',Number((await db.query(`select sum(amount) as n from public.leave_ledger where related_request_id='${req.id}'`)).rows[0].n)===0);
+  await denied('cancellation cannot refund twice',()=>as(users[0],()=>db.query(`select public.decide_leave_cancellation('${req.id}',true,'Again')`)));
+  const withdrawn=await submit(4);
+  await as(users[2],()=>db.query(`select public.request_leave_cancellation('${withdrawn.id}',null)`));
+  ok('withdrawing pending leave releases its reservation',(await db.query(`select status from public.leave_requests where id='${withdrawn.id}'`)).rows[0].status==='withdrawn');
+  const half=await submit(4,4,true,'am');
+  const otherHalf=await submit(4,4,true,'pm');
+  ok('different half shifts can be requested on one date',half.id!==otherHalf.id);
+  await denied('the same half shift cannot overlap',()=>submit(4,4,true,'am'));
+  await as(users[2],()=>db.query(`select public.request_leave_cancellation('${otherHalf.id}',null)`));
+  const halfPunch=(await db.query(`insert into public.attendance_sessions(organization_id,employee_id,work_date,clock_in_at,clock_out_at,status)
+    values('${ORG}','${emps[2]}',${day(4)},(${day(4)}+time '13:00') at time zone 'America/Jamaica',(${day(4)}+time '17:00') at time zone 'America/Jamaica','closed') returning id`)).rows[0].id;
+  await db.query(`select private.recompute_attendance_session('${halfPunch}',true)`);
+  await as(users[1],()=>db.query(`select public.decide_leave_request('${half.id}',true,'Morning approved')`));
+  const correlated=(await db.query(`select private.timesheet_snapshot('${emps[2]}',${day(4)},${day(4)}) as s`)).rows[0].s;
+  ok('approval recalculates existing attendance and exports half work plus half leave',correlated.regular_minutes===240&&correlated.paid_leave_minutes===240&&correlated.overtime_minutes===0&&correlated.issues===0&&(await db.query(`select arrival_status from public.attendance_sessions where id='${halfPunch}'`)).rows[0].arrival_status==='on_time');
+  const expectation=(await db.query(`select start_at at time zone 'America/Jamaica' as start,extract(epoch from(end_at-start_at))/3600 as hours from private.leave_adjusted_shift('${emps[2]}',${day(4)})`)).rows[0];
+  ok('approved first-half leave reduces expected attendance to the second half',Number(expectation.hours)===4 && String(expectation.start).includes('13:00'));
+  ok('half-day leave does not excuse a full-day absence',(await db.query(`select private.approved_leave_on('${emps[2]}',${day(4)}) as name`)).rows[0].name===null);
+  const calendar=(await db.query(`insert into public.leave_types(organization_id,name,code,balance_tracked,day_count_basis,requires_approval) values('${ORG}','Calendar entitlement','LV-CAL',false,'calendar_days',false) returning id`)).rows[0].id;
+  await as(users[2],async()=>{
+    const p=(await db.query(`select public.preview_leave('${calendar}',${day(6)},${day(7)},false) as p`)).rows[0].p;
+    ok('calendar-day leave includes unscheduled dates',Number(p.total_days)===2);
+  });
+  const auto=await submit(6,7,false,'full','null',calendar);
+  ok('only explicit no-approval policies auto-approve',auto.status==='approved');
+  ok('untracked leave does not create a negative day ledger',(await db.query(`select count(*) as n from public.leave_ledger where related_request_id='${auto.id}'`)).rows[0].n==0);
+  const evidence=(await db.query(`insert into public.leave_types(organization_id,name,code,balance_tracked,requires_attachment,attachment_after_days) values('${ORG}','Evidence required','LV-DOC',false,true,null) returning id`)).rows[0].id;
+  await denied('required evidence with no threshold applies to every request',()=>submit(8,8,false,'full','null',evidence));
+  const path=`${ORG}/${emps[2]}/medical.pdf`;
+  await db.exec(`insert into storage.objects(bucket_id,name) values('leave-attachments','${path}')`);
+  let attachment;
+  await as(users[2],async()=>{attachment=(await db.query(`select public.register_leave_attachment('${path}','Medical certificate.pdf') as id`)).rows[0].id;});
+  await denied('another employee cannot register someone else\'s supporting file',()=>as(users[1],()=>db.query(`select public.register_leave_attachment('${path}','Stolen.pdf')`)));
+  const withEvidence=await submit(8,8,false,'full','null',evidence,`'${attachment}'`);
+  ok('private evidence links to its own employee request',withEvidence.attachment_document_id===attachment);
+  await denied('foreign tenant ledger adjustment is rejected',()=>as(users[0],()=>db.query(`select public.adjust_leave_balance('${emps[4]}','${type}',1,'Wrong organization','${dates.today}','fb900000-0000-0000-0000-000000000088')`)));
+  // No named supervisor must never mean silent auto-approval.
+  await db.exec(`update public.employee_assignments set supervisor_employee_id=null,manager_employee_id=null where employee_id='${emps[2]}'`);
+  const orphan=await submit(9);
+  ok('missing approvers route to HR rather than auto-approve',orphan.status==='pending_supervisor');
+  await denied('unassigned employee cannot decide an HR fallback step',()=>as(users[1],()=>db.query(`select public.decide_leave_request('${orphan.id}',true)`)));
+  await as(users[0],()=>db.query(`select public.decide_leave_request('${orphan.id}',true,'HR coverage review')`));
+  // An odd unpaid break must not create an extra minute across two half days.
+  await db.exec(`update public.schedule_shifts set break_minutes=15 where schedule_id='${schedule}'`);
+  const oddAm=await submit(11,11,true,'am'),oddPm=await submit(11,11,true,'pm');
+  await as(users[0],async()=>{await db.query(`select public.decide_leave_request('${oddAm.id}',true,'First half')`);await db.query(`select public.decide_leave_request('${oddPm.id}',true,'Second half')`);});
+  const oddSnapshot=(await db.query(`select private.timesheet_snapshot('${emps[2]}',${day(11)},${day(11)}) as s`)).rows[0].s;
+  ok('two half-day leave exports equal one full net shift, including odd break minutes',oddSnapshot.paid_leave_minutes===465&&oddSnapshot.issues===0);
+  const reservation=await submit(12,22);
+  await denied('pending reservations prevent overspending across different requests',()=>submit(23));
+  await as(users[2],()=>db.query(`select public.request_leave_cancellation('${reservation.id}',null)`));
+  const unpaid=(await db.query(`insert into public.leave_types(organization_id,name,code,is_paid,balance_tracked,requires_approval) values('${ORG}','Unpaid review','LV-UNPAID',false,false,true) returning id`)).rows[0].id;
+  const twoStep=await submit(24,24,false,'full','null',unpaid);
+  await as(users[0],()=>db.query(`select public.decide_leave_request('${twoStep.id}',true,'First independent review')`));
+  await denied('one reviewer cannot approve both steps',()=>as(users[0],()=>db.query(`select public.decide_leave_request('${twoStep.id}',true,'Self-escalation')`)));
+  await as(users[3],()=>db.query(`select public.decide_leave_request('${twoStep.id}',true,'Second independent review')`));
+  ok('unpaid leave requires and completes two independent steps',(await db.query(`select status from public.leave_requests where id='${twoStep.id}'`)).rows[0].status==='approved');
+  await db.exec(`update public.employee_assignments set supervisor_employee_id='${emps[1]}',manager_employee_id='${emps[3]}' where employee_id='${emps[2]}'`);
+  const revoked=await submit(25);
+  await db.exec(`update public.role_assignments set role='employee' where user_id='${users[1]}'`);
+  await denied('named approver loses decision rights when their permission is revoked',()=>as(users[1],()=>db.query(`select public.decide_leave_request('${revoked.id}',true,'Old role')`)));
+  await as(users[0],async()=>{await db.query(`select public.reroute_leave_request('${revoked.id}','Supervisor role changed')`);await db.query(`select public.decide_leave_request('${revoked.id}',false,'Please choose dates with team coverage')`);});
+  ok('HR rerouting preserves an actionable request and records rejection',(await db.query(`select status from public.leave_requests where id='${revoked.id}'`)).rows[0].status==='rejected');
+  const locked=(await db.query(`insert into public.attendance_periods(organization_id,name,period_start,period_end,status,created_by) values('${ORG}','Locked leave source',${day(4)},${day(4)},'locked','${users[0]}') returning id`)).rows[0].id;
+  await denied('approved leave cannot be cancelled through a locked timesheet period',()=>as(users[2],()=>db.query(`select public.request_leave_cancellation('${half.id}','Changed plans')`)));
+  await db.exec(`delete from public.attendance_periods where id='${locked}'`);
+  const sourcePolicy=(await db.query(`insert into public.leave_policies(organization_id,leave_type_id,name) values('${ORG}','${type}','Tenant validation') returning id`)).rows[0].id;
+  await denied('cross-tenant policy assignment is rejected even with a forged organization id',()=>db.exec(`insert into public.leave_policy_assignments(organization_id,employee_id,leave_policy_id,start_date) values('${OTHER}','${emps[4]}','${sourcePolicy}','2020-01-01')`));
+  await denied('unsupported hourly leave cannot be advertised as working',()=>db.exec(`insert into public.leave_types(organization_id,name,code,allow_hourly) values('${ORG}','Hourly','LV-HOUR',true)`));
+  // Future credits must never inflate today's available balance.
+  await grant(50,'fb900000-0000-0000-0000-000000000003',new Date(Date.parse(dates.today)+365*86400000).toISOString().slice(0,10));
+  ok('future credits are excluded from current balances',Number((await db.query(`select balance from public.leave_balance_v where employee_id='${emps[2]}' and leave_type_id='${type}'`)).rows[0].balance)<50);
+  await as(users[0],async()=>{
+    await denied('automatic accrual cannot be enabled with a past first date',()=>db.query(`select public.save_leave_accrual_policy('${ORG}','${type}','monthly',1,true,'${dates.today}')`));
+    await db.query(`select public.save_leave_accrual_policy('${ORG}','${type}','monthly',1.25,false,null)`);
+  });
+  const lp=(await db.query(`select id from public.leave_policies where leave_type_id='${type}' and is_default`)).rows[0].id;
+  await db.exec(`update public.leave_policies set automated_accrual=true,first_accrual_date=private.org_today('${ORG}')-interval '1 month' where id='${lp}';
+    update public.leave_policy_assignments set start_date='2020-01-01' where leave_policy_id='${lp}';`);
+  await as(users[0],async()=>{await db.query(`select public.run_leave_accruals('${ORG}')`);});
+  const credits=Number((await db.query(`select count(*) as n from public.leave_ledger where employee_id='${emps[2]}' and idempotency_key like 'leave:accrual:%'`)).rows[0].n);
+  ok('monthly entitlement supports 1.25-day credits without rounding to half days',Number((await db.query(`select sum(amount) as n from public.leave_ledger where employee_id='${emps[2]}' and idempotency_key like 'leave:accrual:%'`)).rows[0].n)===credits*1.25);
+  await as(users[0],()=>db.query(`select public.run_leave_accruals('${ORG}')`));
+  ok('monthly accrual catches due cycles and is idempotent',credits>=2&&Number((await db.query(`select count(*) as n from public.leave_ledger where employee_id='${emps[2]}' and idempotency_key like 'leave:accrual:%'`)).rows[0].n)===credits);
+  await denied('ordinary employee cannot run organization accruals',()=>as(users[2],()=>db.query(`select public.run_leave_accruals('${ORG}')`)));
+  await db.exec(`update public.leave_policies set automated_accrual=false where id='${lp}'`);
+}
