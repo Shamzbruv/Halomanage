@@ -1628,3 +1628,10 @@ The employee dashboard, team hub, employee HR card, attendance expectations, day
 notifications and approved-timesheet exports use the same facts. Carryover/expiry remain
 audited HR adjustments; pay remains calculated externally. Existing policies are not
 silently replaced or opted in to accrual automation.
+
+
+## My Pay HR review — 2026-10-25
+
+See [MY_PAY_HR_AUDIT.md](MY_PAY_HR_AUDIT.md) for primary research, implementation decisions and limitations. `published_payroll_records` captures immutable employee-visible pay statements; `current_payroll_records` retains its reporting shape but returns safe published values. Staging and shared workbook metadata are importer-only. Per-record replacement links preserve omitted employees and old payslip URLs. Privileged import/publication/query implementations live in unexposed `pay_internal`; public wrappers are invokers. Compensation notes are stored separately in `compensation_private_notes`. `pay_queries` / `pay_query_messages` add a scoped, audited employee–HR conversation without altering pay figures.
+
+My Pay independently gates compensation and pay results, filters/paginates history and returns exact decimal totals per pay-date year and currency. Canceled schedules are excluded. Standalone payslips enforce required MFA and snapshot historical identity. The importer strictly parses dates/decimals, disallows identifier/email fallback, verifies file hashes and atomically claims/stages/revalidates each batch. HR reviews `/admin/payroll/[id]`; corrections replace only current records of included employees. Pay publication remains separate from compensation changes, attendance/leave transactions and external payroll calculation.

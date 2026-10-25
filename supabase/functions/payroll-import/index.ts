@@ -19,7 +19,8 @@
 // Supabase Queues rather than trying to force it through this function.
 
 import { createClient } from "npm:@supabase/supabase-js@2.112.4";
-import * as XLSX from "npm:xlsx@0.18.5";
+// @deno-types="./vendor/xlsx-0.20.3.d.ts"
+import * as XLSX from "./vendor/xlsx-0.20.3.mjs";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 
 // Default header → internal field mapping used when the batch has no
@@ -32,15 +33,19 @@ const DEFAULT_PAY_RUN_MAP: Record<string, string> = {
   "pay period start": "pay_period_start",
   "pay period end": "pay_period_end",
   "payment date": "payment_date",
-  "currency": "currency",
+  currency: "currency",
   "gross pay": "gross_pay",
   "regular pay": "regular_pay",
   "overtime pay": "overtime_pay",
-  "allowances": "allowances",
-  "bonus": "bonus",
-  "tax": "tax",
+  allowances: "allowances",
+  bonus: "bonus",
+  tax: "tax",
   "other deductions": "other_deductions",
   "net pay": "net_pay",
+  earnings: "earnings",
+  deductions: "deductions",
+  taxes: "taxes",
+  "employer contributions": "employer_values",
 };
 
 const DEFAULT_COMPENSATION_MAP: Record<string, string> = {
@@ -49,194 +54,166 @@ const DEFAULT_COMPENSATION_MAP: Record<string, string> = {
   "effective date": "effective_date",
   "old salary": "old_amount",
   "new salary": "new_amount",
-  "currency": "currency",
+  currency: "currency",
 };
 
-function normalizeHeader(h: string) {
-  return h.trim().toLowerCase();
-}
-
-function toNumber(v: unknown): number | null {
-  if (v === null || v === undefined || v === "") return null;
-  const n = Number(String(v).replace(/,/g, ""));
-  return Number.isFinite(n) ? n : null;
-}
-
-function toDateString(v: unknown): string | null {
-  if (v === null || v === undefined || v === "") return null;
-  if (v instanceof Date) return v.toISOString().slice(0, 10);
-  const d = new Date(String(v));
-  return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
-}
+import { stageRow, validateHeaders } from "./parser.mjs";
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
+  if (req.method === "OPTIONS")
     return new Response("ok", { headers: corsHeaders });
-  }
-
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const authHeader = req.headers.get("Authorization");
-  if (!authHeader) return jsonResponse({ error: "Missing Authorization header" }, 401);
-
+  if (req.method !== "POST")
+    return jsonResponse({ error: "POST required" }, 405);
+  const url = Deno.env.get("SUPABASE_URL")!,
+    key = Deno.env.get("SUPABASE_ANON_KEY")!,
+    serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const authorization = req.headers.get("Authorization");
+  if (!authorization)
+    return jsonResponse({ error: "Authorization required" }, 401);
+  const caller = createClient(url, key, {
+      global: { headers: { Authorization: authorization } },
+    }),
+    admin = createClient(url, serviceKey);
+  let claimedId: string | null = null;
   try {
     const { batch_id } = await req.json();
-    if (!batch_id) return jsonResponse({ error: "batch_id is required" }, 400);
-
-    // Caller-scoped: RLS only returns this batch if the caller holds
-    // payroll.import in this organization (see 20260818001200_payroll_import.sql).
-    const callerClient = createClient(supabaseUrl, anonKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
-
-    const { data: batch, error: batchError } = await callerClient
-      .from("payroll_import_batches")
-      .select("*, payroll_column_maps(mapping, batch_type)")
-      .eq("id", batch_id)
-      .single();
-
-    if (batchError || !batch) {
-      return jsonResponse({ error: "Not authorized to process this batch" }, 403);
-    }
-    if (batch.status !== "uploaded") {
-      return jsonResponse({ error: `Batch is already in status '${batch.status}'` }, 409);
-    }
-
-    await callerClient
-      .from("payroll_import_batches")
-      .update({ status: "processing" })
-      .eq("id", batch_id);
-
-    // service_role: downloading the raw file and staging rows is a trusted
-    // server-side step with no client-facing RLS path (intentionally —
-    // payroll_import_rows/compensation_change_rows grant no direct
-    // authenticated insert; only this function and the RPCs write them).
-    const adminClient = createClient(supabaseUrl, serviceRoleKey);
-
-    const { data: fileBlob, error: downloadError } = await adminClient.storage
-      .from("payroll-imports")
-      .download(batch.original_file_path);
-
-    if (downloadError || !fileBlob) {
-      await adminClient.from("payroll_import_batches").update({ status: "needs_review" }).eq("id", batch_id);
-      return jsonResponse({ error: `Could not read uploaded file: ${downloadError?.message}` }, 500);
-    }
-
-    const buffer = new Uint8Array(await fileBlob.arrayBuffer());
-    const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const rows: Record<string, unknown>[] = XLSX.utils.sheet_to_json(sheet, { defval: null });
-
-    const columnMap: Record<string, string> = batch.payroll_column_maps?.mapping ??
-      (batch.batch_type === "compensation_change" ? DEFAULT_COMPENSATION_MAP : DEFAULT_PAY_RUN_MAP);
-
-    // Pull the organization's employees once and match in memory — cheaper
-    // than one query per row, and keeps matching logic (the important
-    // part: employee_number/external_payroll_id, never name) in one place.
-    const { data: employees } = await adminClient
-      .from("employees")
-      .select("id, employee_number, external_payroll_id, work_email")
-      .eq("organization_id", batch.organization_id);
-
-    const byNumber = new Map((employees ?? []).map((e) => [e.employee_number, e.id]));
-    const byExternal = new Map(
-      (employees ?? []).filter((e) => e.external_payroll_id).map((e) => [e.external_payroll_id as string, e.id]),
-    );
-    const byEmail = new Map(
-      (employees ?? []).filter((e) => e.work_email).map((e) => [(e.work_email as string).toLowerCase(), e.id]),
-    );
-
-    function matchEmployee(externalId: string | null, number: string | null, email: string | null) {
-      if (externalId && byExternal.has(externalId)) return byExternal.get(externalId)!;
-      if (number && byNumber.has(number)) return byNumber.get(number)!;
-      if (email && byEmail.has(email.toLowerCase())) return byEmail.get(email.toLowerCase())!;
-      return null;
-    }
-
-    let rowNumber = 0;
-    const staged: Record<string, unknown>[] = [];
-
-    for (const raw of rows) {
-      rowNumber += 1;
-      const mapped: Record<string, unknown> = {};
-      for (const [rawHeader, value] of Object.entries(raw)) {
-        const target = columnMap[normalizeHeader(rawHeader)];
-        if (target) mapped[target] = value;
-      }
-
-      const externalId = mapped.external_employee_id ? String(mapped.external_employee_id) : null;
-      const number = mapped.employee_number ? String(mapped.employee_number) : null;
-      const email = mapped.employee_email ? String(mapped.employee_email) : null;
-      const employeeId = matchEmployee(externalId, number, email);
-
-      if (batch.batch_type === "pay_run_results") {
-        const netPay = toNumber(mapped.net_pay);
-        const valid = employeeId !== null && netPay !== null;
-        staged.push({
-          batch_id,
-          row_number: rowNumber,
-          employee_id: employeeId,
-          external_employee_id: externalId,
-          employee_number: number,
-          employee_email: email,
-          employee_name_raw: raw["Employee Name"] ?? raw["Name"] ?? null,
-          gross_pay: toNumber(mapped.gross_pay),
-          regular_pay: toNumber(mapped.regular_pay),
-          overtime_pay: toNumber(mapped.overtime_pay),
-          allowances: toNumber(mapped.allowances),
-          bonus: toNumber(mapped.bonus),
-          tax: toNumber(mapped.tax),
-          other_deductions: toNumber(mapped.other_deductions),
-          net_pay: netPay,
-          raw_row: raw,
-          mapping_status: employeeId ? "matched" : "unmatched",
-          validation_status: valid ? "valid" : "invalid",
-          error_message: valid ? null : (employeeId ? "Missing/invalid net pay" : "No matching employee found"),
-        });
-      } else {
-        const effectiveDate = toDateString(mapped.effective_date);
-        const newAmount = toNumber(mapped.new_amount);
-        const valid = employeeId !== null && effectiveDate !== null && newAmount !== null;
-        staged.push({
-          batch_id,
-          row_number: rowNumber,
-          employee_id: employeeId,
-          external_employee_id: externalId,
-          employee_number: number,
-          effective_date: effectiveDate,
-          old_amount: toNumber(mapped.old_amount),
-          new_amount: newAmount,
-          currency: mapped.currency ?? batch.currency,
-          raw_row: raw,
-          mapping_status: employeeId ? "matched" : "unmatched",
-          validation_status: valid ? "valid" : "invalid",
-          error_message: valid ? null : (employeeId ? "Missing/invalid effective date or new amount" : "No matching employee found"),
-        });
-      }
-    }
-
-    const table = batch.batch_type === "pay_run_results" ? "payroll_import_rows" : "compensation_change_rows";
-    if (staged.length > 0) {
-      const { error: insertError } = await adminClient.from(table).insert(staged);
-      if (insertError) {
-        await adminClient.from("payroll_import_batches").update({ status: "needs_review" }).eq("id", batch_id);
-        return jsonResponse({ error: `Failed to stage rows: ${insertError.message}` }, 500);
-      }
-    }
-
-    // Re-run under the caller's own JWT so the resulting audit_events row
-    // correctly attributes the recompute to the importing user.
-    const { data: recomputed, error: recomputeError } = await callerClient.rpc(
-      "recompute_payroll_batch_status",
+    if (typeof batch_id !== "string" || !/^[-0-9a-f]{36}$/i.test(batch_id))
+      return jsonResponse({ error: "Valid batch_id required" }, 400);
+    // Atomic claim checks importer permission and step-up authentication. Read access
+    // to an approved batch never authorizes processing or a service-role write.
+    const { data: batch, error: claimError } = await caller.rpc(
+      "claim_payroll_processing",
       { p_batch_id: batch_id },
     );
-    if (recomputeError) {
-      return jsonResponse({ error: recomputeError.message }, 500);
+    if (claimError || !batch)
+      return jsonResponse(
+        { error: claimError?.message ?? "Not authorized" },
+        409,
+      );
+    claimedId = batch.id;
+    const { data: file, error: downloadError } = await admin.storage
+      .from("payroll-imports")
+      .download(batch.original_file_path);
+    if (downloadError || !file)
+      throw new Error(
+        "Could not read the uploaded file. Reject this batch and upload again.",
+      );
+    if (file.size > 10 * 1024 * 1024)
+      throw new Error("Import exceeds the 10 MB limit");
+    const buffer = new Uint8Array(await file.arrayBuffer());
+    const hash = Array.from(
+      new Uint8Array(await crypto.subtle.digest("SHA-256", buffer)),
+    )
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    if (hash !== batch.file_hash)
+      throw new Error("Uploaded file fingerprint does not match the batch");
+    const workbook = XLSX.read(buffer, {
+      type: "array",
+      cellDates: true,
+      sheetRows: 10002,
+      raw: true,
+    });
+    if (workbook.SheetNames.length !== 1)
+      throw new Error("Use a file with exactly one worksheet");
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows: Record<string, unknown>[] = XLSX.utils.sheet_to_json(sheet, {
+      defval: null,
+    });
+    if (!rows.length || rows.length > 10000)
+      throw new Error("Import must contain 1–10,000 data rows");
+    let columnMap: Record<string, string> =
+      batch.batch_type === "compensation_change"
+        ? DEFAULT_COMPENSATION_MAP
+        : DEFAULT_PAY_RUN_MAP;
+    if (batch.column_map_id) {
+      const { data: map, error } = await admin
+        .from("payroll_column_maps")
+        .select("mapping")
+        .eq("id", batch.column_map_id)
+        .eq("organization_id", batch.organization_id)
+        .single();
+      if (error) throw error;
+      columnMap = map.mapping;
     }
-
-    return jsonResponse({ ok: true, batch: recomputed, rows_staged: staged.length });
+    columnMap = Object.fromEntries(
+      Object.entries(columnMap).map(([key, value]) => [
+        key.trim().toLowerCase(),
+        value,
+      ]),
+    );
+    const headerRows = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
+      header: 1,
+      blankrows: false,
+      defval: null,
+    });
+    validateHeaders(headerRows[0] ?? [], columnMap);
+    const employees: {
+      id: string;
+      employee_number: string;
+      external_payroll_id: string | null;
+    }[] = [];
+    for (let start = 0; ; start += 1000) {
+      const { data, error } = await admin
+        .from("employees")
+        .select("id,employee_number,external_payroll_id")
+        .eq("organization_id", batch.organization_id)
+        .order("id")
+        .range(start, start + 999);
+      if (error) throw error;
+      employees.push(...(data ?? []));
+      if ((data?.length ?? 0) < 1000) break;
+      if (start >= 99000)
+        throw new Error(
+          "Employee matching exceeds this import's supported size",
+        );
+    }
+    const staged = rows.map((raw, i) => {
+      const mapped: Record<string, unknown> = Object.create(null);
+      for (const [header, value] of Object.entries(raw)) {
+        const target = columnMap[header.trim().toLowerCase()];
+        if (target) {
+          if (target in mapped)
+            throw new Error(`Multiple columns map to ${target}`);
+          mapped[target] = value;
+        }
+      }
+      return stageRow(mapped, raw, batch, employees ?? [], i + 1);
+    });
+    const table =
+      batch.batch_type === "compensation_change"
+        ? "compensation_change_rows"
+        : "payroll_import_rows";
+    // A single atomic insert prevents half-staged imports. Database validation is
+    // authoritative and is repeated under lock when HR publishes the batch.
+    const { error: insertError } = await admin.from(table).insert(staged);
+    if (insertError) throw insertError;
+    const { data: recomputed, error: validationError } = await caller.rpc(
+      "recompute_payroll_batch_status",
+      { p_batch_id: batch.id },
+    );
+    if (validationError) throw validationError;
+    return jsonResponse({
+      ok: true,
+      batch: recomputed,
+      rows_staged: staged.length,
+    });
   } catch (err) {
-    return jsonResponse({ error: err instanceof Error ? err.message : "Unexpected error" }, 500);
+    if (claimedId)
+      await admin
+        .from("payroll_import_batches")
+        .update({ status: "needs_review" })
+        .eq("id", claimedId)
+        .eq("status", "processing");
+    console.error("Payroll import failed", { batch_id: claimedId });
+    return jsonResponse(
+      {
+        error:
+          err instanceof Error
+            ? err.message
+            : "Payroll processing failed. Reject the batch and upload a corrected file.",
+      },
+      400,
+    );
   }
 });

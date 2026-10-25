@@ -185,11 +185,12 @@ export async function LeaveCard({ employee }: { employee: EmployeeRecord }) {
 export async function CompensationCard({ employee, canManage, timezone }: { employee: EmployeeRecord; canManage: boolean; timezone: string | undefined }) {
   const supabase = await createClient();
   const orgId = employee.organization_id;
-  const [{ data: history }, { data: payGroups }, { data: payGrades }, { data: reasons }] = await Promise.all([
+  const [{ data: history }, { data: payGroups }, { data: payGrades }, { data: reasons }, { data: privateNotes }] = await Promise.all([
     supabase.from("employee_compensation").select("*").eq("employee_id", employee.id).order("start_date", { ascending: false }),
     supabase.from("pay_groups").select("id, name, pay_calendar_id").eq("organization_id", orgId).eq("is_active", true).order("name"),
     supabase.from("pay_grades").select("id, name").eq("organization_id", orgId).eq("is_active", true).order("name"),
     supabase.from("compensation_change_reasons").select("id, name").eq("organization_id", orgId).eq("is_active", true).order("name"),
+    supabase.from("compensation_private_notes").select("compensation_id,note").eq("employee_id",employee.id),
   ]);
   const today = todayIn(timezone);
   const current = (history ?? []).find((c) => c.start_date <= today && (!c.end_date || c.end_date >= today)) ?? null;
@@ -198,7 +199,7 @@ export async function CompensationCard({ employee, canManage, timezone }: { empl
 
   let nextPayDate: string | null = null;
   if (payGroup?.pay_calendar_id) {
-    const { data: nextPeriod } = await supabase.from("pay_periods").select("pay_date").eq("pay_calendar_id", payGroup.pay_calendar_id).gte("pay_date", today).order("pay_date", { ascending: true }).limit(1).maybeSingle();
+    const { data: nextPeriod } = await supabase.from("pay_periods").select("pay_date").eq("pay_calendar_id", payGroup.pay_calendar_id).neq("status", "canceled").gte("pay_date", today).order("pay_date", { ascending: true }).limit(1).maybeSingle();
     nextPayDate = nextPeriod?.pay_date ?? null;
   }
 
@@ -232,6 +233,7 @@ export async function CompensationCard({ employee, canManage, timezone }: { empl
       ) : (
         <p className="text-sm text-stone-400">No compensation on record yet.</p>
       )}
+      {!!privateNotes?.length && <details className="mt-4"><summary>Confidential HR notes</summary><ul>{privateNotes.map(n=><li key={n.compensation_id} className="whitespace-pre-wrap py-2"><small>Compensation reference {n.compensation_id}</small><p>{n.note}</p></li>)}</ul></details>}
       {(history ?? []).some((c) => c.end_date !== null) && (
         <>
           <h3 className="mb-2 mt-5 text-xs font-semibold uppercase text-stone-400">History</h3>

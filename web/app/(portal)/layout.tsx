@@ -29,7 +29,7 @@ const ADMIN_PAGE_PERMISSIONS: Record<string, AppPermission[]> = {
   "/admin/appraisals": ["appraisal.manage_cycles"],
   "/admin/documents": ["documents.manage_org"],
   "/admin/development": ["training.manage", "assets.manage"],
-  "/admin/payroll": ["payroll.import"],
+  "/admin/payroll": ["payroll.import", "compensation.manage", "compensation.approve"],
   "/admin/compensation-settings": ["compensation.manage_structure"],
   "/admin/pay-calendars": ["pay_calendar.read", "pay_calendar.manage"],
   "/admin/rewards": ["rewards.manage_catalog", "rewards.award_points", "rewards.fulfill"],
@@ -116,6 +116,8 @@ export default async function PortalLayout({ children }: { children: React.React
     "training.manage",
     "assets.manage",
     "payroll.import",
+    "compensation.manage",
+    "compensation.approve",
     "compensation.manage_structure",
     "pay_calendar.manage",
     "pay_calendar.read",
@@ -157,6 +159,7 @@ export default async function PortalLayout({ children }: { children: React.React
     <PortalShell
       avatarUrl={avatarUrl}
       canSeeAdmin={canSeeAdmin}
+      canSeePay={sessionCan(session,"compensation.read_self")||sessionCan(session,"payroll.read_self")}
       canSeeTeam={canSeeTeam}
       canSeeTeamAttendance={canSeeTeamAttendance}
       clock={clock}

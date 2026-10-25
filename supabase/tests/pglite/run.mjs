@@ -32,6 +32,7 @@
 // Keep this file passing; extend it (or supabase/tests/database/) for any
 // new module before trusting its RLS.
 
+import { testPay } from "./pay.mjs";
 import { testLeave } from "./leave.mjs";
 import { testTimesheets } from "./timesheets.mjs";
 import { PGlite } from "@electric-sql/pglite";
@@ -2812,6 +2813,7 @@ async function main() {
 
   await testTimesheets({ db, as, ok });
   await testLeave({ db, as, ok });
+  await testPay({ db, as, ok });
 
   console.log(`\n${passCount} passed, ${failCount} failed.`);
   if (failCount > 0) process.exitCode = 1;

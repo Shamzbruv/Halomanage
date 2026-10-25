@@ -69,7 +69,7 @@ const pageTitles: Array<{ pattern: RegExp; title: string; eyebrow: string; help:
   { pattern: /^\/settings/, title: "Settings", eyebrow: "Personal workspace", help: "Your account — which notifications appear in your bell, your sign-in method, password and multi-factor authentication, recent sign-in activity, and signing out other devices. Your employee record itself is under My profile." },
   { pattern: /^\/time/, title: "Time & attendance", eyebrow: "Personal workspace", help: "Clock in and out, see your assigned work schedule, and review your attendance history. Spotted a mistake in a past record? Request a correction instead of it being silently overwritten." },
   { pattern: /^\/leave/, title: "Leave", eyebrow: "Personal workspace", help: "Check your available leave balance by type, submit a new request, and track every request through approval." },
-  { pattern: /^\/pay/, title: "My pay", eyebrow: "Personal workspace", help: "Yes — this is your salary. See your current rate, next pay date, any allowances or bonuses on top of your base rate, and download a payslip for any approved pay run." },
+  { pattern: /^\/pay/, title: "My pay", eyebrow: "Personal workspace", help: "Review your agreed gross rate, planned pay dates and imported payslips. Totals stay separate by currency. Ask HR about missing pay, deductions or corrections through My pay queries." },
   { pattern: /^\/recognition/, title: "Recognition", eyebrow: "Personal workspace", help: "Publicly thank a coworker for something they did — with or without points attached, depending on your organization's policy." },
   { pattern: /^\/rewards/, title: "Rewards", eyebrow: "Personal workspace", help: "Spend recognition points you've received on real rewards from your organization's catalog, and track your redemption history." },
   { pattern: /^\/onboarding/, title: "Onboarding", eyebrow: "Personal workspace", help: "Your personal checklist for getting fully set up in a new role — each step, its order, and what's still outstanding." },
@@ -156,12 +156,13 @@ function Navigation({ groups, pathname, onNavigate, collapsed = false }: { group
   );
 }
 
-export function PortalShell({ children, avatarUrl, canSeeAdmin, canSeeTeam, canSeeTeamAttendance, clock, email, name, organizationName, roleLabels, visibleAdminHrefs }: {
+export function PortalShell({ children, avatarUrl, canSeeAdmin, canSeeTeam, canSeeTeamAttendance, canSeePay = true, clock, email, name, organizationName, roleLabels, visibleAdminHrefs }: {
   children: React.ReactNode;
   avatarUrl: string | null;
   canSeeAdmin: boolean;
   canSeeTeam: boolean;
   canSeeTeamAttendance: boolean;
+  canSeePay?: boolean;
   clock: ClockView | null;
   email: string | null;
   name: string;
@@ -181,7 +182,7 @@ export function PortalShell({ children, avatarUrl, canSeeAdmin, canSeeTeam, canS
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
   const mobileDrawerRef = useRef<HTMLElement>(null);
-  const groups = [...personalItems];
+  const groups = personalItems.map(group=>({...group,items:group.items.filter(item=>item.href!=="/pay"||canSeePay)}));
   const teamItems: NavItem[] = [];
   if (canSeeTeam) teamItems.push({ href: "/team", label: "Team hub", icon: "team" });
   if (canSeeTeamAttendance) teamItems.push({ href: "/team/attendance", label: "Team attendance", icon: "clock" });

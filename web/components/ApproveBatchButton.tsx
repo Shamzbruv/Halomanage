@@ -20,6 +20,7 @@ export function ApproveBatchButton({ batchId }: { batchId: string }) {
       setLoading(false);
       return;
     }
+    setLoading(false);
     router.refresh();
   }
 

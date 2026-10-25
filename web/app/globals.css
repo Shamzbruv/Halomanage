@@ -1605,3 +1605,19 @@
 
   .welcome-onboarding { border-color: #bfe3d9; }
 }
+
+/* Pay records use roomy, scrollable tables on narrow screens. */
+.pay-workspace h2 { font-size: 1rem; font-weight: 700; margin-bottom: .6rem; }
+.pay-workspace h3 { font-weight: 600; }
+.pay-workspace table { min-width: 620px; border-collapse: collapse; }
+.pay-workspace th { text-align: left; padding: .8rem .65rem; border-bottom: 1px solid var(--line-strong); font-size: .75rem; color: var(--ink-faint); }
+.pay-workspace td { padding: .8rem .65rem; border-bottom: 1px solid var(--line); vertical-align: top; font-variant-numeric: tabular-nums; }
+.payslip-footer p { display: block; overflow-wrap: anywhere; }
+@media screen and (max-width: 600px) {
+ .payslip-page { padding: 1rem .5rem; }
+ .payslip-sheet { padding: 1rem; }
+ .payslip-columns { grid-template-columns: 1fr; }
+ .payslip-letterhead { flex-direction: column; }
+ .payslip-toolbar { flex-wrap: wrap; gap: .8rem; }
+ .payslip-net { flex-wrap: wrap; gap: .5rem; }
+}
