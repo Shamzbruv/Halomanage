@@ -1,46 +1,118 @@
 "use client";
-
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { resolveFunctionErrorMessage } from "@/lib/supabase/functions";
-
-export function RedeemRewardButton({ productId, canAfford }: { productId: string; canAfford: boolean }) {
-  const supabase = createClient();
-  const router = useRouter();
-  const [confirming, setConfirming] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
+import { RewardDialog } from "./RewardDialog";
+import type { RewardProduct } from "@/lib/rewards";
+export function RedeemRewardButton({
+  product,
+  balance,
+}: {
+  product: RewardProduct;
+  balance: number;
+}) {
+  const router = useRouter(),
+    retry = useRef<{ payload: string; key: string } | null>(null),
+    submitting = useRef(false);
+  const [open, setOpen] = useState(false),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState<string | null>(null);
   async function redeem() {
-    setLoading(true);
+    if (submitting.current) return;
+    submitting.current = true;
+    setBusy(true);
     setError(null);
-    const { error: rpcError } = await supabase.rpc("redeem_reward", { p_product_id: productId });
-    if (rpcError) {
-      setError(await resolveFunctionErrorMessage(rpcError, "Could not redeem this reward."));
-      setLoading(false);
-      return;
+    const payload = JSON.stringify([
+      product.id,
+      product.points_cost,
+      product.updated_at,
+    ]);
+    if (retry.current?.payload !== payload)
+      retry.current = { payload, key: crypto.randomUUID() };
+    try {
+      const { error } = await createClient().rpc("request_reward", {
+        p_product_id: product.id,
+        p_client_request_id: retry.current.key,
+        p_expected_points_cost: product.points_cost,
+        p_expected_updated_at: product.updated_at,
+      });
+      if (error) throw error;
+      retry.current = null;
+      setOpen(false);
+      router.refresh();
+    } catch (error) {
+      setError(
+        error instanceof Error
+          ? error.message
+          : ((error as { message?: string })?.message ??
+              "Unable to submit. Retry safely, or refresh to review current details."),
+      );
+    } finally {
+      submitting.current = false;
+      setBusy(false);
     }
-    setLoading(false);
-    setConfirming(false);
-    router.refresh();
   }
-
-  if (confirming) {
-    return (
-      <div className="flex flex-col items-end gap-1">
-        <div className="flex gap-1">
-          <button type="button" className="btn-primary px-2.5 py-1 text-xs" disabled={loading} onClick={() => void redeem()}>{loading ? "Redeeming…" : "Confirm"}</button>
-          <button type="button" className="btn-secondary px-2.5 py-1 text-xs" disabled={loading} onClick={() => setConfirming(false)}>Cancel</button>
-        </div>
-        {error && <span className="text-xs leading-snug text-ruby-600">{error}</span>}
-      </div>
-    );
-  }
-
   return (
-    <button type="button" className="btn-primary px-3 py-1 text-xs" disabled={!canAfford} onClick={() => setConfirming(true)}>
-      {canAfford ? "Redeem" : "Not enough points"}
-    </button>
+    <>
+      <button
+        type="button"
+        className="btn-primary"
+        disabled={
+          balance < product.points_cost || product.inventory_quantity === 0
+        }
+        onClick={() => {
+          setError(null);
+          setOpen(true);
+        }}
+      >
+        {product.inventory_quantity === 0
+          ? "Out of stock"
+          : balance < product.points_cost
+            ? "Not enough points"
+            : "Redeem"}
+      </button>
+      <RewardDialog
+        open={open}
+        onClose={() => setOpen(false)}
+        title={`Redeem ${product.name}`}
+        busy={busy}
+      >
+        <div className="space-y-3">
+          <p>
+            {product.vendor_name} ·{" "}
+            <strong>{product.points_cost.toLocaleString()} points</strong>
+          </p>
+          <p>
+            Balance after request:{" "}
+            {(balance - product.points_cost).toLocaleString()} points.
+          </p>
+          <p>{product.description}</p>
+          <p className="whitespace-pre-wrap">
+            {product.terms ||
+              "HR arranges collection or delivery. Contact HR for details before requesting."}
+          </p>
+          <p className="text-sm">
+            Points are deducted when you request this reward. You can cancel
+            while it awaits fulfillment; cancelled or failed requests receive a
+            full points refund.
+          </p>
+          {error && (
+            <p role="alert" className="alert-error">
+              {error}
+            </p>
+          )}
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={busy}
+            onClick={() => void redeem()}
+          >
+            {busy
+              ? "Submitting…"
+              : `Confirm ${product.points_cost.toLocaleString()} points`}
+          </button>
+        </div>
+      </RewardDialog>
+    </>
   );
 }

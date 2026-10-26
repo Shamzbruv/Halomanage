@@ -148,13 +148,7 @@ export default async function RecognitionPage({
                   <small>Your Rewards points balance</small>
                   <h2>{state.points_balance.toLocaleString()}</h2>
                   <p>
-                    {state.rewards_enabled ? (
-                      <Link href="/rewards">
-                        View points history and rewards
-                      </Link>
-                    ) : (
-                      "Reward redemption is not enabled for this organization."
-                    )}
+                    <Link href="/rewards">View points history{state.rewards_enabled ? " and rewards" : " (redemption paused)"}</Link>
                   </p>
                 </div>
               )}

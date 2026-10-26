@@ -32,6 +32,7 @@
 // Keep this file passing; extend it (or supabase/tests/database/) for any
 // new module before trusting its RLS.
 
+import { testRewards } from "./rewards.mjs";
 import { testRecognition } from "./recognition.mjs";
 import { testPay } from "./pay.mjs";
 import { testLeave } from "./leave.mjs";
@@ -1353,9 +1354,7 @@ async function main() {
   });
 
   // David: a plain employee with no management relationship to Alice and no
-  // rewards.award_points — unlike Carol, who has been Alice's supervisor
-  // since much earlier in this file and can legitimately see her ledger
-  // through "read team points ledger".
+  // rewards.award_points. Reporting-line access alone does not expose points.
   await as(DAVID_USER, async () => {
     const hidden = await db.query(`select count(*) from public.employee_points_ledger where employee_id = '${ALICE_EMP}'`);
     ok("David (no management relationship to Alice, no rewards.award_points) cannot see Alice's points ledger", Number(hidden.rows[0].count) === 0);
@@ -1445,8 +1444,10 @@ async function main() {
   });
   await as(CAROL_USER, async () => {
     await db.query(`select public.give_recognition('${ALICE_EMP}', 'Nailed the client demo', null, 30)`);
+  });
+  await as(ALICE_USER, async () => {
     const balance = await db.query(`select balance from public.employee_points_balance_v where employee_id = '${ALICE_EMP}'`);
-    ok("recognizing Alice with 30 points adds to her redeemable balance, not Carol's", Number(balance.rows[0].balance) === 5030);
+    ok("recognizing Alice with 30 points adds to her own private redeemable balance", Number(balance.rows[0].balance) === 5030);
   });
   await as(CAROL_USER, async () => {
     // 30 + 50 = 80, each individually within the 50-point per-recognition
@@ -2818,6 +2819,7 @@ async function main() {
   await testLeave({ db, as, ok });
   await testPay({ db, as, ok });
   await testRecognition({ db, as, ok });
+  await testRewards({ db, as, ok });
 
   console.log(`\n${passCount} passed, ${failCount} failed.`);
   if (failCount > 0) process.exitCode = 1;

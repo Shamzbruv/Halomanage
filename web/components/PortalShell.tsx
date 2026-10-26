@@ -157,7 +157,7 @@ function Navigation({ groups, pathname, onNavigate, collapsed = false }: { group
   );
 }
 
-export function PortalShell({ children, avatarUrl, canSeeAdmin, canSeeTeam, canSeeTeamAttendance, canSeePay = true, canSeeRecognition = true, clock, email, name, organizationName, roleLabels, visibleAdminHrefs }: {
+export function PortalShell({ children, avatarUrl, canSeeAdmin, canSeeTeam, canSeeTeamAttendance, canSeePay = true, canSeeRecognition = true, canSeeRewards = true, clock, email, name, organizationName, roleLabels, visibleAdminHrefs }: {
   children: React.ReactNode;
   avatarUrl: string | null;
   canSeeAdmin: boolean;
@@ -165,6 +165,7 @@ export function PortalShell({ children, avatarUrl, canSeeAdmin, canSeeTeam, canS
   canSeeTeamAttendance: boolean;
   canSeePay?: boolean;
   canSeeRecognition?: boolean;
+  canSeeRewards?: boolean;
   clock: ClockView | null;
   email: string | null;
   name: string;
@@ -184,7 +185,7 @@ export function PortalShell({ children, avatarUrl, canSeeAdmin, canSeeTeam, canS
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
   const mobileDrawerRef = useRef<HTMLElement>(null);
-  const groups = personalItems.map(group=>({...group,items:group.items.filter(item=>(item.href!=="/pay"||canSeePay)&&(item.href!=="/recognition"||canSeeRecognition))}));
+  const groups = personalItems.map(group=>({...group,items:group.items.filter(item=>(item.href!=="/pay"||canSeePay)&&(item.href!=="/recognition"||canSeeRecognition)&&(item.href!=="/rewards"||canSeeRewards))}));
   const teamItems: NavItem[] = [];
   if (canSeeTeam) teamItems.push({ href: "/team", label: "Team hub", icon: "team" });
   if (canSeeTeamAttendance) teamItems.push({ href: "/team/attendance", label: "Team attendance", icon: "clock" });

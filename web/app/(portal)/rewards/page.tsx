@@ -1,131 +1,253 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Icon } from "@/components/Icon";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession, sessionCan } from "@/lib/session";
-import { statusBadgeClass } from "@/lib/ui";
-import { RedeemRewardButton } from "@/components/rewards/RedeemRewardButton";
 import { formatDate } from "@/lib/timezone";
-
-export default async function RewardsPage() {
+import { rewardPage, type RewardsState } from "@/lib/rewards";
+import { RedeemRewardButton } from "@/components/rewards/RedeemRewardButton";
+import { RewardReceipt } from "@/components/rewards/RewardReceipt";
+import { RewardsPagination } from "@/components/rewards/RewardsPagination";
+export default async function RewardsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | undefined>>;
+}) {
   const session = await getCurrentSession();
   if (!session) redirect("/login");
   if (!session.employee) redirect("/signup/complete?repair=1");
   if (!sessionCan(session, "rewards.read_self")) redirect("/dashboard");
-
-  const supabase = await createClient();
-  const employeeId = session.employee.id;
-  const orgId = session.organizationId;
-  const canRedeem = sessionCan(session, "rewards.redeem_self");
-
-  const { data: enabled } = await supabase.rpc("organization_has_feature", { p_org_id: orgId, p_feature_key: "rewards_marketplace" });
-
-  if (!enabled) {
+  const params = await searchParams,
+    catalogPage = rewardPage(params.catalog),
+    historyPage = rewardPage(params.history),
+    ledgerPage = rewardPage(params.ledger),
+    query = (params.q ?? "").slice(0, 120),
+    id = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      params.redemption ?? "",
+    )
+      ? params.redemption
+      : null;
+  const { data, error } = await (
+    await createClient()
+  ).rpc("get_rewards_state", {
+    p_organization_id: session.organizationId,
+    p_catalog_page: catalogPage,
+    p_history_page: historyPage,
+    p_ledger_page: ledgerPage,
+    p_query: query,
+    p_redemption_id: id,
+  });
+  if (error || !data)
     return (
-      <div className="space-y-6">
-        <div className="page-intro"><span className="eyebrow">Rewards</span><h1>Not available yet.</h1></div>
-        <div className="context-empty card"><span><Icon name="spark" size={22} /></span><div><strong>Rewards aren&apos;t enabled for your organization yet.</strong><p>Check back once your HR team turns this on.</p></div></div>
+      <div className="card space-y-3">
+        <h1>Rewards could not be loaded</h1>
+        <p role="alert">{error?.message ?? "Please try again."}</p>
+        <Link href="/settings" className="btn-secondary">
+          Account security
+        </Link>
+        <Link href="/rewards" className="btn-secondary">
+          Reload Rewards
+        </Link>
       </div>
     );
+  const state = data as RewardsState,
+    timezone = session.organization?.timezone;
+  function href(key: string, page: number) {
+    const p = new URLSearchParams({
+      q: query,
+      catalog: String(catalogPage),
+      history: String(historyPage),
+      ledger: String(ledgerPage),
+    });
+    p.set(key, String(page));
+    return "/rewards?" + p.toString();
   }
-
-  const [{ data: balanceRow }, { data: products }, { data: history }, { data: ledger }] = await Promise.all([
-    supabase.from("employee_points_balance_v").select("balance").eq("employee_id", employeeId).maybeSingle(),
-    supabase.from("reward_products").select("id, name, description, image_url, points_cost, inventory_quantity, is_active, reward_vendors(name, is_active)").eq("organization_id", orgId).eq("is_active", true).order("points_cost"),
-    supabase.from("reward_redemptions").select("id, points_spent, status, fulfillment_note, created_at, fulfilled_at, reward_products(name)").eq("employee_id", employeeId).order("created_at", { ascending: false }).limit(20),
-    supabase.from("employee_points_ledger").select("id, entry_type, amount, reason, created_at").eq("employee_id", employeeId).order("created_at", { ascending: false }).limit(30),
-  ]);
-
-  const balance = balanceRow?.balance ?? 0;
-  const availableProducts = (products ?? []).filter((p: any) => p.reward_vendors?.is_active);
-
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 recognition-workspace">
       <div className="page-intro">
-        <span className="eyebrow">Rewards &amp; recognition</span>
-        <h1>Spend your points.</h1>
-        {Number(balance)<0&&<p className="alert-error">Your points balance includes a reversal of removed recognition. Contact HR about affected or pending redemptions. This adjustment does not affect your salary.</p>}
-        <p>Points you&apos;ve earned from recognition can be redeemed for anything in your organization&apos;s catalog.</p>
+        <span className="eyebrow">Rewards</span>
+        <h1>Your rewards and points.</h1>
+        <p>
+          Choose from your organization’s rewards. HR arranges collection or
+          delivery.
+        </p>
+        <Link href="/recognition" className="btn-secondary">
+          Recognition
+        </Link>
       </div>
-
-      <div className="metric-card" style={{ maxWidth: 260 }}>
-        <span className="metric-icon sun"><Icon name="spark" /></span>
-        <div><small>Your points balance</small><strong>{balance.toLocaleString()}</strong></div>
+      <div className="metric-card" style={{ maxWidth: 320 }}>
+        <div>
+          <small>Available points</small>
+          <strong>{Number(state.balance).toLocaleString()}</strong>
+        </div>
       </div>
-
-      <section className="card overflow-x-auto">
-        <h2 className="mb-3 text-sm font-semibold text-stone-900">Catalog</h2>
-        {availableProducts.length === 0 ? (
-          <p className="text-sm text-stone-400">No rewards are available yet.</p>
-        ) : (
-          <table className="w-full text-sm">
-            <thead><tr className="border-b border-stone-100 text-left text-xs uppercase text-stone-400"><th className="pb-2">Reward</th><th className="pb-2">Vendor</th><th className="pb-2">Points</th><th className="pb-2">Stock</th><th className="pb-2"></th></tr></thead>
-            <tbody className="divide-y divide-stone-100">
-              {availableProducts.map((p: any) => {
-                const outOfStock = p.inventory_quantity !== null && p.inventory_quantity <= 0;
-                return (
-                  <tr key={p.id}>
-                    <td className="py-3">
-                      <div className="flex items-center gap-3">
-                        {p.image_url ? (
-                          <img src={p.image_url} alt="" style={{ width: 40, height: 40, borderRadius: 8, objectFit: "cover", flexShrink: 0 }} />
-                        ) : (
-                          <span className="metric-icon mint small" style={{ flexShrink: 0 }}><Icon name="spark" size={16} /></span>
-                        )}
-                        <div><strong className="block font-medium text-stone-900">{p.name}</strong>{p.description && <small className="text-stone-500">{p.description}</small>}</div>
-                      </div>
-                    </td>
-                    <td className="py-3 text-stone-600">{p.reward_vendors?.name}</td>
-                    <td className="py-3 font-medium text-stone-900">{p.points_cost.toLocaleString()}</td>
-                    <td className="py-3">{p.inventory_quantity === null ? "—" : outOfStock ? <span className="text-ruby-600">Out of stock</span> : p.inventory_quantity}</td>
-                    <td className="py-3">{canRedeem && !outOfStock && <RedeemRewardButton productId={p.id} canAfford={balance >= p.points_cost} />}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
+      {state.balance < 0 && (
+        <p className="alert-error">
+          A points correction reduced your balance below zero. New redemptions
+          are paused until your balance covers the cost. Contact HR about
+          pending requests. This does not deduct salary.
+        </p>
+      )}
+      {!state.enabled && (
+        <p className="alert-error">
+          The marketplace is paused. Your points and history are preserved, and
+          you can still cancel pending requests.
+        </p>
+      )}
+      {id && (
+        <section className="card space-y-3">
+          <h2>Selected reward request</h2>
+          {state.selected ? (
+            <RewardReceipt receipt={state.selected} timezone={timezone} />
+          ) : (
+            <p>This request is unavailable to your account.</p>
+          )}
+        </section>
+      )}
+      {state.enabled && (
+        <section className="card space-y-4">
+          <h2>Rewards catalog</h2>
+          <form className="flex flex-wrap items-end gap-3">
+            <label className="label">
+              Search rewards or vendors
+              <input
+                name="q"
+                maxLength={120}
+                className="input"
+                defaultValue={query}
+              />
+            </label>
+            <button className="btn-secondary">Search</button>
+          </form>
+          {state.catalog.length === 0 && (
+            <p>
+              No matching rewards are available. HR can add or restock items.
+            </p>
+          )}
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {state.catalog.map((p) => (
+              <article
+                key={p.id}
+                className="rounded-xl border border-stone-200 p-4 space-y-3"
+              >
+                {p.image_url && (
+                  <img
+                    src={p.image_url}
+                    alt=""
+                    referrerPolicy="no-referrer"
+                    loading="lazy"
+                    style={{ height: 100, width: "100%", objectFit: "contain" }}
+                  />
+                )}
+                <h3 className="font-semibold">{p.name}</h3>
+                <p className="text-sm">{p.vendor_name}</p>
+                <strong>{p.points_cost.toLocaleString()} points</strong>
+                {p.description && <p>{p.description}</p>}
+                <p>
+                  {p.inventory_quantity === null
+                    ? "Available"
+                    : `${p.inventory_quantity} available`}
+                </p>
+                {p.terms && (
+                  <details>
+                    <summary>Collection and reward terms</summary>
+                    <p className="whitespace-pre-wrap">{p.terms}</p>
+                  </details>
+                )}
+                {state.can_redeem ? (
+                  <RedeemRewardButton
+                    product={p}
+                    balance={Number(state.balance)}
+                  />
+                ) : (
+                  <p>
+                    Your role can view rewards; redemption requires HR to enable
+                    permission.
+                  </p>
+                )}
+              </article>
+            ))}
+          </div>
+          <RewardsPagination
+            page={catalogPage}
+            total={state.catalog_total}
+            size={12}
+            href={(n) => href("catalog", n)}
+          />
+        </section>
+      )}
+      <section className="card space-y-4">
+        <h2>Your redemption history</h2>
+        <p>
+          Pending requests reserve points immediately. Cancelled or failed
+          requests refund their original cost once.
+        </p>
+        {!state.history.length && <p>No requests on this page.</p>}
+        {state.history.map((r) => (
+          <RewardReceipt key={r.id} receipt={r} timezone={timezone} />
+        ))}
+        <RewardsPagination
+          page={historyPage}
+          total={state.history_total}
+          size={10}
+          href={(n) => href("history", n)}
+        />
       </section>
-
-      <section className="card overflow-x-auto">
-        <h2 className="mb-3 text-sm font-semibold text-stone-900">Your redemption history</h2>
-        {(history ?? []).length === 0 ? (
-          <p className="text-sm text-stone-400">No redemptions yet.</p>
-        ) : (
+      <section className="card space-y-3">
+        <h2>Your points history</h2>
+        <p className="text-sm">
+          Giving allowance in Recognition is separate from your spendable
+          points. Points have no automatic cash or payroll conversion.
+        </p>
+        <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead><tr className="border-b border-stone-100 text-left text-xs uppercase text-stone-400"><th className="pb-2">Reward</th><th className="pb-2">Points</th><th className="pb-2">Status</th><th className="pb-2">Requested</th></tr></thead>
-            <tbody className="divide-y divide-stone-100">
-              {(history ?? []).map((r: any) => (
-                <tr key={r.id}>
-                  <td className="py-2 font-medium text-stone-900">{r.reward_products?.name}</td>
-                  <td className="py-2">{r.points_spent.toLocaleString()}</td>
-                  <td className="py-2"><span className={`badge ${statusBadgeClass(r.status)}`}>{r.status.replace(/_/g, " ")}</span></td>
-                  <td className="py-2 text-xs text-stone-500">{formatDate(r.created_at, session.organization?.timezone)}</td>
+            <thead>
+              <tr className="text-left">
+                <th>Activity</th>
+                <th>Points</th>
+                <th>Reason</th>
+                <th>Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {state.ledger.map((l) => (
+                <tr key={l.id} className="border-t border-stone-100">
+                  <td className="py-3">{l.entry_type.replaceAll("_", " ")}</td>
+                  <td>
+                    {l.amount > 0 ? "+" : ""}
+                    {l.amount.toLocaleString()}
+                  </td>
+                  <td className="max-w-md whitespace-pre-wrap">
+                    {l.reason || "—"}
+                    {l.related_redemption_id && (
+                      <Link
+                        className="block underline"
+                        href={`/rewards?redemption=${l.related_redemption_id}`}
+                      >
+                        View reward receipt
+                      </Link>
+                    )}
+                    {l.related_recognition_id && (
+                      <Link
+                        className="block underline"
+                        href={`/recognition?item=${l.related_recognition_id}`}
+                      >
+                        View recognition
+                      </Link>
+                    )}
+                  </td>
+                  <td>{formatDate(l.created_at, timezone)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-        )}
-      </section>
-
-      <section className="card overflow-x-auto">
-        <h2 className="mb-3 text-sm font-semibold text-stone-900">Points history</h2>
-        {(ledger ?? []).length === 0 ? (
-          <p className="text-sm text-stone-400">No points activity yet.</p>
-        ) : (
-          <table className="w-full text-sm">
-            <thead><tr className="border-b border-stone-100 text-left text-xs uppercase text-stone-400"><th className="pb-2">Type</th><th className="pb-2">Points</th><th className="pb-2">Reason</th><th className="pb-2">Date</th></tr></thead>
-            <tbody className="divide-y divide-stone-100">
-              {(ledger ?? []).map((entry) => (
-                <tr key={entry.id}>
-                  <td className="py-2"><span className="badge badge-neutral">{entry.entry_type}</span></td>
-                  <td className={`py-2 font-medium ${entry.amount > 0 ? "text-emerald-700" : "text-stone-900"}`}>{entry.amount > 0 ? "+" : ""}{entry.amount.toLocaleString()}</td>
-                  <td className="py-2 text-stone-600">{entry.reason ?? "—"}</td>
-                  <td className="py-2 text-xs text-stone-500">{formatDate(entry.created_at, session.organization?.timezone)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        </div>
+        {!state.ledger.length && <p>No points activity on this page.</p>}
+        <RewardsPagination
+          page={ledgerPage}
+          total={state.ledger_total}
+          size={20}
+          href={(n) => href("ledger", n)}
+        />
       </section>
     </div>
   );

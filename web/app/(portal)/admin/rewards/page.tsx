@@ -2,155 +2,338 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession, sessionCan } from "@/lib/session";
+import { rewardPage, type RewardsAdminState } from "@/lib/rewards";
+import { formatDate } from "@/lib/timezone";
 import { NewRewardVendorForm } from "@/components/rewards/NewRewardVendorForm";
 import { NewRewardProductForm } from "@/components/rewards/NewRewardProductForm";
 import { AwardPointsForm } from "@/components/rewards/AwardPointsForm";
-import { RedemptionFulfillmentActions } from "@/components/rewards/RedemptionFulfillmentActions";
-import { RecognitionSettingsForm } from "@/components/rewards/RecognitionSettingsForm";
-import { NewRecognitionValueForm } from "@/components/rewards/NewRecognitionValueForm";
-import { formatDate } from "@/lib/timezone";
-
-// Gated behind the rewards_marketplace platform feature (see
-// 20260830110000_rewards_marketplace.sql) — an org needs it turned on by a
-// platform operator before any of this is reachable, same pattern as the
-// SSO admin page's organization_has_feature() gate.
-export default async function RewardsAdminPage() {
+import { RewardReceipt } from "@/components/rewards/RewardReceipt";
+import { ReverseAwardButton } from "@/components/rewards/ReverseAwardButton";
+import { RewardsPagination } from "@/components/rewards/RewardsPagination";
+export default async function RewardsAdminPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | undefined>>;
+}) {
   const session = await getCurrentSession();
   if (!session) redirect("/login");
-  if (!session.organizationId) redirect("/dashboard");
-
+  if (
+    !session.organizationId ||
+    !["rewards.manage_catalog", "rewards.award_points", "rewards.fulfill"].some(
+      (p) =>
+        sessionCan(
+          session,
+          p as
+            | "rewards.manage_catalog"
+            | "rewards.award_points"
+            | "rewards.fulfill",
+        ),
+    )
+  )
+    redirect("/dashboard");
+  const params = await searchParams,
+    page = rewardPage(params.page),
+    awardPage = rewardPage(params.awards),
+    catalog = rewardPage(params.catalog),
+    status = [
+      "all",
+      "pending_fulfillment",
+      "fulfilled",
+      "cancelled",
+      "failed",
+    ].includes(params.status ?? "")
+      ? params.status!
+      : "pending_fulfillment",
+    q = (params.q ?? "").slice(0, 120);
   const supabase = await createClient();
-  const orgId = session.organizationId;
-  const { data: enabled } = await supabase.rpc("organization_has_feature", { p_org_id: orgId, p_feature_key: "rewards_marketplace" });
-
-  const canManageCatalog = sessionCan(session, "rewards.manage_catalog");
-  const canAwardPoints = sessionCan(session, "rewards.award_points");
-  const canFulfill = sessionCan(session, "rewards.fulfill");
-  if (!canManageCatalog && !canAwardPoints && !canFulfill) redirect("/dashboard");
-
-  if (!enabled) {
+  const [{ data, error }, awardsResult] = await Promise.all([
+    supabase.rpc("get_rewards_admin_state", {
+      p_organization_id: session.organizationId,
+      p_status: status,
+      p_page: page,
+      p_catalog_page: catalog,
+      p_query: q,
+    }),
+    sessionCan(session, "rewards.award_points")
+      ? supabase.rpc("list_reward_awards", {
+          p_organization_id: session.organizationId,
+          p_page: awardPage,
+          p_query: q,
+        })
+      : Promise.resolve({ data: null, error: null }),
+  ]);
+  if (error || !data)
     return (
-      <div className="space-y-6">
-        <Link className="btn-secondary" href="/admin/recognition">Recognition policy, reports and program health</Link>
-      <div className="page-intro"><span className="eyebrow">Rewards &amp; recognition</span><h1>Not enabled yet.</h1></div>
-        <div className="card"><p className="text-sm text-stone-500">The rewards marketplace isn&apos;t turned on for your organization yet. Contact your Halomanage account team to enable it.</p><Link href="/admin/recognition" className="btn-secondary">Recognition policy and HR review</Link></div>
+      <div className="card">
+        <h1>Rewards administration unavailable</h1>
+        <p role="alert">{error?.message ?? "Please reload."}</p>
+        <Link href="/admin/rewards" className="btn-secondary">
+          Reload
+        </Link>
       </div>
     );
+  const awards = awardsResult.data as {
+    total: number;
+    items: {
+      id: string;
+      employee_name: string;
+      amount: number;
+      reason: string;
+      created_at: string;
+      reversal_reason: string | null;
+      reversed_at: string | null;
+    }[];
+  } | null;
+  const state = data as RewardsAdminState,
+    org = session.organizationId,
+    timezone = session.organization?.timezone;
+  function href(key: string, n: number) {
+    const p = new URLSearchParams({
+      status,
+      q,
+      page: String(page),
+      catalog: String(catalog),
+      awards: String(awardPage),
+    });
+    p.set(key, String(n));
+    return "/admin/rewards?" + p.toString();
   }
-
-  const [{ data: providers }, { data: vendors }, { data: products }, { data: pendingRedemptions }, { data: employees }, { data: recognitionSettings }, { data: recognitionValues }] = await Promise.all([
-    supabase.from("reward_providers").select("id, name, fulfillment_type").eq("is_active", true).order("name"),
-    supabase.from("reward_vendors").select("id, name, description, is_active, reward_providers(name, fulfillment_type)").eq("organization_id", orgId).order("name"),
-    supabase.from("reward_products").select("id, name, image_url, points_cost, inventory_quantity, is_active, reward_vendors(name)").eq("organization_id", orgId).order("name"),
-    canFulfill
-      ? supabase.from("reward_redemptions").select("id, points_spent, fulfillment_type, created_at, employees(first_name, last_name), reward_products(name)").eq("organization_id", orgId).eq("status", "pending_fulfillment").order("created_at")
-      : Promise.resolve({ data: [] }),
-    canAwardPoints
-      ? supabase.from("employees").select("id, first_name, last_name").eq("organization_id", orgId).eq("status", "active").order("last_name")
-      : Promise.resolve({ data: [] }),
-    canManageCatalog
-      ? supabase.from("organization_recognition_settings").select("monthly_point_allowance, max_points_per_recognition, max_recognitions_per_day_per_giver, default_visibility, enabled, require_value, max_points_per_recipient_per_month").eq("organization_id", orgId).maybeSingle()
-      : Promise.resolve({ data: null }),
-    canManageCatalog
-      ? supabase.from("recognition_values").select("id, name, description, is_active").eq("organization_id", orgId).order("name")
-      : Promise.resolve({ data: [] }),
-  ]);
-
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 recognition-workspace">
       <div className="page-intro">
-        <span className="eyebrow">Rewards &amp; recognition</span>
-        <h1>Curate your own reward catalog.</h1>
-        <p>Any source of a reward — a local supplier, an API-connected gift card provider, an internal perk — is a vendor your organization controls.</p>
+        <span className="eyebrow">Rewards administration</span>
+        <h1>Manage rewards and fulfillment.</h1>
+        <p>
+          Curate useful rewards, explain award decisions, and complete employee
+          requests consistently.
+        </p>
+        {[
+          "recognition.manage",
+          "recognition.moderate",
+          "rewards.manage_catalog",
+        ].some((p) =>
+          sessionCan(
+            session,
+            p as
+              | "recognition.manage"
+              | "recognition.moderate"
+              | "rewards.manage_catalog",
+          ),
+        ) && (
+          <Link href="/admin/recognition" className="btn-secondary">
+            Recognition policy and HR review
+          </Link>
+        )}
       </div>
-
-      {canFulfill && (pendingRedemptions ?? []).length > 0 && (
-        <section className="card overflow-x-auto">
-          <h2 className="mb-3 text-sm font-semibold text-stone-900">Awaiting fulfillment</h2>
-          <table className="w-full text-sm">
-            <thead><tr className="border-b border-stone-100 text-left text-xs uppercase text-stone-400"><th className="pb-2">Employee</th><th className="pb-2">Reward</th><th className="pb-2">Points</th><th className="pb-2">Fulfillment</th><th className="pb-2">Requested</th><th className="pb-2"></th></tr></thead>
-            <tbody className="divide-y divide-stone-100">
-              {(pendingRedemptions ?? []).map((r: any) => (
-                <tr key={r.id}>
-                  <td className="py-2 font-medium text-stone-900">{r.employees?.first_name} {r.employees?.last_name}</td>
-                  <td className="py-2">{r.reward_products?.name}</td>
-                  <td className="py-2">{r.points_spent.toLocaleString()}</td>
-                  <td className="py-2 text-xs text-stone-500">{r.fulfillment_type}</td>
-                  <td className="py-2 text-xs text-stone-500">{formatDate(r.created_at, session.organization?.timezone)}</td>
-                  <td className="py-2"><RedemptionFulfillmentActions redemptionId={r.id} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {!state.enabled && (
+        <p className="alert-error">
+          The marketplace is paused. New awards and catalog changes are
+          disabled; resolve existing requests and refunds below.
+        </p>
+      )}
+      {(state.can_fulfill || state.can_award) && (
+        <section className="card space-y-2">
+          <h2>Program operations</h2>
+          {state.can_fulfill && (
+            <p>
+              {state.pending_count} pending requests
+              {state.oldest_pending
+                ? ` · Oldest requested ${formatDate(state.oldest_pending, timezone)}`
+                : ""}
+            </p>
+          )}
+          <p>
+            {state.negative_balances} employees have a negative points balance.
+            Review affected requests and Recognition moderation before granting
+            corrective points.
+          </p>
+          <p className="text-sm">
+            Reward points do not change salary or statutory leave. HR and
+            payroll must review the tax treatment of benefits externally.
+          </p>
         </section>
       )}
-
-      {canAwardPoints && (
-        <section className="card">
-          <div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-semibold text-stone-900">Admin-granted points</h2><AwardPointsForm employees={(employees ?? []).map((e) => ({ id: e.id, label: `${e.first_name} ${e.last_name}` }))} /></div>
-          <p className="text-xs text-stone-500">Award points to an employee directly for anything worth recognizing — they can spend them in the catalog below. Separate from peer-to-peer recognition below, which draws from each employee&apos;s own monthly giving allowance.</p>
+      {state.can_award && (
+        <section className="card space-y-3">
+          <h2>Award points</h2>
+          <p>
+            Use clear, consistent eligibility and employee-visible reasons.
+            Self-awards are blocked.
+          </p>
+          {state.enabled && <AwardPointsForm organizationId={org} />}
         </section>
       )}
-
-      {canManageCatalog && recognitionSettings && (
-        <section className="card">
-          <h2 className="mb-1 text-sm font-semibold text-stone-900">Peer-to-peer recognition</h2>
-          <p className="mb-4 text-xs text-stone-500">Any employee can recognize a coworker. Points are optional — set the monthly allowance to 0 to run recognition as kudos-only.</p>
-          <RecognitionSettingsForm organizationId={orgId} initial={recognitionSettings} />
+      {state.can_award && (
+        <section className="card space-y-3">
+          <h2>Award history and corrections</h2>
+          <p>
+            Correct an incorrect award with an exact reversal. Issue any
+            replacement as a new documented award.
+          </p>
+          {awardsResult.error && (
+            <p role="alert" className="alert-error">
+              Award history could not be loaded. Reload before correcting an
+              award.
+            </p>
+          )}
+          {awards?.items.map((a) => (
+            <article key={a.id} className="border rounded-xl p-4 space-y-2">
+              <strong>
+                {a.employee_name} · +{a.amount.toLocaleString()} points
+              </strong>
+              <p className="whitespace-pre-wrap">{a.reason}</p>
+              <p className="text-sm">{formatDate(a.created_at, timezone)}</p>
+              {a.reversed_at ? (
+                <p className="whitespace-pre-wrap">
+                  Reversed {formatDate(a.reversed_at, timezone)}:{" "}
+                  {a.reversal_reason}
+                </p>
+              ) : (
+                <ReverseAwardButton awardId={a.id} amount={a.amount} />
+              )}
+            </article>
+          ))}
+          {awards?.items.length === 0 && <p>No matching awards.</p>}
+          {awards && (
+            <RewardsPagination
+              page={awardPage}
+              total={awards.total}
+              size={20}
+              href={(n) => href("awards", n)}
+            />
+          )}
         </section>
       )}
-
-      {canManageCatalog && (
-        <section className="card overflow-x-auto">
-          <div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-semibold text-stone-900">Recognition values</h2><NewRecognitionValueForm organizationId={orgId} /></div>
-          <table className="w-full text-sm">
-            <thead><tr className="border-b border-stone-100 text-left text-xs uppercase text-stone-400"><th className="pb-2">Name</th><th className="pb-2">Description</th><th className="pb-2">Active</th></tr></thead>
-            <tbody className="divide-y divide-stone-100">
-              {(recognitionValues ?? []).length === 0 && <tr><td colSpan={3} className="py-4 text-stone-400">No values yet.</td></tr>}
-              {(recognitionValues ?? []).map((v) => (
-                <tr key={v.id}><td className="py-2 font-medium text-stone-900">{v.name}</td><td className="py-2 text-xs text-stone-500">{v.description ?? "—"}</td><td className="py-2">{v.is_active ? "Yes" : "No"}</td></tr>
-              ))}
-            </tbody>
-          </table>
+      <form className="card flex flex-wrap items-end gap-3">
+        <label className="label">
+          Search rewards, employees or request reference
+          <input name="q" maxLength={120} className="input" defaultValue={q} />
+        </label>
+        {state.can_fulfill && (
+          <label className="label">
+            Request status
+            <select name="status" className="input" defaultValue={status}>
+              <option value="pending_fulfillment">Awaiting fulfillment</option>
+              <option value="all">All outcomes</option>
+              <option value="fulfilled">Fulfilled</option>
+              <option value="cancelled">Cancelled</option>
+              <option value="failed">Failed</option>
+            </select>
+          </label>
+        )}
+        <button className="btn-secondary">Apply filters</button>
+        <Link className="btn-secondary" href="/admin/rewards">
+          Reset
+        </Link>
+      </form>
+      {state.can_fulfill && (
+        <section className="card space-y-4">
+          <h2>Reward requests</h2>
+          <p>
+            Oldest pending requests appear first. Outcome explanations are
+            visible to employees.
+          </p>
+          {!state.requests.length && <p>No matching requests.</p>}
+          {state.requests.map((r) => (
+            <RewardReceipt key={r.id} receipt={r} timezone={timezone} admin />
+          ))}
+          <RewardsPagination
+            page={page}
+            total={state.requests_total}
+            size={20}
+            href={(n) => href("page", n)}
+          />
         </section>
       )}
-
-      {canManageCatalog && (
+      {state.can_catalog && (
         <>
-          <section className="card overflow-x-auto">
-            <div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-semibold text-stone-900">Vendors</h2><NewRewardVendorForm organizationId={orgId} providers={providers ?? []} /></div>
-            <table className="w-full text-sm">
-              <thead><tr className="border-b border-stone-100 text-left text-xs uppercase text-stone-400"><th className="pb-2">Name</th><th className="pb-2">Fulfillment</th><th className="pb-2">Active</th></tr></thead>
-              <tbody className="divide-y divide-stone-100">
-                {(vendors ?? []).length === 0 && <tr><td colSpan={3} className="py-4 text-stone-400">No vendors yet.</td></tr>}
-                {(vendors ?? []).map((v: any) => (
-                  <tr key={v.id}><td className="py-2 font-medium text-stone-900">{v.name}</td><td className="py-2 text-xs text-stone-500">{v.reward_providers?.name} ({v.reward_providers?.fulfillment_type})</td><td className="py-2">{v.is_active ? "Yes" : "No"}</td></tr>
-                ))}
-              </tbody>
-            </table>
+          <section className="card space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2>Vendors</h2>
+              {state.enabled && (
+                <NewRewardVendorForm
+                  organizationId={org}
+                  providers={state.providers}
+                />
+              )}
+            </div>
+            <p>
+              Manual fulfillment is available without a third-party service.
+              Archive unavailable vendors to stop new requests.
+            </p>
+            {!state.vendors.length && (
+              <p>Add a vendor before creating a reward.</p>
+            )}
+            <div className="grid gap-3 md:grid-cols-2">
+              {state.vendors.map((v) => (
+                <article key={v.id} className="border rounded-xl p-4 space-y-2">
+                  <h3 className="font-semibold">
+                    {v.name} · {v.is_active ? "Active" : "Archived"}
+                  </h3>
+                  <p>{v.description}</p>
+                  <p className="text-sm">
+                    {[v.contact_name, v.contact_email, v.contact_phone]
+                      .filter(Boolean)
+                      .join(" · ") || "No vendor contact recorded"}
+                  </p>
+                  {state.enabled && (
+                    <NewRewardVendorForm
+                      organizationId={org}
+                      providers={state.providers}
+                      initial={v}
+                    />
+                  )}
+                </article>
+              ))}
+            </div>
           </section>
-
-          <section className="card overflow-x-auto">
-            <div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-semibold text-stone-900">Rewards catalog</h2><NewRewardProductForm organizationId={orgId} vendors={(vendors ?? []).filter((v: any) => v.is_active).map((v: any) => ({ id: v.id, name: v.name }))} /></div>
-            <table className="w-full text-sm">
-              <thead><tr className="border-b border-stone-100 text-left text-xs uppercase text-stone-400"><th className="pb-2">Reward</th><th className="pb-2">Vendor</th><th className="pb-2">Points</th><th className="pb-2">Stock</th></tr></thead>
-              <tbody className="divide-y divide-stone-100">
-                {(products ?? []).length === 0 && <tr><td colSpan={4} className="py-4 text-stone-400">No rewards yet.</td></tr>}
-                {(products ?? []).map((p: any) => (
-                  <tr key={p.id}>
-                    <td className="py-2">
-                      <div className="flex items-center gap-2">
-                        {p.image_url ? <img src={p.image_url} alt="" style={{ width: 28, height: 28, borderRadius: 6, objectFit: "cover", flexShrink: 0 }} /> : null}
-                        <span className="font-medium text-stone-900">{p.name}</span>
-                      </div>
-                    </td>
-                    <td className="py-2 text-xs text-stone-500">{p.reward_vendors?.name}</td>
-                    <td className="py-2">{p.points_cost.toLocaleString()}</td>
-                    <td className="py-2">{p.inventory_quantity === null ? "Unlimited" : p.inventory_quantity}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <section className="card space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2>Catalog and available stock</h2>
+              {state.enabled && (
+                <NewRewardProductForm
+                  organizationId={org}
+                  vendors={state.vendors}
+                />
+              )}
+            </div>
+            <p>
+              Publish collection instructions and expiry terms. Stock excludes
+              pending reservations. Changes preserve existing receipts.
+            </p>
+            {!state.products.length && <p>No matching rewards.</p>}
+            <div className="grid gap-3 md:grid-cols-2">
+              {state.products.map((p) => (
+                <article key={p.id} className="border rounded-xl p-4 space-y-2">
+                  <h3 className="font-semibold">
+                    {p.name} · {p.is_active ? "Active" : "Archived"}
+                  </h3>
+                  <p>
+                    {p.vendor_name} · {p.points_cost.toLocaleString()} points ·{" "}
+                    {p.inventory_quantity === null
+                      ? "Unlimited stock"
+                      : `${p.inventory_quantity} available`}
+                  </p>
+                  <p>{p.description}</p>
+                  <p className="whitespace-pre-wrap">
+                    {p.terms || "Collection / expiry terms not recorded"}
+                  </p>
+                  {state.enabled && (
+                    <NewRewardProductForm
+                      organizationId={org}
+                      vendors={state.vendors}
+                      initial={p}
+                    />
+                  )}
+                </article>
+              ))}
+            </div>
+            <RewardsPagination
+              page={catalog}
+              total={state.products_total}
+              size={25}
+              href={(n) => href("catalog", n)}
+            />
           </section>
         </>
       )}

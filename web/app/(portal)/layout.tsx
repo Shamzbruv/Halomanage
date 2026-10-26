@@ -162,6 +162,7 @@ export default async function PortalLayout({ children }: { children: React.React
     <PortalShell
       avatarUrl={avatarUrl}
       canSeeAdmin={canSeeAdmin}
+      canSeeRewards={sessionCan(session,"rewards.read_self")}
       canSeeRecognition={sessionCan(session,"recognition.read")||sessionCan(session,"recognition.give")||sessionCan(session,"recognition.moderate")}
       canSeePay={sessionCan(session,"compensation.read_self")||sessionCan(session,"payroll.read_self")}
       canSeeTeam={canSeeTeam}
