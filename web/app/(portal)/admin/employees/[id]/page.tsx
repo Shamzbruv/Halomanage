@@ -4,6 +4,7 @@ import { ActivateEmployeeButton } from "@/components/ActivateEmployeeButton";
 import { EmployeeSetupReadiness } from "@/components/EmployeeSetupReadiness";
 import { InviteButton } from "@/components/InviteButton";
 import { TerminateEmployeeButton } from "@/components/TerminateEmployeeButton";
+import { PerformanceHistoryCard } from "@/components/employee/PerformanceHistoryCard";
 import { AccessCard } from "@/components/employee/AccessCard";
 import { EmploymentCard, IdentityCard } from "@/components/employee/EmploymentCards";
 import { OnboardingHistoryCard, OnboardingPlanCard } from "@/components/employee/OnboardingCards";
@@ -23,6 +24,7 @@ const TABS = [
   { key: "emergency", label: "Emergency contacts" },
   { key: "access", label: "Access" },
   { key: "onboarding", label: "Onboarding" },
+  { key: "performance", label: "Performance" },
   { key: "documents", label: "Documents" },
   { key: "learning", label: "Learning & assets" },
   { key: "leave", label: "Leave" },
@@ -53,7 +55,7 @@ export default async function EmployeeDetailPage({
   const canReadCompensation = sessionCan(session, "compensation.read_org");
   const canManageCompensation = sessionCan(session, "compensation.manage") || sessionCan(session, "compensation.approve");
 
-  const visibleTabs = TABS.filter((t) => t.key !== "compensation" || canReadCompensation);
+  const visibleTabs = TABS.filter((t) => (t.key !== "compensation" || canReadCompensation) && (t.key !== "performance" || sessionCan(session, "appraisal.manage_cycles") || sessionCan(session, "appraisal.review_direct_reports")));
   const tab: TabKey = (visibleTabs.find((t) => t.key === requestedTab)?.key ?? "overview") as TabKey;
 
   const supabase = await createClient();
@@ -137,6 +139,7 @@ export default async function EmployeeDetailPage({
           <OnboardingHistoryCard timezone={tz} employeeId={employee.id} />
         </div>
       )}
+      {tab === "performance" && <PerformanceHistoryCard employeeId={employee.id} />}
       {tab === "documents" && <div className="space-y-6"><DocumentsCard timezone={tz} employee={employee} /></div>}
       {tab === "learning" && (
         <div className="space-y-6">

@@ -4,61 +4,129 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession, sessionCan } from "@/lib/session";
 import { AppraisalTemplateForm } from "@/components/AppraisalTemplateForm";
 import { AppraisalCycleForm } from "@/components/AppraisalCycleForm";
-import { LaunchCycleButton } from "@/components/LaunchCycleButton";
-import { statusBadgeClass } from "@/lib/ui";
-
-export default async function AppraisalsAdminPage() {
+import { RewardsPagination as Pagination } from "@/components/rewards/RewardsPagination";
+import { performancePage, type PerformanceCycle } from "@/lib/performance";
+import { todayIn } from "@/lib/timezone";
+export default async function AppraisalsAdminPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string }>;
+}) {
   const session = await getCurrentSession();
   if (!session) redirect("/login");
-  if (!sessionCan(session, "appraisal.manage_cycles")) redirect("/dashboard");
-  if (!session.organizationId) redirect("/dashboard");
-
-  const supabase = await createClient();
-  const orgId = session.organizationId;
-
-  const [{ data: templates }, { data: cycles }] = await Promise.all([
-    supabase.from("appraisal_templates").select("id, name").eq("organization_id", orgId).order("name"),
-    supabase.from("appraisal_cycles").select("*").eq("organization_id", orgId).order("start_date", { ascending: false }),
+  if (
+    !session.organizationId ||
+    !sessionCan(session, "appraisal.manage_cycles")
+  )
+    redirect("/dashboard");
+  const p = await searchParams,
+    page = performancePage(p.page),
+    db = await createClient(),
+    org = session.organizationId;
+  const [state, t, ppl, d, pos] = await Promise.all([
+    db.rpc("get_performance_admin", { p_organization_id: org, p_page: page }),
+    db
+      .from("appraisal_templates")
+      .select("id,name,is_active")
+      .eq("organization_id", org)
+      .order("name"),
+    db.rpc("list_performance_people", { p_organization_id: org }),
+    db
+      .from("org_units")
+      .select("id,name")
+      .eq("organization_id", org)
+      .order("name"),
+    db
+      .from("positions")
+      .select("id,title")
+      .eq("organization_id", org)
+      .order("title"),
   ]);
-
+  const work = state.data as {
+    total: number;
+    cycles: PerformanceCycle[];
+  } | null;
   return (
     <div className="space-y-6">
-      <div className="page-intro"><span className="eyebrow">Performance configuration</span><h1>Design checkpoints that fit the moment.</h1><p>Create templates for probation, quarterly conversations, annual reviews, or any development rhythm you need.</p></div>
-
-      <div className="card">
-        <h2 className="mb-3 text-sm font-semibold text-stone-900">Checkpoint templates</h2>
-        <ul className="mb-4 divide-y divide-stone-100">
-          {(templates ?? []).length === 0 && <li className="py-2 text-sm text-stone-400">None yet.</li>}
-          {(templates ?? []).map((t) => (
-            <li key={t.id} className="py-2 text-sm">
-              <Link href={`/admin/appraisals/templates/${t.id}`} className="font-medium text-royal-700 hover:text-royal-800 hover:underline">
-                {t.name}
-              </Link>
-            </li>
-          ))}
-        </ul>
-        <AppraisalTemplateForm organizationId={orgId} />
+      <div className="page-intro">
+        <span className="eyebrow">Performance administration</span>
+        <h1>Set clear expectations and follow through.</h1>
+        <p>
+          Choose the period, target the right employees, and preserve the
+          questions used for each review. Private drafts, independent assessment
+          and the employee’s response stay separate.
+        </p>
       </div>
-
-      <div className="card">
-        <h2 className="mb-3 text-sm font-semibold text-stone-900">Cycles</h2>
-        <ul className="mb-4 divide-y divide-stone-100">
-          {(cycles ?? []).length === 0 && <li className="py-2 text-sm text-stone-400">None yet — 30/60/90-day checkpoints, quarterly reviews, PIPs, etc. are all just cycles built from a template.</li>}
-          {(cycles ?? []).map((c) => (
-            <li key={c.id} className="flex items-center justify-between gap-3 py-2 text-sm">
-              <div>
-                <span className="font-medium text-stone-900">{c.name}</span>{" "}
-                <span className="text-xs text-stone-400">starts {c.start_date}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className={`badge ${statusBadgeClass(c.status)}`}>{c.status}</span>
-                {c.status === "draft" && <LaunchCycleButton cycleId={c.id} />}
-              </div>
-            </li>
-          ))}
-        </ul>
-        <AppraisalCycleForm organizationId={orgId} templates={(templates ?? []).map((t) => ({ id: t.id, label: t.name }))} />
-      </div>
+      {[state.error, t.error, ppl.error].filter(Boolean).map((e, i) => (
+        <p key={i} role="alert" className="alert-error">
+          {e?.message}
+        </p>
+      ))}
+      <section className="card space-y-3">
+        <h2 className="font-semibold">Review cycles</h2>
+        {work?.cycles.map((c) => (
+          <article key={c.id} className="border rounded-xl p-4 space-y-2">
+            <Link
+              className="font-semibold underline"
+              href={`/admin/appraisals/cycles/${c.id}`}
+            >
+              {c.name}
+            </Link>
+            <p>
+              {c.status} · Opens {c.start_date} · Period{" "}
+              {c.review_period_start || "not recorded"} to{" "}
+              {c.review_period_end || "not recorded"}
+            </p>
+            <p>
+              {c.completed_instances}/{c.total_instances} complete ·{" "}
+              {c.cancelled_instances} cancelled · {c.open_queries} open HR
+              queries · {c.blocked_reviewers} assignments need attention
+            </p>
+          </article>
+        ))}
+        {work && !work.cycles.length && (
+          <p>No cycles yet. Create a draft below and preview its roster.</p>
+        )}
+        {work && (
+          <Pagination
+            page={page}
+            total={work.total}
+            size={20}
+            href={(n) => `/admin/appraisals?page=${n}`}
+          />
+        )}
+      </section>
+      <section className="card space-y-3">
+        <h2 className="font-semibold">Create a draft cycle</h2>
+        <AppraisalCycleForm
+          organizationId={org}
+          today={todayIn(session.organization?.timezone)}
+          templates={(t.data ?? [])
+            .filter((x) => x.is_active)
+            .map((x) => ({ id: x.id, label: x.name }))}
+          people={ppl.data ?? []}
+          departments={(d.data ?? []).map((x) => ({ id: x.id, label: x.name }))}
+          positions={(pos.data ?? []).map((x) => ({
+            id: x.id,
+            label: x.title,
+          }))}
+        />
+      </section>
+      <section className="card space-y-3">
+        <h2 className="font-semibold">Checkpoint templates</h2>
+        {(t.data ?? []).map((x) => (
+          <p key={x.id}>
+            <Link
+              className="underline"
+              href={`/admin/appraisals/templates/${x.id}`}
+            >
+              {x.name}
+            </Link>
+            {!x.is_active ? " · Archived" : ""}
+          </p>
+        ))}
+        <AppraisalTemplateForm organizationId={org} />
+      </section>
     </div>
   );
 }

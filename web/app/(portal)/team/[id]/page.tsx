@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { PerformanceHistoryCard } from "@/components/employee/PerformanceHistoryCard";
 import { Icon } from "@/components/Icon";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession, sessionCan } from "@/lib/session";
@@ -210,6 +211,7 @@ export default async function TeamMemberProfilePage({ params }: { params: Promis
       {!canManage && (
         <p className="flex items-center gap-1.5 text-xs text-stone-400"><Icon name="shield" size={14} /> Some details (compensation, documents) may be hidden based on your permissions.</p>
       )}
+      {(sessionCan(session, "appraisal.review_direct_reports") || sessionCan(session, "appraisal.manage_cycles")) && <PerformanceHistoryCard employeeId={employee.id} />}
     </div>
   );
 }

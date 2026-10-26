@@ -32,6 +32,7 @@
 // Keep this file passing; extend it (or supabase/tests/database/) for any
 // new module before trusting its RLS.
 
+import { testPerformance } from "./performance.mjs";
 import { testOnboarding } from "./onboarding.mjs";
 import { testRewards } from "./rewards.mjs";
 import { testRecognition } from "./recognition.mjs";
@@ -772,44 +773,144 @@ async function main() {
   });
 
   // ================================ APPRAISALS ====================================
+  const appraisalToday = (
+    await db.query(`select private.org_today('${ORG}')::text as local_day`)
+  ).rows[0].local_day;
   let templateId2, sectionId, questionId, cycleId, instanceId;
   await as(ERIN_USER, async () => {
-    const t = await db.query(`insert into public.appraisal_templates (organization_id, name) values ('${ORG}', '90-day checkpoint') returning id`);
+    const t = await db.query(
+      `insert into public.appraisal_templates (organization_id, name) values ('${ORG}', '90-day checkpoint') returning id`,
+    );
     templateId2 = t.rows[0].id;
-    const s = await db.query(`insert into public.appraisal_sections (template_id, title, sequence) values ('${templateId2}', 'Performance', 1) returning id`);
+    const s = await db.query(
+      `insert into public.appraisal_sections (template_id, title, sequence) values ('${templateId2}', 'Performance', 1) returning id`,
+    );
     sectionId = s.rows[0].id;
-    questionId = (await db.query(`insert into public.appraisal_questions (section_id, prompt, question_type, sequence) values ('${sectionId}', 'Overall rating', 'numeric_rating', 1) returning id`)).rows[0].id;
-    const c = await db.query(`insert into public.appraisal_cycles (organization_id, template_id, name, start_date) values ('${ORG}', '${templateId2}', '90-day: Alice', current_date) returning id`);
+    questionId = (
+      await db.query(
+        `insert into public.appraisal_questions (section_id, prompt, question_type, sequence) values ('${sectionId}', 'Overall rating', 'numeric_rating', 1) returning id`,
+      )
+    ).rows[0].id;
+    const c = await db.query(
+      `select * from public.save_performance_cycle($1,null,$2::jsonb)`,
+      [
+        ORG,
+        JSON.stringify({
+          template_id: templateId2,
+          name: "90-day: Alice",
+          start_date: appraisalToday,
+          review_period_start: appraisalToday,
+          review_period_end: appraisalToday,
+          employee_filter: { employee_ids: [ALICE_EMP] },
+        }),
+      ],
+    );
     cycleId = c.rows[0].id;
-    const launched = await db.query(`select * from public.launch_appraisal_cycle('${cycleId}')`);
+    const launched = await db.query(
+      `select * from public.launch_appraisal_cycle('${cycleId}')`,
+    );
     instanceId = launched.rows.find((r) => r.employee_id === ALICE_EMP).id;
     ok("launch_appraisal_cycle creates an instance for Alice", !!instanceId);
   });
   await as(BOB_USER, async () => {
-    const visible = await db.query(`select id from public.appraisal_instances where id = '${instanceId}'`);
-    ok("Bob (a reviewer) can see the instance — no RLS recursion", visible.rows.length === 1);
+    const visible = await db.query(
+      `select id from public.appraisal_instances where id = '${instanceId}'`,
+    );
+    ok(
+      "Bob (a reviewer) can see the instance — no RLS recursion",
+      visible.rows.length === 1,
+    );
   });
   await as(ALICE_USER, async () => {
-    const rows = await db.query(`select role from public.appraisal_reviewers where instance_id = '${instanceId}'`);
-    ok("Alice (the subject) can see all reviewer rows — no RLS recursion", rows.rows.length === 3);
-    const submit = await db.query(`select * from public.submit_appraisal('${instanceId}')`);
-    ok("Alice can submit her self-review stage", submit.rows[0].status === "supervisor_review");
+    const rows = await db.query(
+      `select role from public.appraisal_reviewers where instance_id = '${instanceId}'`,
+    );
+    ok(
+      "Alice (the subject) can see all reviewer rows — no RLS recursion",
+      rows.rows.length === 3,
+    );
+    const currentReviewer = (
+      await db.query(
+        `select id,draft_version from public.appraisal_reviewers where instance_id='${instanceId}' and role='self' and status='pending' order by sequence limit 1`,
+      )
+    ).rows[0];
+    await db.query(
+      `select public.save_appraisal_review($1,$2::jsonb,$3,gen_random_uuid(),false)`,
+      [
+        currentReviewer.id,
+        JSON.stringify({ [questionId]: 3 }),
+        currentReviewer.draft_version,
+      ],
+    );
+    const submit = await db.query(
+      `select * from public.submit_appraisal('${instanceId}')`,
+    );
+    ok(
+      "Alice can submit her self-review stage",
+      submit.rows[0].status === "supervisor_review",
+    );
   });
   await as(DAVID_USER, async () => {
-    const visible = await db.query(`select id from public.appraisal_instances where id = '${instanceId}'`);
-    ok("David (unrelated) cannot see Alice's appraisal instance", visible.rows.length === 0);
+    const visible = await db.query(
+      `select id from public.appraisal_instances where id = '${instanceId}'`,
+    );
+    ok(
+      "David (unrelated) cannot see Alice's appraisal instance",
+      visible.rows.length === 0,
+    );
   });
   await as(BOB_USER, async () => {
-    const submit = await db.query(`select * from public.submit_appraisal('${instanceId}')`);
-    ok("Bob (supervisor) can submit his review stage", submit.rows[0].status === "manager_review");
+    const currentReviewer = (
+      await db.query(
+        `select id,draft_version from public.appraisal_reviewers where instance_id='${instanceId}' and role='supervisor' and status='pending' order by sequence limit 1`,
+      )
+    ).rows[0];
+    await db.query(
+      `select public.save_appraisal_review($1,$2::jsonb,$3,gen_random_uuid(),false)`,
+      [
+        currentReviewer.id,
+        JSON.stringify({ [questionId]: 3 }),
+        currentReviewer.draft_version,
+      ],
+    );
+    const submit = await db.query(
+      `select * from public.submit_appraisal('${instanceId}')`,
+    );
+    ok(
+      "Bob (supervisor) can submit his review stage",
+      submit.rows[0].status === "manager_review",
+    );
   });
   await as(CAROL_USER, async () => {
-    const submit = await db.query(`select * from public.submit_appraisal('${instanceId}')`);
-    ok("Carol (manager) can submit her review stage", submit.rows[0].status === "employee_acknowledgement");
+    const currentReviewer = (
+      await db.query(
+        `select id,draft_version from public.appraisal_reviewers where instance_id='${instanceId}' and role='manager' and status='pending' order by sequence limit 1`,
+      )
+    ).rows[0];
+    await db.query(
+      `select public.save_appraisal_review($1,$2::jsonb,$3,gen_random_uuid(),false)`,
+      [
+        currentReviewer.id,
+        JSON.stringify({ [questionId]: 3 }),
+        currentReviewer.draft_version,
+      ],
+    );
+    const submit = await db.query(
+      `select * from public.submit_appraisal('${instanceId}')`,
+    );
+    ok(
+      "Carol (manager) can submit her review stage",
+      submit.rows[0].status === "employee_acknowledgement",
+    );
   });
   await as(ALICE_USER, async () => {
-    const ack = await db.query(`select * from public.acknowledge_appraisal('${instanceId}', 'Looks fair')`);
-    ok("Alice can acknowledge the completed appraisal", ack.rows[0].status === "complete");
+    const ack = await db.query(
+      `select * from public.acknowledge_appraisal('${instanceId}', 'Looks fair')`,
+    );
+    ok(
+      "Alice can acknowledge the completed appraisal",
+      ack.rows[0].status === "complete",
+    );
   });
 
   // ============================ EMPLOYEE ASSIGNMENT ============================
@@ -2822,6 +2923,7 @@ async function main() {
   await testRecognition({ db, as, ok });
   await testRewards({ db, as, ok });
   await testOnboarding({ db, as, ok });
+  await testPerformance({ db, as, ok });
 
   console.log(`\n${passCount} passed, ${failCount} failed.`);
   if (failCount > 0) process.exitCode = 1;

@@ -158,7 +158,7 @@ export default async function DashboardPage() {
     supabase.from("leave_requests").select("*, leave_types(name)").eq("employee_id", employeeId).order("submitted_at", { ascending: false }).limit(4),
     supabase.from("notifications").select("id, title, body, link_url, is_read, created_at").eq("recipient_user_id", session.userId).order("created_at", { ascending: false }).limit(5),
     supabase.from("onboarding_tasks").select("id, title, due_date, status").eq("assigned_to_user_id", session.userId).not("status", "in", "(completed,skipped)").order("due_date", { ascending: true }).limit(4),
-    supabase.from("appraisal_reviewers").select("id, role, appraisal_instance_id").eq("reviewer_user_id", session.userId).eq("status", "pending").limit(4),
+    supabase.rpc("list_my_performance_reviews", { p_organization_id: session.organizationId }),
     supabase.from("employee_assignments").select("positions(title), org_units(name), supervisor_employee_id, manager_employee_id").eq("employee_id", employeeId).is("end_date", null).maybeSingle(),
     supabase.from("onboarding_progress_v").select("run_id, total_tasks, completed_tasks").eq("employee_id", employeeId).eq("status", "in_progress").limit(1).maybeSingle(),
     supabase.rpc("get_my_clock_state"),
@@ -443,7 +443,7 @@ export default async function DashboardPage() {
             <div className="panel-heading"><div><span className="panel-icon"><Icon name="spark" /></span><div><h3>Next actions</h3><p>Keep your work moving.</p></div></div></div>
             <div className="action-list">
               {(onboardingTasks ?? []).map((task) => <Link href="/onboarding" key={task.id}><span className="metric-icon sun small"><Icon name="onboarding" size={16} /></span><div><strong>{task.title}</strong><small>{task.due_date ? `Due ${task.due_date}` : "Onboarding task"}</small></div><Icon name="arrow-right" size={15} /></Link>)}
-              {(reviews ?? []).map((review) => <Link href={`/appraisals/${review.appraisal_instance_id}`} key={review.id}><span className="metric-icon mint small"><Icon name="performance" size={16} /></span><div><strong>Complete your {review.role} review</strong><small>Performance checkpoint</small></div><Icon name="arrow-right" size={15} /></Link>)}
+              {(reviews ?? []).map((review: { id: string; instance_id: string; role: string }) => <Link href={`/appraisals/${review.instance_id}`} key={review.id}><span className="metric-icon mint small"><Icon name="performance" size={16} /></span><div><strong>Complete your {review.role} review</strong><small>Performance checkpoint</small></div><Icon name="arrow-right" size={15} /></Link>)}
               {openTaskCount === 0 && <div className="list-empty compact"><Icon name="check" size={17} /> You&apos;re all caught up.</div>}
             </div>
           </div>

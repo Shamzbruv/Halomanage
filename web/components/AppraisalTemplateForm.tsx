@@ -4,7 +4,11 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
-export function AppraisalTemplateForm({ organizationId }: { organizationId: string }) {
+export function AppraisalTemplateForm({
+  organizationId,
+}: {
+  organizationId: string;
+}) {
   const supabase = createClient();
   const router = useRouter();
   const [name, setName] = useState("");
@@ -43,9 +47,21 @@ export function AppraisalTemplateForm({ organizationId }: { organizationId: stri
     <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-2">
       <div className="flex-1">
         <label className="label">New checkpoint template</label>
-        <input required placeholder="90-Day Probation Checkpoint" className="input" value={name} onChange={(e) => setName(e.target.value)} />
+        <input
+          required
+          maxLength={120}
+          disabled={loading}
+          placeholder="90-Day Probation Checkpoint"
+          className="input"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
       </div>
-      {error && <p className="alert-error">{error}</p>}
+      {error && (
+        <p role="alert" className="alert-error">
+          {error}
+        </p>
+      )}
       <button type="submit" disabled={loading || !name} className="btn-primary">
         {loading ? "Creating…" : "Create & edit"}
       </button>

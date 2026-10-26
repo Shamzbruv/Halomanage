@@ -1,49 +1,141 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Icon } from "@/components/Icon";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession, sessionCan } from "@/lib/session";
-import { statusBadgeClass } from "@/lib/ui";
-import { formatDate } from "@/lib/timezone";
-
-export default async function AppraisalsPage() {
+import { performancePage, performanceStatus } from "@/lib/performance";
+import { RewardsPagination as Pagination } from "@/components/rewards/RewardsPagination";
+type Work = {
+  total: number;
+  active_count: number;
+  ready_count: number;
+  items: {
+    id: string;
+    label: string;
+    employee_name: string;
+    status: string;
+    is_subject: boolean;
+    my_role: string | null;
+    due_date: string | null;
+    review_period_start: string | null;
+    review_period_end: string | null;
+    query_status: string;
+  }[];
+};
+export default async function AppraisalsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ view?: string; page?: string }>;
+}) {
   const session = await getCurrentSession();
   if (!session) redirect("/login");
   if (!session.employee) redirect("/signup/complete?repair=1");
-  const supabase = await createClient();
-  const [{ data: own }, { data: reviewing }] = await Promise.all([
-    supabase.from("appraisal_instances").select("*").eq("employee_id", session.employee.id).order("created_at", { ascending: false }),
-    supabase.from("appraisal_reviewers").select("*, appraisal_instances(*)").eq("reviewer_user_id", session.userId).eq("status", "pending"),
-  ]);
-  const reviewingOthers = (reviewing ?? []).filter((row: any) => row.appraisal_instances?.employee_id !== session.employee!.id);
-  const active = (own ?? []).filter((item) => !["completed", "acknowledged", "cancelled"].includes(item.status)).length;
-
+  const p = await searchParams,
+    view = ["active", "history", "all"].includes(p.view ?? "")
+      ? p.view!
+      : "active",
+    page = performancePage(p.page),
+    { data, error } = await (
+      await createClient()
+    ).rpc("list_performance_work", {
+      p_organization_id: session.organizationId,
+      p_view: view,
+      p_page: page,
+    }),
+    work = data as Work | null;
   return (
     <div className="space-y-6">
-      <div className="page-intro"><span className="eyebrow">Growth & performance</span><h1>Clear conversations, not annual surprises.</h1><p>Keep self-reflection, manager feedback, and acknowledgement connected across every checkpoint.</p></div>
-      <div className="performance-summary">
-        <div className="metric-card"><span className="metric-icon mint"><Icon name="performance" /></span><div><small>My active checkpoints</small><strong>{active}</strong><em>in progress</em></div></div>
-        <div className="metric-card"><span className="metric-icon sun"><Icon name="team" /></span><div><small>Reviews to complete</small><strong>{reviewingOthers.length}</strong><em>for your team</em></div></div>
+      <div className="page-intro">
+        <span className="eyebrow">Performance</span>
+        <h1>Reflect, discuss and develop.</h1>
+        <p>
+          Keep self-reflection, evidence, feedback and development goals
+          connected. Acknowledgement records receipt and allows disagreement.
+        </p>
       </div>
-      {(own ?? []).length === 0 && reviewingOthers.length === 0 && sessionCan(session, "appraisal.manage_cycles") && (
-        <div className="workspace-nudge"><span className="metric-icon sun"><Icon name="spark" /></span><div><strong>Your growth framework is ready to shape</strong><p>Review the starter quarterly template, adjust the questions, then launch the first checkpoint when your team is ready.</p></div><Link className="btn-secondary" href="/admin/appraisals">Open performance setup</Link></div>
+      {work && (
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="metric-card">
+            <div>
+              <small>My active checkpoints</small>
+              <strong>{work.active_count}</strong>
+            </div>
+          </div>
+          <div className="metric-card">
+            <div>
+              <small>Review stages ready for me</small>
+              <strong>{work.ready_count}</strong>
+            </div>
+          </div>
+        </div>
       )}
-      <div className="grid gap-6 xl:grid-cols-2">
-        <section className="card">
-          <div className="panel-heading"><div><span className="panel-icon"><Icon name="performance" /></span><div><h3>My checkpoints</h3><p>Your current and previous performance conversations.</p></div></div></div>
-          <div className="checkpoint-list">
-            {(own ?? []).length === 0 && <div className="list-empty">No checkpoints scheduled yet.</div>}
-            {(own ?? []).map((item) => <Link href={`/appraisals/${item.id}`} key={item.id}><span className="metric-icon mint small"><Icon name="performance" size={16} /></span><div><strong>{item.label ?? "Performance checkpoint"}</strong><small>{item.created_at ? formatDate(item.created_at, session.organization?.timezone, { month: "short", day: "numeric", year: "numeric" }) : "Checkpoint"}</small></div><span className={`badge ${statusBadgeClass(item.status)}`}>{item.status.replace(/_/g, " ")}</span></Link>)}
-          </div>
-        </section>
-        <section className="card">
-          <div className="panel-heading"><div><span className="panel-icon"><Icon name="team" /></span><div><h3>Awaiting your review</h3><p>Checkpoints where your perspective is the next step.</p></div></div></div>
-          <div className="checkpoint-list">
-            {reviewingOthers.length === 0 && <div className="list-empty">You have no team reviews waiting.</div>}
-            {reviewingOthers.map((row: any) => <Link href={`/appraisals/${row.appraisal_instances.id}`} key={row.id}><span className="metric-icon sun small"><Icon name="profile" size={16} /></span><div><strong>{row.appraisal_instances.label ?? "Performance checkpoint"}</strong><small>Your {row.role.replace(/_/g, " ")} review</small></div><Icon name="arrow-right" size={16} /></Link>)}
-          </div>
-        </section>
-      </div>
+      <nav className="flex flex-wrap gap-3" aria-label="Performance view">
+        {[
+          ["active", "Active"],
+          ["history", "History"],
+          ["all", "All checkpoints"],
+        ].map(([key, label]) => (
+          <Link
+            className="btn-secondary"
+            key={key}
+            href={`/appraisals?view=${key}`}
+            aria-current={key === view ? "page" : undefined}
+          >
+            {label}
+          </Link>
+        ))}
+        {sessionCan(session, "appraisal.manage_cycles") && (
+          <Link className="btn-secondary" href="/admin/appraisals">
+            Performance administration
+          </Link>
+        )}
+      </nav>
+      {error && (
+        <div className="card">
+          <p role="alert">{error.message}</p>
+          <Link className="btn-secondary" href="/settings">
+            Account security
+          </Link>
+        </div>
+      )}
+      {work?.items.map((i) => (
+        <article className="card space-y-2" key={i.id}>
+          <Link
+            href={`/appraisals/${i.id}`}
+            className="font-semibold underline"
+          >
+            {i.label || "Performance checkpoint"}
+          </Link>
+          <p>
+            {i.is_subject ? "My checkpoint" : i.employee_name} ·{" "}
+            {performanceStatus(i.status)}
+          </p>
+          <p className="text-sm">
+            {i.review_period_start && i.review_period_end
+              ? `Review period ${i.review_period_start} to ${i.review_period_end}`
+              : "Historical review period not recorded"}
+            {i.my_role ? ` · My ${i.my_role} stage` : ""}
+            {i.due_date ? ` · Due ${i.due_date}` : ""}
+          </p>
+          {i.query_status === "open" && <p>HR follow-up requested</p>}
+        </article>
+      ))}
+      {work && !work.items.length && (
+        <div className="card">
+          <h2>No checkpoints in this view</h2>
+          <p>
+            HR schedules the review period and participants. Check History for
+            completed reviews.
+          </p>
+        </div>
+      )}
+      {work && (
+        <Pagination
+          page={page}
+          total={work.total}
+          size={20}
+          href={(n) => `/appraisals?view=${view}&page=${n}`}
+        />
+      )}
     </div>
   );
 }

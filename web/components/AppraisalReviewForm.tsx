@@ -1,135 +1,246 @@
 "use client";
-
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-
-type Question = { id: string; prompt: string; question_type: string; sequence: number };
-type Section = { id: string; title: string; sequence: number; questions: Question[] };
-type RatingOption = { value: number; label: string };
-
+import type {
+  PerformanceCheckpoint,
+  PerformanceReviewer,
+} from "@/lib/performance";
 export function AppraisalReviewForm({
-  instanceId,
-  reviewerId,
-  sections,
-  ratingScale,
-  existingResponses,
+  checkpoint,
+  reviewer,
 }: {
-  instanceId: string;
-  reviewerId: string;
-  sections: Section[];
-  ratingScale: RatingOption[];
-  existingResponses: Record<string, { response_text: string | null; response_numeric: number | null }>;
+  checkpoint: PerformanceCheckpoint;
+  reviewer: PerformanceReviewer;
 }) {
-  const supabase = createClient();
-  const router = useRouter();
-  const [values, setValues] = useState<Record<string, string>>(() => {
-    const initial: Record<string, string> = {};
-    for (const [qid, r] of Object.entries(existingResponses)) {
-      initial[qid] = r.response_numeric !== null ? String(r.response_numeric) : (r.response_text ?? "");
-    }
-    return initial;
-  });
-  const [loading, setLoading] = useState<"save" | "submit" | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  function set(qid: string, value: string) {
-    setValues((v) => ({ ...v, [qid]: value }));
-  }
-
-  async function saveResponses() {
-    const rows = sections.flatMap((s) =>
-      s.questions
-        .filter((q) => values[q.id] !== undefined && values[q.id] !== "")
-        .map((q) => {
-          const isNumeric = q.question_type === "rating_scale" || q.question_type === "numeric_rating";
-          return {
-            instance_id: instanceId,
-            reviewer_id: reviewerId,
-            question_id: q.id,
-            response_numeric: isNumeric ? Number(values[q.id]) : null,
-            response_text: isNumeric ? null : values[q.id],
-          };
-        }),
-    );
-    if (rows.length === 0) return true;
-    const { error } = await supabase.from("appraisal_responses").upsert(rows, { onConflict: "reviewer_id,question_id" });
-    if (error) {
-      setError(error.message);
-      return false;
-    }
-    return true;
-  }
-
-  async function handleSave() {
-    setLoading("save");
+  const router = useRouter(),
+    submitting = useRef(false),
+    retry = useRef<{ payload: string; key: string } | null>(null);
+  const [values, setValues] = useState<Record<string, unknown>>(() =>
+      Object.fromEntries(
+        checkpoint.responses
+          .filter((r) => r.reviewer_id === reviewer.id)
+          .map((r) => [r.question_id, r.response_json]),
+      ),
+    ),
+    [version, setVersion] = useState(reviewer.draft_version),
+    [busy, setBusy] = useState(""),
+    [error, setError] = useState<string | null>(null),
+    [message, setMessage] = useState("");
+  async function save(submit: boolean) {
+    if (submitting.current) return;
+    submitting.current = true;
+    setBusy(submit ? "submit" : "save");
     setError(null);
-    const ok = await saveResponses();
-    setLoading(null);
-    if (ok) router.refresh();
-  }
-
-  async function handleSubmit() {
-    setLoading("submit");
-    setError(null);
-    const ok = await saveResponses();
-    if (!ok) {
-      setLoading(null);
-      return;
+    setMessage("");
+    const payload = JSON.stringify([values, version, submit]);
+    if (retry.current?.payload !== payload)
+      retry.current = { payload, key: crypto.randomUUID() };
+    try {
+      const { data, error } = await createClient().rpc(
+        "save_appraisal_review",
+        {
+          p_reviewer_id: reviewer.id,
+          p_answers: values,
+          p_expected_version: version,
+          p_client_request_id: retry.current.key,
+          p_submit: submit,
+        },
+      );
+      if (error) throw error;
+      setVersion(data.draft_version);
+      retry.current = null;
+      setMessage(
+        submit
+          ? "Review submitted."
+          : "Draft saved. It remains private to you until submission.",
+      );
+      router.refresh();
+    } catch (error) {
+      setError(
+        (error as { message?: string }).message ??
+          "Unable to save. Keep your local text and reload only after checking your saved draft.",
+      );
+    } finally {
+      submitting.current = false;
+      setBusy("");
     }
-    const { error } = await supabase.rpc("submit_appraisal", { p_instance_id: instanceId });
-    if (error) {
-      setError(error.message);
-      setLoading(null);
-      return;
-    }
-    router.refresh();
   }
-
+  const change = (id: string, value: unknown) =>
+    setValues((v) => ({ ...v, [id]: value }));
   return (
-    <div className="space-y-6">
-      {sections.map((s) => (
-        <div key={s.id}>
-          <h3 className="mb-2 text-sm font-semibold text-stone-900">{s.title}</h3>
-          <div className="space-y-3">
-            {s.questions.map((q) => (
-              <div key={q.id}>
-                <label className="label">{q.prompt}</label>
-                {q.question_type === "rating_scale" && (
-                  <select className="input" value={values[q.id] ?? ""} onChange={(e) => set(q.id, e.target.value)}>
-                    <option value="">Select…</option>
-                    {ratingScale.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
-                  </select>
-                )}
-                {q.question_type === "numeric_rating" && (
-                  <input type="number" className="input" value={values[q.id] ?? ""} onChange={(e) => set(q.id, e.target.value)} />
-                )}
-                {q.question_type === "yes_no" && (
-                  <select className="input" value={values[q.id] ?? ""} onChange={(e) => set(q.id, e.target.value)}>
-                    <option value="">Select…</option>
-                    <option value="Yes">Yes</option>
-                    <option value="No">No</option>
-                  </select>
-                )}
-                {(q.question_type === "text" || q.question_type === "goal") && (
-                  <textarea className="input" rows={2} value={values[q.id] ?? ""} onChange={(e) => set(q.id, e.target.value)} />
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      ))}
-
-      {error && <p className="alert-error">{error}</p>}
-
-      <div className="flex gap-2">
-        <button className="btn-secondary" disabled={!!loading} onClick={handleSave}>
-          {loading === "save" ? "Saving…" : "Save draft"}
+    <form
+      className="space-y-5"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void save(true);
+      }}
+    >
+      <p className="text-sm">
+        Your draft is private. Submission is final; add a shared follow-up after
+        release if a correction is needed. Use evidence from the review period
+        and explain support needs in the relevant text questions.
+      </p>
+      <fieldset disabled={!!busy} className="space-y-5">
+        {checkpoint.form_snapshot.sections.map((s) => (
+          <section key={s.id} className="space-y-3">
+            <h3 className="font-semibold">{s.title}</h3>
+            {s.questions.map((q) => {
+              const val = values[q.id],
+                goal =
+                  val && typeof val === "object"
+                    ? (val as Record<string, string>)
+                    : {};
+              return (
+                <div key={q.id} className="space-y-2">
+                  <label className="label" htmlFor={`answer-${q.id}`}>
+                    {q.prompt}
+                    {q.required ? " *" : " (optional)"}
+                  </label>
+                  {q.question_type === "rating_scale" ? (
+                    <select
+                      id={`answer-${q.id}`}
+                      required={q.required}
+                      className="input"
+                      value={
+                        val === undefined || val === null ? "" : String(val)
+                      }
+                      onChange={(e) =>
+                        change(
+                          q.id,
+                          e.target.value === "" ? null : Number(e.target.value),
+                        )
+                      }
+                    >
+                      <option value="">Choose a rating</option>
+                      {checkpoint.form_snapshot.rating_scale.map((r) => (
+                        <option key={r.value} value={r.value}>
+                          {r.value} — {r.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : q.question_type === "numeric_rating" ? (
+                    <input
+                      id={`answer-${q.id}`}
+                      className="input"
+                      type="number"
+                      step="0.01"
+                      required={q.required}
+                      min={(q.options as { min?: number })?.min ?? 1}
+                      max={(q.options as { max?: number })?.max ?? 5}
+                      value={
+                        val === undefined || val === null ? "" : String(val)
+                      }
+                      onChange={(e) =>
+                        change(
+                          q.id,
+                          e.target.value === "" ? null : Number(e.target.value),
+                        )
+                      }
+                    />
+                  ) : q.question_type === "yes_no" ? (
+                    <select
+                      id={`answer-${q.id}`}
+                      required={q.required}
+                      className="input"
+                      value={
+                        val === undefined || val === null ? "" : String(val)
+                      }
+                      onChange={(e) =>
+                        change(
+                          q.id,
+                          e.target.value === ""
+                            ? null
+                            : e.target.value === "true",
+                        )
+                      }
+                    >
+                      <option value="">Choose</option>
+                      <option value="true">Yes</option>
+                      <option value="false">No</option>
+                    </select>
+                  ) : q.question_type === "multiple_choice" ? (
+                    <select
+                      id={`answer-${q.id}`}
+                      required={q.required}
+                      className="input"
+                      value={String(val ?? "")}
+                      onChange={(e) => change(q.id, e.target.value || null)}
+                    >
+                      <option value="">Choose</option>
+                      {((q.options as string[]) ?? []).map((o) => (
+                        <option key={o} value={o}>
+                          {o}
+                        </option>
+                      ))}
+                    </select>
+                  ) : q.question_type === "goal" ? (
+                    <fieldset className="rounded-xl border p-3 space-y-2">
+                      <legend>Measurable goal</legend>
+                      {[
+                        ["title", "Goal title", 200],
+                        ["measure", "How success will be measured", 2000],
+                        ["target_date", "Target date", 20],
+                        ["support", "Support needed (optional)", 2000],
+                      ].map(([key, label, max]) => (
+                        <label key={key} className="label">
+                          {label}
+                          <input
+                            id={key === "title" ? `answer-${q.id}` : undefined}
+                            className="input"
+                            type={key === "target_date" ? "date" : "text"}
+                            required={q.required && key !== "support"}
+                            maxLength={Number(max)}
+                            value={goal[String(key)] ?? ""}
+                            onChange={(e) => {
+                              const next = { ...goal, [key]: e.target.value };
+                              change(
+                                q.id,
+                                Object.values(next).some((v) => v.trim())
+                                  ? next
+                                  : null,
+                              );
+                            }}
+                          />
+                        </label>
+                      ))}
+                    </fieldset>
+                  ) : (
+                    <textarea
+                      id={`answer-${q.id}`}
+                      className="input"
+                      rows={4}
+                      required={q.required}
+                      maxLength={4000}
+                      value={String(val ?? "")}
+                      onChange={(e) => change(q.id, e.target.value || null)}
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </section>
+        ))}
+      </fieldset>
+      {error && (
+        <p role="alert" className="alert-error">
+          {error}
+        </p>
+      )}
+      {message && <p role="status">{message}</p>}
+      <div className="flex gap-3">
+        <button
+          type="button"
+          className="btn-secondary"
+          disabled={!!busy}
+          onClick={() => void save(false)}
+        >
+          {busy === "save" ? "Saving…" : "Save draft"}
         </button>
-        <button className="btn-primary" disabled={!!loading} onClick={handleSubmit}>
-          {loading === "submit" ? "Submitting…" : "Submit review"}
+        <button className="btn-primary" disabled={!!busy}>
+          {busy === "submit" ? "Submitting…" : "Submit final review"}
         </button>
       </div>
-    </div>
+    </form>
   );
 }
