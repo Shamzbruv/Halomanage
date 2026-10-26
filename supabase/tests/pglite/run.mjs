@@ -32,6 +32,7 @@
 // Keep this file passing; extend it (or supabase/tests/database/) for any
 // new module before trusting its RLS.
 
+import { testOnboarding } from "./onboarding.mjs";
 import { testRewards } from "./rewards.mjs";
 import { testRecognition } from "./recognition.mjs";
 import { testPay } from "./pay.mjs";
@@ -740,31 +741,31 @@ async function main() {
     const tmpl = await db.query(`insert into public.onboarding_templates (organization_id, name, is_default) values ('${ORG}', 'Standard onboarding', true) returning id`);
     const version = await db.query(`insert into public.onboarding_template_versions (template_id, version_number, is_current) values ('${tmpl.rows[0].id}', 1, true) returning id`);
     templateVersionId = version.rows[0].id;
-    const stepA = await db.query(`insert into public.onboarding_template_steps (template_version_id, title, step_type, assignee_type, sequence, due_offset_days) values ('${templateVersionId}', 'Upload ID', 'document_upload', 'employee', 1, 3) returning id`);
+    const stepA = await db.query(`insert into public.onboarding_template_steps (template_version_id, title, step_type, assignee_type, sequence, due_offset_days) values ('${templateVersionId}', 'Read welcome instructions', 'task', 'employee', 1, 3) returning id`);
     stepAId = stepA.rows[0].id;
     const stepB = await db.query(`insert into public.onboarding_template_steps (template_version_id, title, step_type, assignee_type, sequence, due_offset_days, dependency_step_ids) values ('${templateVersionId}', 'Supervisor welcome meeting', 'meeting', 'supervisor', 2, 5, array['${stepAId}']::uuid[]) returning id`);
     stepBId = stepB.rows[0].id;
   });
   let runId, taskAId, taskBId;
   await as(ERIN_USER, async () => {
-    const run = await db.query(`select * from public.start_onboarding('${DAVID_EMP}', null)`);
+    const run = await db.query(`select * from public.start_onboarding('${ALICE_EMP}', null)`);
     runId = run.rows[0].id;
-    ok("Erin can start onboarding for David", run.rows[0].status === "in_progress");
+    ok("Erin can start onboarding for Alice", run.rows[0].status === "in_progress");
     const tasks = await db.query(`select id, assigned_to_user_id from public.onboarding_tasks where run_id = '${runId}' order by sequence`);
     taskAId = tasks.rows[0].id;
     taskBId = tasks.rows[1].id;
     ok("2 tasks were instantiated", tasks.rows.length === 2);
-    ok("Task A assigned to David (employee)", tasks.rows[0].assigned_to_user_id === DAVID_USER);
+    ok("Task A assigned to Alice (employee)", tasks.rows[0].assigned_to_user_id === ALICE_USER);
   });
-  await as(DAVID_USER, async () => {
+  await as(ALICE_USER, async () => {
     let threw = false;
-    try { await db.query(`select * from public.complete_onboarding_task('${taskBId}', null)`); } catch { threw = true; }
+    try { await db.query(`select * from public.complete_onboarding_task('${taskBId}', '{"notes":"Welcome meeting completed"}'::jsonb)`); } catch { threw = true; }
     ok("Task B (depends on Task A) cannot be completed early", threw);
     const doneA = await db.query(`select * from public.complete_onboarding_task('${taskAId}', null)`);
-    ok("David can complete his own Task A", doneA.rows[0].status === "completed");
+    ok("Alice can complete his own Task A", doneA.rows[0].status === "completed");
   });
   await as(ERIN_USER, async () => {
-    const doneB = await db.query(`select * from public.complete_onboarding_task('${taskBId}', null)`);
+    const doneB = await db.query(`select * from public.complete_onboarding_task('${taskBId}', '{"notes":"Welcome meeting completed"}'::jsonb)`);
     ok("Erin (employee.manage) can complete an unassigned task", doneB.rows[0].status === "completed");
     const run = await db.query(`select status from public.onboarding_runs where id = '${runId}'`);
     ok("Onboarding run auto-completes once all required tasks are done", run.rows[0].status === "completed");
@@ -869,7 +870,7 @@ async function main() {
     unassignedOnboardingRunId = run.rows[0].id;
     const task = await db.query(`
       insert into public.onboarding_tasks (run_id, template_step_id, organization_id, employee_id, title, step_type, assignee_type, assigned_to_user_id, sequence, required)
-      values ('${unassignedOnboardingRunId}', '${stepAId}', '${ORG}', '${ALICE_EMP}', 'HR-owned onboarding task', 'form', 'hr', null, 1, true)
+      values ('${unassignedOnboardingRunId}', '${stepAId}', '${ORG}', '${ALICE_EMP}', 'HR-owned onboarding task', 'task', 'hr', null, 1, true)
       returning id
     `);
     unassignedOnboardingTaskId = task.rows[0].id;
@@ -2820,6 +2821,7 @@ async function main() {
   await testPay({ db, as, ok });
   await testRecognition({ db, as, ok });
   await testRewards({ db, as, ok });
+  await testOnboarding({ db, as, ok });
 
   console.log(`\n${passCount} passed, ${failCount} failed.`);
   if (failCount > 0) process.exitCode = 1;

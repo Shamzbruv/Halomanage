@@ -22,7 +22,7 @@ export function StartOnboardingForm({
     e.preventDefault();
     setLoading(true);
     setError(null);
-    const { error } = await supabase.rpc("start_onboarding", {
+    const { data, error } = await supabase.rpc("start_onboarding", {
       p_employee_id: employeeId,
       p_template_id: templateId || null,
     });
@@ -31,6 +31,7 @@ export function StartOnboardingForm({
       setLoading(false);
       return;
     }
+    if (data?.id) router.push(`/admin/onboarding/runs/${data.id}`);
     setEmployeeId("");
     setLoading(false);
     router.refresh();
@@ -40,20 +41,41 @@ export function StartOnboardingForm({
     <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-2">
       <div className="flex-1">
         <label className="label">Employee</label>
-        <select required className="input" value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>
+        <select
+          required
+          className="input"
+          value={employeeId}
+          onChange={(e) => setEmployeeId(e.target.value)}
+        >
           <option value="">Select…</option>
-          {employees.map((e) => <option key={e.id} value={e.id}>{e.label}</option>)}
+          {employees.map((e) => (
+            <option key={e.id} value={e.id}>
+              {e.label}
+            </option>
+          ))}
         </select>
       </div>
       <div className="flex-1">
         <label className="label">Template</label>
-        <select className="input" value={templateId} onChange={(e) => setTemplateId(e.target.value)}>
+        <select
+          className="input"
+          value={templateId}
+          onChange={(e) => setTemplateId(e.target.value)}
+        >
           <option value="">Default template</option>
-          {templates.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+          {templates.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.label}
+            </option>
+          ))}
         </select>
       </div>
       {error && <p className="alert-error">{error}</p>}
-      <button type="submit" disabled={loading || !employeeId} className="btn-primary">
+      <button
+        type="submit"
+        disabled={loading || !employeeId}
+        className="btn-primary"
+      >
         {loading ? "Starting…" : "Start onboarding"}
       </button>
     </form>

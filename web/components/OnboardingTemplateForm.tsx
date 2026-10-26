@@ -8,7 +8,11 @@ import { createClient } from "@/lib/supabase/client";
 // is_current) in one go — a template with no current version can't be
 // started (start_onboarding() requires one), so there's no useful
 // intermediate state to leave half-created.
-export function OnboardingTemplateForm({ organizationId }: { organizationId: string }) {
+export function OnboardingTemplateForm({
+  organizationId,
+}: {
+  organizationId: string;
+}) {
   const supabase = createClient();
   const router = useRouter();
   const [name, setName] = useState("");
@@ -21,24 +25,16 @@ export function OnboardingTemplateForm({ organizationId }: { organizationId: str
     setLoading(true);
     setError(null);
 
-    const { data: template, error: templateError } = await supabase
-      .from("onboarding_templates")
-      .insert({ organization_id: organizationId, name, is_default: isDefault })
-      .select()
-      .single();
-
+    const { data: template, error: templateError } = await supabase.rpc(
+      "create_onboarding_template",
+      {
+        p_organization_id: organizationId,
+        p_name: name,
+        p_is_default: isDefault,
+      },
+    );
     if (templateError || !template) {
-      setError(templateError?.message ?? "Failed to create template");
-      setLoading(false);
-      return;
-    }
-
-    const { error: versionError } = await supabase
-      .from("onboarding_template_versions")
-      .insert({ template_id: template.id, version_number: 1, is_current: true });
-
-    if (versionError) {
-      setError(versionError.message);
+      setError(templateError?.message ?? "Unable to create template.");
       setLoading(false);
       return;
     }
@@ -53,10 +49,22 @@ export function OnboardingTemplateForm({ organizationId }: { organizationId: str
     <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-2">
       <div className="flex-1">
         <label className="label">New template name</label>
-        <input required placeholder="New Employee Onboarding" className="input" value={name} onChange={(e) => setName(e.target.value)} />
+        <input
+          required
+          maxLength={120}
+          placeholder="New Employee Onboarding"
+          className="input"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
       </div>
       <label className="mb-2 flex items-center gap-2 text-sm text-stone-600">
-        <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} /> Default template
+        <input
+          type="checkbox"
+          checked={isDefault}
+          onChange={(e) => setIsDefault(e.target.checked)}
+        />{" "}
+        Default template
       </label>
       {error && <p className="alert-error">{error}</p>}
       <button type="submit" disabled={loading || !name} className="btn-primary">

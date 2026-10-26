@@ -1,87 +1,95 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { CompleteOnboardingTaskButton } from "@/components/CompleteOnboardingTaskButton";
-import { Icon } from "@/components/Icon";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentSession, sessionCan } from "@/lib/session";
-
-export default async function OnboardingPage() {
+import { OnboardingTaskCard } from "@/components/OnboardingTaskCard";
+import { RewardsPagination as Pagination } from "@/components/rewards/RewardsPagination";
+import { onboardingPage, type OnboardingTask } from "@/lib/onboarding";
+export default async function OnboardingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ view?: string; page?: string }>;
+}) {
   const session = await getCurrentSession();
   if (!session) redirect("/login");
   if (!session.employee) redirect("/signup/complete?repair=1");
-
-  const supabase = await createClient();
-  // Only this person's own plan and steps assigned to them. RLS would also
-  // return team members' tasks to supervisors (onboarding.read_team /
-  // manage_team) — those belong on the run record, not "my onboarding".
-  // Steps can be assigned to me for someone else's onboarding (HR/IT steps,
-  // or as their supervisor). I may not be able to read that person's record
-  // or run, so list_my_onboarding_subjects() supplies just the run status
-  // and their name.
-  const [{ data: runStatuses }, { data: subjects }] = await Promise.all([
-    supabase.from("onboarding_runs").select("id, status").eq("employee_id", session.employee.id),
-    supabase.rpc("list_my_onboarding_subjects"),
-  ]);
-  const subjectByRun = new Map(((subjects ?? []) as { run_id: string; run_status: string; display_name: string; employee_number: string }[]).map((s) => [s.run_id, s]));
-  const cancelledRuns = new Set([
-    ...(runStatuses ?? []).filter((r) => r.status === "cancelled").map((r) => r.id),
-    ...[...subjectByRun.values()].filter((s) => s.run_status === "cancelled").map((s) => s.run_id),
-  ]);
-  const { data: allTasks } = await supabase
-    .from("onboarding_tasks")
-    .select("*")
-    .or(`employee_id.eq.${session.employee.id},assigned_to_user_id.eq.${session.userId}`)
-    .order("run_id")
-    .order("sequence");
-  // Preboarding steps owned by HR/IT aren't the new hire's to see as to-dos.
-  const tasks = (allTasks ?? []).filter((task) =>
-    !cancelledRuns.has(task.run_id)
-    && (task.assigned_to_user_id === session.userId || (task.employee_id === session.employee!.id && task.phase !== "preboarding")),
-  );
-  const runs = new Map<string, any[]>();
-  for (const task of tasks ?? []) {
-    if (!runs.has(task.run_id)) runs.set(task.run_id, []);
-    runs.get(task.run_id)!.push(task);
-  }
-  const total = (tasks ?? []).length;
-  const completed = (tasks ?? []).filter((task) => task.status === "completed" || task.status === "skipped").length;
-  const progress = total ? Math.round((completed / total) * 100) : 0;
-
+  const p = await searchParams,
+    view = ["open", "history", "all"].includes(p.view ?? "") ? p.view! : "open",
+    page = onboardingPage(p.page);
+  const { data, error } = await (
+    await createClient()
+  ).rpc("list_onboarding_work", {
+    p_organization_id: session.organizationId,
+    p_view: view,
+    p_page: page,
+  });
+  const work = data as { total: number; tasks: OnboardingTask[] } | null;
   return (
     <div className="space-y-6">
-      <div className="page-intro"><span className="eyebrow">Getting settled</span><h1>Your path from new to fully onboarded.</h1><p>Work through each step in order. Dependencies, owners, and evidence stay attached to the task so everyone knows what comes next.</p></div>
-
-      {runs.size === 0 ? (
-        <div className="empty-state card"><span><Icon name="onboarding" size={26} /></span><h2>No onboarding work right now</h2><p>You have no assigned onboarding tasks. New steps will appear here automatically when HR starts a workflow.</p>{sessionCan(session, "onboarding.manage_templates") && <Link className="btn-primary empty-state-action" href="/admin/onboarding">Start an onboarding plan</Link>}</div>
-      ) : (
-        <>
-          <div className="onboarding-summary card">
-            <div><span className="metric-icon mint"><Icon name="onboarding" /></span><div><small>Overall progress</small><strong>{progress}% complete</strong><p>{completed} of {total} tasks finished</p></div></div>
-            <div className="progress-track"><span style={{ width: `${progress}%` }} /></div>
-          </div>
-          <div className="onboarding-runs">
-            {[...runs.entries()].map(([runId, runTasks]) => {
-              const runCompleted = runTasks.filter((task) => task.status === "completed" || task.status === "skipped").length;
-              return (
-                <section key={runId} className="card">
-                  <div className="panel-heading"><div><span className="panel-icon"><Icon name="onboarding" /></span><div><h3>{runTasks[0].employee_id === session.employee!.id ? "Your onboarding plan" : subjectByRun.get(runId) ? `Onboarding for ${subjectByRun.get(runId)!.display_name} (${subjectByRun.get(runId)!.employee_number}) — your steps` : "Steps assigned to you"}</h3><p>{runCompleted} of {runTasks.length} steps completed.</p></div></div><span className="badge badge-neutral">{runTasks.length - runCompleted} remaining</span></div>
-                  <ol className="onboarding-task-list">
-                    {runTasks.map((task) => {
-                      const done = task.status === "completed" || task.status === "skipped";
-                      return (
-                        <li key={task.id} className={done ? "done" : ""}>
-                          <span className="task-marker">{done ? <Icon name="check" size={15} /> : task.sequence}</span>
-                          <div><strong>{task.title}</strong>{task.description && <p>{task.description}</p>}<small>{task.step_type.replace(/_/g, " ")}{task.due_date ? ` · Due ${task.due_date}` : ""}</small></div>
-                          <div>{done ? <span className="badge badge-emerald">Done</span> : task.assigned_to_user_id === session.userId ? <CompleteOnboardingTaskButton taskId={task.id} /> : <span className="badge badge-neutral">With your {task.assignee_type === "hr" ? "HR team" : task.assignee_type}</span>}</div>
-                        </li>
-                      );
-                    })}
-                  </ol>
-                </section>
-              );
-            })}
-          </div>
-        </>
+      <div className="page-intro">
+        <span className="eyebrow">Onboarding</span>
+        <h1>Your plan and assigned work.</h1>
+        <p>
+          Follow your new-role plan, help coworkers get settled, and raise
+          anything that needs support. HR retains completed and cancelled
+          records.
+        </p>
+      </div>
+      <nav className="flex flex-wrap gap-3" aria-label="Onboarding view">
+        {[
+          ["open", "Open work"],
+          ["history", "History"],
+          ["all", "All steps"],
+        ].map(([key, label]) => (
+          <Link
+            className="btn-secondary"
+            aria-current={view === key ? "page" : undefined}
+            key={key}
+            href={`/onboarding?view=${key}`}
+          >
+            {label}
+          </Link>
+        ))}
+        {(sessionCan(session, "employee.manage") ||
+          sessionCan(session, "onboarding.manage_templates") ||
+          sessionCan(session, "onboarding.manage_team") ||
+          sessionCan(session, "onboarding.read_team")) && (
+          <Link className="btn-secondary" href="/admin/onboarding">
+            Manage onboarding
+          </Link>
+        )}
+      </nav>
+      {error && (
+        <div className="card">
+          <p role="alert">{error.message}</p>
+          <Link className="btn-secondary" href="/settings">
+            Account security
+          </Link>
+        </div>
+      )}
+      {work && !work.tasks.length && (
+        <div className="card">
+          <h2>No steps in this view</h2>
+          <p>
+            Your assigned work appears when HR starts a plan. Check History for
+            closed work or contact HR if something is missing.
+          </p>
+        </div>
+      )}
+      {work?.tasks.map((t) => (
+        <OnboardingTaskCard
+          key={t.id}
+          task={t}
+          timezone={session.organization?.timezone}
+        />
+      ))}
+      {work && (
+        <Pagination
+          page={page}
+          total={work.total}
+          size={20}
+          href={(n) => `/onboarding?view=${view}&page=${n}`}
+        />
       )}
     </div>
   );

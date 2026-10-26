@@ -1,6 +1,6 @@
 # Halomanage — Build Status and Roadmap
 
-Living handoff document. Last updated: 2026-10-25 (Rewards HR review). This document itself had
+Living handoff document. Last updated: 2026-10-25 (Onboarding HR review). This document itself had
 drifted well behind `docs/ARCHITECTURE.md` (which had ~15 dated sections
 past this file's last update) — see ARCHITECTURE.md for the authoritative,
 dated history; this file is being brought back in line with it below rather
@@ -73,7 +73,7 @@ an external payroll or accounting system.
 - `web`: TypeScript passes with `tsc --noEmit`.
 - `web`: Next.js 16.3.2 production build passes for all routes.
 - `web`: `npm audit` reports 0 vulnerabilities.
-- `supabase/tests/pglite`: 817/817 database and parsing/display assertions pass (2026-10-25, Rewards receipts/stock/refunds/corrections, Recognition privacy/moderation, My Pay and approved attendance/leave workflows; also run by GitHub Actions CI on every push), including employee-setup
+- `supabase/tests/pglite`: 919/919 database and parsing/display assertions pass (2026-10-25, Rewards receipts/stock/refunds/corrections, Recognition privacy/moderation, My Pay and approved attendance/leave workflows; also run by GitHub Actions CI on every push), including employee-setup
   readiness, prepared access/onboarding at invitation, and versioned template editing; also including starter workspace contents,
   portal lookup/customization, partial-membership repair, invitation permission separation,
   transactional linking, cross-organization provisioning, and duplicate-provisioning rejection.
@@ -165,3 +165,8 @@ Completed employee privacy choices, independent read/give permissions, status/va
 ## Rewards HR review — 2026-10-25
 
 See [REWARDS_HR_AUDIT.md](REWARDS_HR_AUDIT.md). Rewards now provides immutable request receipts, reviewed-cost confirmation, payload-bound award/redemption retries, employee cancellation, exact refunds, stock reservations, editable/archivable catalog, award history and append-only corrections. Limited HR roles receive scoped search and queue labels without broad directory access. Supplier contacts and employee rewards are protected by explicit Rewards permissions; required MFA and sensitive-action checks apply. Paused marketplaces retain existing obligations and history. Recognition integration remains tested; payroll, Leave and delivered external benefits are never altered automatically. Validation: 817 database assertions, web checks/build, live rollback smoke and release-commit CI. Railway is not operated manually.
+
+
+## Onboarding HR review — 2026-10-25
+
+See [ONBOARDING_HR_AUDIT.md](ONBOARDING_HR_AUDIT.md). Added scoped task/run APIs, employee task pages, meaningful forms/attestations, private evidence uploads, preserved document versions, prerequisite validation, blocker reports, explained date overrides and owner/account reconciliation. Starts are retry-safe and existing duplicate active plans are flagged without deleting history. Responses are separated from general progress monitoring. Used template versions and run snapshots are protected; optional steps remain actionable after required completion. HR cards, reports and navigation use the same records. Validation: 919 assertions, web checks/build, live rollback smoke and release-commit CI. Railway is not operated manually.

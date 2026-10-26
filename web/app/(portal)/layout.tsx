@@ -24,24 +24,50 @@ const ADMIN_PAGE_PERMISSIONS: Record<string, AppPermission[]> = {
   "/admin/organization": ["organization.manage"],
   "/admin/leave-types": ["leave.manage_policies"],
   "/admin/attendance": ["attendance.manage_policies"],
-  "/admin/onboarding": ["onboarding.manage_templates"],
+  "/admin/onboarding": [
+    "onboarding.manage_templates",
+    "onboarding.manage_team",
+    "onboarding.read_team",
+    "employee.manage",
+  ],
   "/admin/offboarding": ["employee.manage"],
   "/admin/appraisals": ["appraisal.manage_cycles"],
   "/admin/documents": ["documents.manage_org"],
   "/admin/development": ["training.manage", "assets.manage"],
-  "/admin/payroll": ["payroll.import", "compensation.manage", "compensation.approve"],
+  "/admin/payroll": [
+    "payroll.import",
+    "compensation.manage",
+    "compensation.approve",
+  ],
   "/admin/compensation-settings": ["compensation.manage_structure"],
   "/admin/pay-calendars": ["pay_calendar.read", "pay_calendar.manage"],
-  "/admin/recognition": ["recognition.manage", "recognition.moderate", "rewards.manage_catalog"],
-  "/admin/rewards": ["rewards.manage_catalog", "rewards.award_points", "rewards.fulfill"],
+  "/admin/recognition": [
+    "recognition.manage",
+    "recognition.moderate",
+    "rewards.manage_catalog",
+  ],
+  "/admin/rewards": [
+    "rewards.manage_catalog",
+    "rewards.award_points",
+    "rewards.fulfill",
+  ],
   "/admin/reports": ["reports.org"],
   "/admin/roles": ["roles.manage"],
   "/admin/security": ["organization.manage"],
 };
 
-const TEAM_ATTENDANCE_PERMISSIONS: AppPermission[] = ["attendance.read_team", "attendance.read_org", "attendance.adjust_team", "attendance.adjust_org"];
+const TEAM_ATTENDANCE_PERMISSIONS: AppPermission[] = [
+  "attendance.read_team",
+  "attendance.read_org",
+  "attendance.adjust_team",
+  "attendance.adjust_org",
+];
 
-export default async function PortalLayout({ children }: { children: React.ReactNode }) {
+export default async function PortalLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const session = await getCurrentSession();
   if (!session) redirect("/login");
   if (session.dataError) {
@@ -58,16 +84,30 @@ export default async function PortalLayout({ children }: { children: React.React
       <div className="workspace-repair-shell">
         <Brand />
         <div className="card workspace-repair-card">
-          <span className="empty-state-icon"><Icon name="shield" size={25} /></span>
+          <span className="empty-state-icon">
+            <Icon name="shield" size={25} />
+          </span>
           <span className="eyebrow">Workspace connection</span>
           <h1>We couldn&apos;t load your organization data.</h1>
-          <p>This can happen when a session is stale — signing out and back in almost always fixes it. No information has been lost.</p>
+          <p>
+            This can happen when a session is stale — signing out and back in
+            almost always fixes it. No information has been lost.
+          </p>
           <div className="workspace-repair-actions">
             <SignOutButton className="btn-primary" />
-            <a className="btn-secondary" href="/dashboard">Try again</a>
+            <a className="btn-secondary" href="/dashboard">
+              Try again
+            </a>
           </div>
           <p className="mt-3 text-xs text-stone-500">
-            Still stuck after signing back in? <a className="text-royal-700 hover:text-royal-800" href="/signup/complete">Repair workspace setup</a>.
+            Still stuck after signing back in?{" "}
+            <a
+              className="text-royal-700 hover:text-royal-800"
+              href="/signup/complete"
+            >
+              Repair workspace setup
+            </a>
+            .
           </p>
         </div>
       </div>
@@ -79,7 +119,12 @@ export default async function PortalLayout({ children }: { children: React.React
   // "roleless" here and get bounced into workspace repair forever.
   // roleLabels covers both, so it's the right "does this person hold
   // anything at all" check.
-  if (!session.employee || !session.organizationId || session.roleLabels.length === 0 || !session.organization) {
+  if (
+    !session.employee ||
+    !session.organizationId ||
+    session.roleLabels.length === 0 ||
+    !session.organization
+  ) {
     redirect("/signup/complete?repair=1");
   }
 
@@ -91,16 +136,25 @@ export default async function PortalLayout({ children }: { children: React.React
   // writes are additionally enforced by database triggers.
   {
     const supabase = await createClient();
-    const { data: securityPolicy } = await supabase.rpc("get_my_security_policy");
-    const policy = securityPolicy as { mfa_required?: boolean; current_aal?: string } | null;
+    const { data: securityPolicy } = await supabase.rpc(
+      "get_my_security_policy",
+    );
+    const policy = securityPolicy as {
+      mfa_required?: boolean;
+      current_aal?: string;
+    } | null;
     if (policy?.mfa_required && policy.current_aal !== "aal2") redirect("/mfa");
   }
 
   // Navigation follows the same effective permission bundle as RLS. This
   // keeps custom role bundles and effective-dated promotions/demotions from
   // disagreeing with what the database actually allows.
-  const canSeeTeam = sessionCan(session, "employee.read_team") || sessionCan(session, "employee.read_org");
-  const canSeeTeamAttendance = TEAM_ATTENDANCE_PERMISSIONS.some((permission) => sessionCan(session, permission));
+  const canSeeTeam =
+    sessionCan(session, "employee.read_team") ||
+    sessionCan(session, "employee.read_org");
+  const canSeeTeamAttendance = TEAM_ATTENDANCE_PERMISSIONS.some((permission) =>
+    sessionCan(session, permission),
+  );
   // "Manage" is shown if any admin page underneath it would actually let
   // this person in — not just organization.manage, so a custom role
   // granted a narrower slice (e.g. just roles.manage, or just
@@ -112,6 +166,8 @@ export default async function PortalLayout({ children }: { children: React.React
     "leave.manage_policies",
     "attendance.manage_policies",
     "onboarding.manage_templates",
+    "onboarding.manage_team",
+    "onboarding.read_team",
     "appraisal.manage_cycles",
     "documents.manage_org",
     "training.manage",
@@ -129,12 +185,16 @@ export default async function PortalLayout({ children }: { children: React.React
     "rewards.fulfill",
     "reports.org",
     "roles.manage",
-  ].some((permission) => sessionCan(session, permission as Parameters<typeof sessionCan>[1]));
+  ].some((permission) =>
+    sessionCan(session, permission as Parameters<typeof sessionCan>[1]),
+  );
   // The per-item counterpart to canSeeAdmin above: which of those hrefs this
   // session can actually open, not just whether the section header should
   // render at all.
   const visibleAdminHrefs = Object.entries(ADMIN_PAGE_PERMISSIONS)
-    .filter(([, permissions]) => permissions.some((permission) => sessionCan(session, permission)))
+    .filter(([, permissions]) =>
+      permissions.some((permission) => sessionCan(session, permission)),
+    )
     .map(([href]) => href);
   const name = session.employee
     ? `${session.employee.preferred_name || session.employee.first_name} ${session.employee.last_name}`
@@ -162,9 +222,16 @@ export default async function PortalLayout({ children }: { children: React.React
     <PortalShell
       avatarUrl={avatarUrl}
       canSeeAdmin={canSeeAdmin}
-      canSeeRewards={sessionCan(session,"rewards.read_self")}
-      canSeeRecognition={sessionCan(session,"recognition.read")||sessionCan(session,"recognition.give")||sessionCan(session,"recognition.moderate")}
-      canSeePay={sessionCan(session,"compensation.read_self")||sessionCan(session,"payroll.read_self")}
+      canSeeRewards={sessionCan(session, "rewards.read_self")}
+      canSeeRecognition={
+        sessionCan(session, "recognition.read") ||
+        sessionCan(session, "recognition.give") ||
+        sessionCan(session, "recognition.moderate")
+      }
+      canSeePay={
+        sessionCan(session, "compensation.read_self") ||
+        sessionCan(session, "payroll.read_self")
+      }
       canSeeTeam={canSeeTeam}
       canSeeTeamAttendance={canSeeTeamAttendance}
       clock={clock}
